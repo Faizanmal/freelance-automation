@@ -1,0 +1,56 @@
+# Secrets — never commit real env files
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.production.example
+fastapi/.env
+frontend/.env
+frontend/.env.local
+
+# Local databases / runtime data
+*.db
+*.sqlite
+*.sqlite3
+fastapi/data/
+fastapi/*.db
+
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+*.tsbuildinfo
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs / temp
+*.log
+tmp/
+temp/
+.cache/

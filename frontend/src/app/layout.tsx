@@ -1,0 +1,62 @@
+import type { Metadata } from "next";
+import { Fraunces, Manrope } from "next/font/google";
+import Link from "next/link";
+import "./globals.css";
+
+const display = Fraunces({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+});
+
+const body = Manrope({
+  variable: "--font-body",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+export const metadata: Metadata = {
+  title: "Signal Desk — Freelance Intelligence",
+  description: "Live freelance and remote jobs matched to your preferences.",
+};
+
+const nav = [
+  { href: "/", label: "Desk" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/jobs", label: "Jobs" },
+  { href: "/findings", label: "Findings" },
+  { href: "/matches", label: "Matches" },
+  { href: "/sources", label: "Sources" },
+  { href: "/preferences", label: "Prefs" },
+  { href: "/notifications", label: "Alerts" },
+  { href: "/auth", label: "Account" },
+];
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="en" className={`${display.variable} ${body.variable} h-full`}>
+      <body className="min-h-full">
+        <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 pb-16 pt-6 md:px-8">
+          <header className="mb-10 flex flex-wrap items-end justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <p className="text-sm tracking-[0.28em] text-[var(--signal)] uppercase">Signal Desk</p>
+              <p className="mt-1 text-sm text-[var(--mute)]">Freelance intelligence that actually pulls live jobs</p>
+            </div>
+            <nav className="flex flex-wrap gap-2 text-sm">
+              {nav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[var(--fog)] transition hover:border-[var(--signal)]/50 hover:text-[var(--signal)]"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </header>
+          {children}
+        </div>
+      </body>
+    </html>
+  );
+}
