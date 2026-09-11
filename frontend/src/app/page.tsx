@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { getApiBase, getToken, healthLive, listJobs, scrapeJobs, type Job } from "@/lib/api";
 
 export default function HomePage() {
+  const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
   const [apiStatus, setApiStatus] = useState("checking");
@@ -33,7 +35,7 @@ export default function HomePage() {
 
   const runScrape = () => {
     if (!getToken()) {
-      window.location.href = "/auth";
+      router.push("/auth");
       return;
     }
     startTransition(async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import {
   activateDevPro,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/api";
 
 export default function PricingPage() {
+  const router = useRouter();
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export default function PricingPage() {
 
   const upgrade = () => {
     if (!getToken()) {
-      window.location.href = "/auth";
+      router.push("/auth");
       return;
     }
     startTransition(async () => {
@@ -42,7 +44,7 @@ export default function PricingPage() {
           return;
         }
         await activateDevPro();
-        window.location.href = "/preferences?billing=dev-pro";
+        router.push("/preferences?billing=dev-pro");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upgrade failed");
       }

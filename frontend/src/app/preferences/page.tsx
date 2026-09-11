@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState, useTransition } from "react";
 import {
   activateDevPro,
@@ -37,6 +38,7 @@ const emptyPrefs: Preferences = {
 };
 
 export default function PreferencesPage() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [prefs, setPrefs] = useState<Preferences>(emptyPrefs);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
@@ -50,7 +52,7 @@ export default function PreferencesPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      window.location.href = "/auth";
+      router.push("/auth");
       return;
     }
     startTransition(async () => {
@@ -71,10 +73,10 @@ export default function PreferencesPage() {
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load preferences");
         logout();
-        window.location.href = "/auth";
+        router.push("/auth");
       }
     });
-  }, []);
+  }, [router]);
 
   const onSave = (event: FormEvent) => {
     event.preventDefault();
@@ -145,7 +147,7 @@ export default function PreferencesPage() {
             className="text-[var(--mute)]"
             onClick={() => {
               logout();
-              window.location.href = "/auth";
+              router.push("/auth");
             }}
           >
             Sign out

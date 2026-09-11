@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
 import { login, register, setToken } from "@/lib/api";
 
 export default function AuthPage() {
+  const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,7 +23,7 @@ export default function AuthPage() {
           await register(email, password, fullName || undefined);
         }
         await login(email, password);
-        window.location.href = "/preferences";
+        router.push("/preferences");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Auth failed");
         setToken(null);

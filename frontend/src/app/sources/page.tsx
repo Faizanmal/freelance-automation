@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { getApiBase, getIntegrationsStatus, getToken, scrapeJobs, type IntegrationsStatus } from "@/lib/api";
 
 export default function SourcesPage() {
+  const router = useRouter();
   const [status, setStatus] = useState<IntegrationsStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,7 @@ export default function SourcesPage() {
 
   const pullSource = (source: string) => {
     if (!getToken()) {
-      window.location.href = "/auth";
+      router.push("/auth");
       return;
     }
     startTransition(async () => {
