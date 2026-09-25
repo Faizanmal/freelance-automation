@@ -10,13 +10,13 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1 import auth, billing, health, integrations, jobs, notifications, preferences, users
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 from app.core.exceptions import AppException
 from app.core.logging.logger import get_logger
-from app.db.base import Base
-from app.db.schema_patch import ensure_sqlite_columns
-from app.db.session import get_engine, get_session
-from app.models import (  # noqa: F401
+from database.core.base import Base
+from database.core.schema_patch import ensure_sqlite_columns
+from database.core.session import get_engine, get_session
+from database.models import (  # noqa: F401
     JobApplication,
     JobRecord,
     JobSource,
@@ -25,7 +25,7 @@ from app.models import (  # noqa: F401
     User,
     UserPreferences,
 )
-from app.services.scrape_service import ScrapeService
+from backend.application.services.scrape_service import ScrapeService
 
 logger = get_logger(__name__)
 settings = get_settings()

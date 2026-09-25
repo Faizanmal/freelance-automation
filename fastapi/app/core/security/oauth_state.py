@@ -3,9 +3,9 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from jose import JWTError, jwt
+import jwt
 
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 
 _OAUTH_STATE_PURPOSE = "upwork_oauth"
 
@@ -27,7 +27,7 @@ def validate_upwork_oauth_state(state: str | None) -> None:
     settings = get_settings()
     try:
         payload = jwt.decode(state, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-    except JWTError as exc:
+    except jwt.InvalidTokenError as exc:
         raise ValueError("Invalid or expired OAuth state") from exc
     if payload.get("purpose") != _OAUTH_STATE_PURPOSE:
         raise ValueError("Invalid OAuth state purpose")

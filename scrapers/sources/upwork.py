@@ -4,6 +4,8 @@ from typing import Any
 
 import httpx
 
+from scrapers.core.api_scraper import BaseApiScraper
+
 TOKEN_URL = "https://www.upwork.com/api/v3/oauth2/token"
 GRAPHQL_URL = "https://api.upwork.com/graphql"
 
@@ -27,17 +29,17 @@ query SearchJobs($searchExpression: String, $paging: PagingInput) {
 """
 
 
-class UpworkScraper:
+class UpworkScraper(BaseApiScraper):
     """Official Upwork GraphQL job search (requires OAuth access token)."""
 
     name = "upwork"
 
-    def __init__(self, access_token: str, limit: int = 20, query: str = "python") -> None:
+    def __init__(self, access_token: str, limit: int = 20) -> None:
+        super().__init__(limit=limit)
         self.access_token = access_token
-        self.limit = limit
-        self.query = query
+        self.payload: list[dict[str, Any]] = []
 
-    async def fetch_jobs(self) -> list[dict[str, Any]]:
+    async def search(self, query: str = "python", **kwargs: Any) -> None:
         async with httpx.AsyncClient(timeout=45.0) as client:
             response = await client.post(
                 GRAPHQL_URL,
@@ -48,37 +50,36 @@ class UpworkScraper:
                 json={
                     "query": JOB_SEARCH_QUERY,
                     "variables": {
-                        "searchExpression": self.query,
+                        "searchExpression": query,
                         "paging": {"offset": 0, "count": self.limit},
                     },
                 },
             )
             response.raise_for_status()
-            payload = response.json()
+            data = response.json()
 
-        if payload.get("errors"):
-            raise RuntimeError(payload["errors"])
+        if data.get("errors"):
+            raise RuntimeError(data["errors"])
 
-        results = ((payload.get("data") or {}).get("marketplaceJobPostingsSearch") or {}).get("results") or []
-        jobs: list[dict[str, Any]] = []
-        for row in results:
-            ciphertext = row.get("ciphertext")
-            jobs.append(
-                {
-                    "source": self.name,
-                    "external_id": str(row.get("id") or ciphertext),
-                    "title": row.get("title") or "Untitled",
-                    "company": "Upwork client",
-                    "location": ((row.get("client") or {}).get("country")) or "Remote",
-                    "description": row.get("description") or "",
-                    "url": row.get("url")
-                    or (f"https://www.upwork.com/jobs/{ciphertext}" if ciphertext else ""),
-                    "posted_at": row.get("createdDateTime"),
-                    "tags": [str(s.get("name")).lower() for s in (row.get("skills") or []) if s.get("name")],
-                    "budget_min": (row.get("budget") or {}).get("amount"),
-                    "budget_max": (row.get("budget") or {}).get("amount"),
-                }
-            )
-            if len(jobs) >= self.limit:
-                break
-        return jobs
+        results = ((data.get("data") or {}).get("marketplaceJobPostingsSearch") or {}).get("results") or []
+        self.payload = results
+
+    async def extract_jobs(self) -> list[dict[str, Any]]:
+        return self.payload[:self.limit]
+
+    async def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
+        ciphertext = raw_job.get("ciphertext")
+        return {
+            "source": self.name,
+            "external_id": str(raw_job.get("id") or ciphertext),
+            "title": raw_job.get("title") or "Untitled",
+            "company": "Upwork client",
+            "location": ((raw_job.get("client") or {}).get("country")) or "Remote",
+            "description": raw_job.get("description") or "",
+            "url": raw_job.get("url")
+            or (f"https://www.upwork.com/jobs/{ciphertext}" if ciphertext else ""),
+            "posted_at": raw_job.get("createdDateTime"),
+            "tags": [str(s.get("name")).lower() for s in (raw_job.get("skills") or []) if s.get("name")],
+            "budget_min": (raw_job.get("budget") or {}).get("amount"),
+            "budget_max": (raw_job.get("budget") or {}).get("amount"),
+        }

@@ -74,7 +74,28 @@ git clone <your-repo-url> freelance_automation
 cd freelance_automation
 ```
 
-### 1. API
+### The Easy Way: Docker (Full Stack)
+
+The simplest way to run the entire project (Frontend, API, DB, and Redis) is using Docker Compose from the root directory.
+
+```bash
+# 1. Setup API env variables
+cd fastapi
+copy .env.example .env
+
+# 2. Go back to root and start everything
+cd ..
+docker compose up --build
+```
+
+- **Frontend:** http://localhost:3000
+- **API Docs:** http://localhost:8000/docs
+
+### The Manual Way: Local Development
+
+If you prefer to run the components separately for development:
+
+#### 1. API
 
 ```bash
 cd fastapi
@@ -86,15 +107,28 @@ python -m venv .venv
 # source .venv/bin/activate
 
 pip install -r requirements.txt
-copy .env.example .env   # or: cp .env.example .env
-# Start Postgres (required by default DATABASE_URL)
-docker compose up -d db
+copy .env.example .env
+
+# Start Postgres & Redis (required)
+docker compose up -d db redis
 uvicorn app.main:app --reload --port 8000
 ```
 
 Open http://127.0.0.1:8000/docs
 
-Seed jobs:
+#### 2. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 — use **Pull live jobs** on the desk.
+
+### Seeding jobs
+
+Seed jobs via API:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/jobs/scrape -H "Content-Type: application/json" -H "Authorization: Bearer YOUR_JWT" -d "{\"sources\":[\"remoteok\",\"arbeitnow\",\"himalayas\",\"jobicy\"],\"limit\":40}"
@@ -108,17 +142,6 @@ python workers/run_scrape.py --api http://127.0.0.1:8000 --token YOUR_JWT
 
 The worker and manual scrape endpoint require an authenticated user token. Sign
 in through the UI, then pass the JWT with `--token` or `SIGNAL_DESK_TOKEN`.
-
-### 2. Frontend
-
-```bash
-cd frontend
-npm install
-# optional: set NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
-npm run dev
-```
-
-Open http://localhost:3000 — use **Pull live jobs** on the desk.
 
 ## Main endpoints
 
@@ -138,14 +161,6 @@ Open http://localhost:3000 — use **Pull live jobs** on the desk.
 | GET | `/preferences/findings` | Auth’d lead findings (`freelance_focus` supported) |
 | POST | `/notifications/send` | Send an authenticated user alert |
 
-## Docker (API + Postgres + Redis)
-
-```bash
-cd fastapi
-copy .env.example .env
-# set DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/freelance
-docker compose up --build
-```
 
 ## Production launch
 
@@ -180,6 +195,7 @@ fast when the JWT secret or CORS configuration is unsafe. Put ports 3000 and
 
 ```
 freelance_automation/
+  backend/          # domain-driven service layer and orchestrator
   fastapi/          # product API
   frontend/         # Next.js Signal Desk UI
   scrapers/         # Playwright framework + HTTP source adapters

@@ -6,7 +6,7 @@ from xml.etree import ElementTree
 
 import httpx
 
-from app.services.duplicate_detection import JobCandidate
+from backend.application.services.duplicate_detection import JobCandidate
 
 
 class RemoteOKSource:
@@ -339,7 +339,7 @@ class UpworkSource:
     name = "upwork"
 
     async def fetch(self, *, limit: int = 50, query: str | None = None) -> list[JobCandidate]:
-        from app.core.config.settings import get_settings
+        from config.settings import get_settings
         from app.integrations import upwork as upwork_api
 
         settings = get_settings()
@@ -368,7 +368,7 @@ class FreelancerSource:
     name = "freelancer"
 
     async def fetch(self, *, limit: int = 50, query: str | None = None) -> list[JobCandidate]:
-        from app.core.config.settings import get_settings
+        from config.settings import get_settings
         from app.integrations import freelancer as freelancer_api
 
         settings = get_settings()
@@ -399,7 +399,7 @@ class PeoplePerHourSource:
     async def fetch(
         self, *, limit: int = 50, query: str | None = None
     ) -> list[JobCandidate]:
-        from app.core.config.settings import get_settings
+        from config.settings import get_settings
         from app.integrations.apify_marketplaces import search_peopleperhour
 
         settings = get_settings()
@@ -417,7 +417,7 @@ class GuruSource:
     async def fetch(
         self, *, limit: int = 50, query: str | None = None
     ) -> list[JobCandidate]:
-        from app.core.config.settings import get_settings
+        from config.settings import get_settings
         from app.integrations.apify_marketplaces import search_guru
 
         settings = get_settings()
@@ -539,6 +539,90 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
+class LinkedInBrowserSource:
+    name = "linkedin_browser"
+
+    async def fetch(self, *, limit: int = 20, query: str | None = None) -> list[JobCandidate]:
+        import sys
+        import os
+        # Ensure scrapers module is accessible
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+            
+        from scrapers.sources.linkedin_browser import LinkedInBrowserScraper
+        from scrapers.core.browser_engine import BrowserEngine
+        
+        engine = BrowserEngine(headless=True)
+        await engine.start()
+        
+        try:
+            page = await engine.new_page()
+            scraper = LinkedInBrowserScraper(engine=engine, page=page)
+            raw_jobs = await scraper.fetch_jobs(limit=limit, query=query or "software engineer")
+            candidates = []
+            for raw in raw_jobs:
+                candidates.append(
+                    JobCandidate(
+                        source_name=self.name,
+                        source_id=raw["url"],
+                        title=raw["title"],
+                        description=raw.get("description", ""),
+                        url=raw["url"],
+                        company=raw.get("company", "Unknown"),
+                        budget_min=None,
+                        budget_max=None,
+                        posted_at=None,
+                        metadata={"location": "Remote", "tags": []}
+                    )
+                )
+            return candidates
+        finally:
+            await engine.stop()
+
+
+class UpworkBrowserSource:
+    name = "upwork_browser"
+
+    async def fetch(self, *, limit: int = 20, query: str | None = None) -> list[JobCandidate]:
+        import sys
+        import os
+        # Ensure scrapers module is accessible
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+            
+        from scrapers.sources.upwork_browser import UpworkBrowserScraper
+        from scrapers.core.browser_engine import BrowserEngine
+        
+        engine = BrowserEngine(headless=True)
+        await engine.start()
+        
+        try:
+            page = await engine.new_page()
+            scraper = UpworkBrowserScraper(engine=engine, page=page)
+            raw_jobs = await scraper.fetch_jobs(limit=limit, query=query or "python developer")
+            candidates = []
+            for raw in raw_jobs:
+                candidates.append(
+                    JobCandidate(
+                        source_name=self.name,
+                        source_id=raw["url"],
+                        title=raw["title"],
+                        description=raw.get("description", ""),
+                        url=raw["url"],
+                        company="Upwork client",
+                        budget_min=None,
+                        budget_max=None,
+                        posted_at=None,
+                        metadata={"location": "Remote", "tags": []}
+                    )
+                )
+            return candidates
+        finally:
+            await engine.stop()
+
+
 SOURCE_REGISTRY = {
     RemoteOKSource.name: RemoteOKSource,
     RemotiveSource.name: RemotiveSource,
@@ -554,6 +638,8 @@ SOURCE_REGISTRY = {
     SerpApiJobsSource.name: SerpApiJobsSource,
     SerpApiCompaniesSource.name: SerpApiCompaniesSource,
     SerpApiMapsSource.name: SerpApiMapsSource,
+    LinkedInBrowserSource.name: LinkedInBrowserSource,
+    UpworkBrowserSource.name: UpworkBrowserSource,
 }
 
 PUBLIC_SOURCES = (
@@ -580,6 +666,8 @@ COMMERCIAL_FREE_SOURCES = ("remoteok", "arbeitnow", "himalayas", "jobicy")
 COMMERCIAL_PRO_SOURCES = COMMERCIAL_FREE_SOURCES + (
     "upwork",
     "freelancer",
+    "linkedin_browser",
+    "upwork_browser",
 ) + DISCOVERY_SOURCES
 RESTRICTED_SOURCES = ("remotive", "weworkremotely", "peopleperhour", "guru")
 
@@ -598,4 +686,6 @@ SOURCE_ATTRIBUTION = {
     "serpapi_jobs": "Google Jobs (via SerpAPI)",
     "serpapi_companies": "Company careers (via SerpAPI)",
     "serpapi_maps": "Google Maps (via SerpAPI)",
+    "linkedin_browser": "LinkedIn (Playwright)",
+    "upwork_browser": "Upwork (Playwright)",
 }

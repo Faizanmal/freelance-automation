@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from app.models.job import JobRecord
 from app.models.preference import UserPreferences
-from app.services.lead_findings import LeadFindingsService
+from backend.application.services.lead_findings import LeadFindingsService
 
 
 def _job(**kwargs) -> JobRecord:

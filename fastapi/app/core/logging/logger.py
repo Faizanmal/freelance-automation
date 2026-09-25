@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 
 
 def get_logger(name: str | None = None) -> logging.Logger:

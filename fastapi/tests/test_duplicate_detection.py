@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.duplicate_detection import DuplicateDetectionService, JobCandidate
+from backend.application.services.duplicate_detection import DuplicateDetectionService, JobCandidate
 
 
 class DuplicateDetectionServiceTests(unittest.TestCase):

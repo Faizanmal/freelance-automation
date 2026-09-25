@@ -6,10 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
-from app.core.config.settings import get_settings
-from app.db.session import get_db
-from app.models.user import User
-from app.services.billing import PLAN_FREE, PLAN_PRO, PLANS, is_pro, limits_for_user, normalize_plan
+from config.settings import get_settings
+from database.core.session import get_db
+from database.models.user import User
+from backend.application.services.billing import PLAN_FREE, PLAN_PRO, PLANS, is_pro, limits_for_user, normalize_plan
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 

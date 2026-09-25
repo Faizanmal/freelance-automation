@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.services.llm import FALLBACK_ORDER, any_llm_configured, configured_providers
+from backend.application.services.llm import FALLBACK_ORDER, any_llm_configured, configured_providers
 
 
 class LLMConfigTests(unittest.TestCase):

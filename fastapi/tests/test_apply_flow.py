@@ -2,8 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app.services.apply_service import ApplyError, ApplyService
-from app.services.proposal_draft import ProposalDraftService, extract_apply_email, submit_mode_for_source
+from backend.application.services.apply_service import ApplyError, ApplyService
+from backend.application.services.proposal_draft import ProposalDraftService, extract_apply_email, submit_mode_for_source
 
 
 class ProposalDraftShapeTests(unittest.IsolatedAsyncioTestCase):
@@ -99,6 +99,78 @@ class ApplyServiceTests(unittest.IsolatedAsyncioTestCase):
                 confirm=False,
             )
         self.assertEqual(ctx.exception.code, "confirm_required")
+
+    async def test_upwork_submit_raises_unavailable(self) -> None:
+        session = SimpleNamespace(add=lambda *_: None, flush=AsyncMock())
+        user = SimpleNamespace(id="u1", email="ada@example.com")
+        job = SimpleNamespace(
+            id=9,
+            source_name="upwork",
+            source_id="555",
+            title="API job",
+            url="https://www.upwork.com/jobs/555",
+            description="desc",
+        )
+        service = ApplyService(session)  # type: ignore[arg-type]
+        with patch("app.services.apply_service.upwork_api.upwork_configured", return_value=True):
+            with self.assertRaises(ApplyError) as ctx:
+                await service.submit(
+                    user=user,
+                    job=job,
+                    form_fields={"proposal": "Hello"},
+                    confirm=True,
+                )
+        self.assertEqual(ctx.exception.code, "upwork_submit_unavailable")
+
+    async def test_email_submit_success(self) -> None:
+        session = SimpleNamespace(add=lambda *_: None, flush=AsyncMock())
+        user = SimpleNamespace(id="u1", email="ada@example.com")
+        job = SimpleNamespace(
+            id=9,
+            source_name="remoteok",
+            source_id="555",
+            title="API job",
+            url="https://remoteok.com/555",
+            description="Apply at hiring@example.com",
+        )
+        service = ApplyService(session)  # type: ignore[arg-type]
+        with patch.dict("os.environ", {
+            "EMAIL_SMTP_HOST": "smtp.test",
+            "EMAIL_USERNAME": "testuser",
+            "EMAIL_PASSWORD": "testpassword",
+            "EMAIL_FROM": "bot@test.com"
+        }), patch("app.services.apply_service.smtplib.SMTP") as mock_smtp:
+            result = await service.submit(
+                user=user,
+                job=job,
+                form_fields={"proposal": "Hello"},
+                confirm=True,
+            )
+        mock_smtp.assert_called_once()
+        self.assertEqual(result["status"], "submitted")
+        self.assertEqual(result["result"]["channel"], "email")
+        self.assertEqual(result["external_id"], "hiring@example.com")
+
+    async def test_freelancer_missing_bid_amount(self) -> None:
+        session = SimpleNamespace(add=lambda *_: None, flush=AsyncMock())
+        user = SimpleNamespace(id="u1", email="ada@example.com")
+        job = SimpleNamespace(
+            id=9,
+            source_name="freelancer",
+            source_id="555",
+            title="API job",
+            url="https://www.freelancer.com/projects/555",
+            description="desc",
+        )
+        service = ApplyService(session)  # type: ignore[arg-type]
+        with self.assertRaises(ApplyError) as ctx:
+            await service.submit(
+                user=user,
+                job=job,
+                form_fields={"proposal": "Hello"},
+                confirm=True,
+            )
+        self.assertEqual(ctx.exception.code, "bid_amount_required")
 
 
 if __name__ == "__main__":

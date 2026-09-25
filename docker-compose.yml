@@ -3,7 +3,7 @@ version: "3.9"
 services:
   api:
     build: ./fastapi
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --reload
+    command: sh -c "alembic -c database/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --reload"
     ports:
       - "8000:8000"
     environment:
@@ -20,6 +20,9 @@ services:
       - redis
     volumes:
       - ./fastapi:/app
+      - ./config:/app/config
+      - ./database:/app/database
+      - ./backend:/app/backend
 
   db:
     image: postgres:16-alpine

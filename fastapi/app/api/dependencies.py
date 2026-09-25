@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
+import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.jwt import decode_access_token
-from app.db.session import get_db
-from app.models.user import User
-from app.repositories.user_repository import SQLAlchemyUserRepository
+from database.core.session import get_db
+from database.models.user import User
+from backend.infrastructure.repositories.user_repository import SQLAlchemyUserRepository
 
 security = HTTPBearer()
 
@@ -20,7 +20,7 @@ async def get_current_user(
     token = credentials.credentials
     try:
         payload = decode_access_token(token)
-    except JWTError as exc:
+    except jwt.InvalidTokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token") from exc
     user_id = payload.get("sub")
     if not user_id:

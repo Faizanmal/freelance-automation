@@ -19,6 +19,9 @@ import {
   type Preferences,
   type User,
 } from "@/lib/api";
+import { motion, AnimatePresence } from "framer-motion";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 const emptyPrefs: Preferences = {
   keywords: ["python", "fastapi", "react", "typescript"],
@@ -98,7 +101,8 @@ export default function PreferencesPage() {
         setPrefs(saved);
         const authMatches = await getAuthMatches();
         setMatches(authMatches.items);
-        setMessage("Preferences saved");
+        setMessage("Preferences saved successfully!");
+        setTimeout(() => setMessage(null), 3000);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Save failed");
       }
@@ -113,6 +117,7 @@ export default function PreferencesPage() {
           const next = await activateDevPro();
           setBilling(next);
           setMessage("Pro activated for local development");
+          setTimeout(() => setMessage(null), 3000);
           return;
         }
         const response = action === "checkout" ? await startCheckout() : await openBillingPortal();
@@ -123,28 +128,34 @@ export default function PreferencesPage() {
     });
   };
 
+  const inputClass = "w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none transition focus:border-[var(--signal)]/50 focus:bg-black/60 shadow-inner";
+
   return (
-    <main className="flex flex-1 flex-col gap-10">
+    <motion.main 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }}
+      className="flex flex-1 flex-col gap-10"
+    >
       <section className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+        <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
           <h1 className="text-4xl md:text-5xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
             Preferences
           </h1>
           <p className="mt-2 text-[var(--fog)]">
             {user ? `Signed in as ${user.email}` : "Loading…"}
-            {billing ? ` · ${billing.is_pro ? "Pro" : "Free"} plan` : ""}
+            {billing ? <span className="ml-2 inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-xs text-[var(--signal)]">{billing.is_pro ? "PRO" : "FREE"}</span> : ""}
           </p>
-        </div>
-        <div className="flex gap-3 text-sm">
-          <Link href="/pricing" className="text-[var(--signal)]">
+        </motion.div>
+        <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex gap-3 text-sm">
+          <Link href="/pricing" className="text-[var(--signal)] hover:underline">
             Pricing
           </Link>
-          <Link href="/matches" className="text-[var(--signal)]">
+          <Link href="/matches" className="text-[var(--signal)] hover:underline">
             Matches
           </Link>
           <button
             type="button"
-            className="text-[var(--mute)]"
+            className="text-[var(--mute)] hover:text-[var(--ember)] transition"
             onClick={() => {
               logout();
               router.push("/auth");
@@ -152,200 +163,209 @@ export default function PreferencesPage() {
           >
             Sign out
           </button>
-        </div>
+        </motion.div>
       </section>
 
-      <section className="max-w-2xl border-b border-white/10 pb-8">
-        <h2 className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-          Billing
-        </h2>
-        <p className="mt-2 text-sm text-[var(--mute)]">
-          Free covers public boards and email alerts. Pro unlocks marketplaces and multi-channel delivery.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          {!billing?.is_pro ? (
-            <button
-              type="button"
-              onClick={() => runBillingAction(billing?.stripe_enabled ? "checkout" : "dev")}
-              disabled={pending}
-              className="rounded-full bg-[var(--signal)] px-5 py-2.5 font-semibold text-[var(--ink)] disabled:opacity-60"
-            >
-              {billing?.stripe_enabled ? "Upgrade to Pro" : "Activate Pro (dev)"}
-            </button>
-          ) : billing.stripe_enabled ? (
-            <button
-              type="button"
-              onClick={() => runBillingAction("portal")}
-              disabled={pending}
-              className="rounded-full border border-white/20 px-5 py-2.5 disabled:opacity-60"
-            >
-              Manage subscription
-            </button>
-          ) : (
-            <p className="text-sm text-[var(--signal)]">Pro active (local/dev)</p>
-          )}
-        </div>
-      </section>
+      <div className="grid gap-10 lg:grid-cols-[1fr_400px] items-start">
+        <div className="space-y-10">
+          <Card className="p-8">
+            <h2 className="text-2xl mb-2" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+              Billing
+            </h2>
+            <p className="text-sm text-[var(--mute)] mb-6">
+              Free covers public boards and email alerts. Pro unlocks marketplaces and multi-channel delivery.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              {!billing?.is_pro ? (
+                <Button
+                  type="button"
+                  onClick={() => runBillingAction(billing?.stripe_enabled ? "checkout" : "dev")}
+                  disabled={pending}
+                >
+                  {billing?.stripe_enabled ? "Upgrade to Pro" : "Activate Pro (dev)"}
+                </Button>
+              ) : billing.stripe_enabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => runBillingAction("portal")}
+                  disabled={pending}
+                >
+                  Manage subscription
+                </Button>
+              ) : (
+                <div className="rounded-full bg-[var(--signal)]/10 px-4 py-2 text-sm text-[var(--signal)] border border-[var(--signal)]/30">
+                  Pro active (local/dev)
+                </div>
+              )}
+            </div>
+          </Card>
 
-      <form onSubmit={onSave} className="grid max-w-2xl gap-4">
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Keywords</span>
-          <input
-            value={keywordsText}
-            onChange={(event) => setKeywordsText(event.target.value)}
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Exclude keywords</span>
-          <input
-            value={excludeText}
-            onChange={(event) => setExcludeText(event.target.value)}
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Profile notes (used in apply forms)</span>
-          <textarea
-            value={prefs.notes || ""}
-            onChange={(event) => setPrefs((current) => ({ ...current, notes: event.target.value }))}
-            rows={4}
-            placeholder="Years of experience, stack, tone, proof points…"
-            className="rounded-2xl border border-white/15 bg-black/20 px-4 py-3 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span className="text-[var(--mute)]">Min budget</span>
-            <input
-              type="number"
-              value={prefs.min_budget ?? ""}
-              onChange={(event) =>
-                setPrefs((current) => ({
-                  ...current,
-                  min_budget: event.target.value === "" ? null : Number(event.target.value),
-                }))
-              }
-              className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-[var(--mute)]">Max budget</span>
-            <input
-              type="number"
-              value={prefs.max_budget ?? ""}
-              onChange={(event) =>
-                setPrefs((current) => ({
-                  ...current,
-                  max_budget: event.target.value === "" ? null : Number(event.target.value),
-                }))
-              }
-              className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-            />
-          </label>
-        </div>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Notification channels</span>
-          <input
-            value={channelsText}
-            onChange={(event) => setChannelsText(event.target.value)}
-            placeholder="email, slack, telegram"
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Alert email</span>
-          <input
-            type="email"
-            value={prefs.alert_email || ""}
-            onChange={(event) => setPrefs((current) => ({ ...current, alert_email: event.target.value }))}
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Slack webhook URL (Pro)</span>
-          <input
-            value={prefs.slack_webhook_url || ""}
-            onChange={(event) => setPrefs((current) => ({ ...current, slack_webhook_url: event.target.value }))}
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Telegram chat ID (Pro)</span>
-          <input
-            value={prefs.telegram_chat_id || ""}
-            onChange={(event) => setPrefs((current) => ({ ...current, telegram_chat_id: event.target.value }))}
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Discord webhook URL (Pro)</span>
-          <input
-            value={prefs.discord_webhook_url || ""}
-            onChange={(event) => setPrefs((current) => ({ ...current, discord_webhook_url: event.target.value }))}
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">WhatsApp number (Pro)</span>
-          <input
-            value={prefs.whatsapp_to || ""}
-            onChange={(event) => setPrefs((current) => ({ ...current, whatsapp_to: event.target.value }))}
-            placeholder="+15551234567"
-            className="rounded-full border border-white/15 bg-black/20 px-4 py-2.5 outline-none focus:border-[var(--signal)]/50"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-[var(--mute)]">Match threshold ({prefs.match_threshold})</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={prefs.match_threshold}
-            onChange={(event) => setPrefs((current) => ({ ...current, match_threshold: Number(event.target.value) }))}
-          />
-        </label>
-        <label className="flex items-center gap-2 text-sm text-[var(--mute)]">
-          <input
-            type="checkbox"
-            checked={prefs.digest_mode}
-            onChange={(event) => setPrefs((current) => ({ ...current, digest_mode: event.target.checked }))}
-          />
-          Digest mode
-        </label>
-        <button
-          type="submit"
-          disabled={pending}
-          className="w-fit rounded-full bg-[var(--signal)] px-5 py-2.5 font-semibold text-[var(--ink)] disabled:opacity-60"
-        >
-          {pending ? "Saving…" : "Save preferences"}
-        </button>
-        {message ? <p className="text-sm text-[var(--signal)]">{message}</p> : null}
-        {error ? <p className="text-sm text-[var(--ember)]">{error}</p> : null}
-      </form>
-
-      <section>
-        <h2 className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-          Your matches
-        </h2>
-        <div className="mt-4 space-y-3">
-          {matches.map((job) => (
-            <a key={job.id} href={job.url} target="_blank" rel="noreferrer" className="block border-b border-white/10 py-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-lg">{job.title}</h3>
-                <span className="text-sm text-[var(--signal)]">{Math.round((job.match_score || 0) * 100)}%</span>
+          <Card className="p-8">
+            <h2 className="text-2xl mb-6" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+              Matching Criteria
+            </h2>
+            <form onSubmit={onSave} className="grid gap-6">
+              <label className="grid gap-2 text-sm">
+                <span className="text-[var(--fog)] font-medium">Keywords (comma separated)</span>
+                <input
+                  value={keywordsText}
+                  onChange={(event) => setKeywordsText(event.target.value)}
+                  className={inputClass}
+                />
+              </label>
+              <label className="grid gap-2 text-sm">
+                <span className="text-[var(--fog)] font-medium">Exclude keywords</span>
+                <input
+                  value={excludeText}
+                  onChange={(event) => setExcludeText(event.target.value)}
+                  className={inputClass}
+                />
+              </label>
+              
+              <div className="grid gap-6 md:grid-cols-2">
+                <label className="grid gap-2 text-sm">
+                  <span className="text-[var(--fog)] font-medium">Min budget</span>
+                  <input
+                    type="number"
+                    value={prefs.min_budget ?? ""}
+                    onChange={(event) =>
+                      setPrefs((current) => ({
+                        ...current,
+                        min_budget: event.target.value === "" ? null : Number(event.target.value),
+                      }))
+                    }
+                    className={inputClass}
+                  />
+                </label>
+                <label className="grid gap-2 text-sm">
+                  <span className="text-[var(--fog)] font-medium">Max budget</span>
+                  <input
+                    type="number"
+                    value={prefs.max_budget ?? ""}
+                    onChange={(event) =>
+                      setPrefs((current) => ({
+                        ...current,
+                        max_budget: event.target.value === "" ? null : Number(event.target.value),
+                      }))
+                    }
+                    className={inputClass}
+                  />
+                </label>
               </div>
-              <p className="text-sm text-[var(--mute)]">
-                {[job.company, job.seniority, job.source_name].filter(Boolean).join(" · ")}
-              </p>
-            </a>
-          ))}
-          {!pending && matches.length === 0 ? (
-            <p className="text-[var(--mute)]">No matches yet. Pull jobs from the desk, then save keywords.</p>
-          ) : null}
+
+              <div className="pt-6 border-t border-white/10">
+                <h3 className="text-xl mb-4" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+                  Delivery Channels
+                </h3>
+                <label className="grid gap-2 text-sm mb-4">
+                  <span className="text-[var(--fog)] font-medium">Notification channels</span>
+                  <input
+                    value={channelsText}
+                    onChange={(event) => setChannelsText(event.target.value)}
+                    placeholder="email, slack, telegram"
+                    className={inputClass}
+                  />
+                </label>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-2 text-sm">
+                    <span className="text-[var(--fog)] font-medium">Alert email</span>
+                    <input
+                      type="email"
+                      value={prefs.alert_email || ""}
+                      onChange={(event) => setPrefs((current) => ({ ...current, alert_email: event.target.value }))}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm">
+                    <span className="text-[var(--fog)] font-medium text-[var(--signal)]">Slack webhook URL (Pro)</span>
+                    <input
+                      value={prefs.slack_webhook_url || ""}
+                      onChange={(event) => setPrefs((current) => ({ ...current, slack_webhook_url: event.target.value }))}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm">
+                    <span className="text-[var(--fog)] font-medium text-[var(--signal)]">Telegram chat ID (Pro)</span>
+                    <input
+                      value={prefs.telegram_chat_id || ""}
+                      onChange={(event) => setPrefs((current) => ({ ...current, telegram_chat_id: event.target.value }))}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm">
+                    <span className="text-[var(--fog)] font-medium text-[var(--signal)]">Discord webhook (Pro)</span>
+                    <input
+                      value={prefs.discord_webhook_url || ""}
+                      onChange={(event) => setPrefs((current) => ({ ...current, discord_webhook_url: event.target.value }))}
+                      className={inputClass}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-6 border-t border-white/10">
+                <Button type="submit" disabled={pending}>
+                  {pending ? "Saving…" : "Save all preferences"}
+                </Button>
+                
+                <AnimatePresence>
+                  {message && (
+                    <motion.p 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="text-sm font-medium text-[var(--signal)]"
+                    >
+                      {message}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+                {error ? <p className="text-sm text-[var(--ember)]">{error}</p> : null}
+              </div>
+            </form>
+          </Card>
         </div>
-      </section>
-    </main>
+
+        <div className="sticky top-10">
+          <h2 className="text-2xl mb-4" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+            Recent Matches
+          </h2>
+          <div className="space-y-4">
+            <AnimatePresence mode="popLayout">
+              {matches.map((job, i) => (
+                <motion.a 
+                  key={job.id} 
+                  href={job.url} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="block group"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.1 }}
+                >
+                  <Card className="p-4 transition-transform group-hover:-translate-y-1 group-hover:border-[var(--signal)]/40">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h3 className="text-sm font-medium leading-tight group-hover:text-[var(--signal)] transition-colors">{job.title}</h3>
+                      <span className="text-xs shrink-0 rounded bg-[var(--signal)]/10 text-[var(--signal)] px-1.5 py-0.5 border border-[var(--signal)]/20">
+                        {Math.round((job.match_score || 0) * 100)}%
+                      </span>
+                    </div>
+                    <p className="text-xs text-[var(--mute)]">
+                      {[job.company, job.source_name].filter(Boolean).join(" · ")}
+                    </p>
+                  </Card>
+                </motion.a>
+              ))}
+            </AnimatePresence>
+            {!pending && matches.length === 0 ? (
+              <p className="text-sm text-[var(--mute)] bg-black/20 p-4 rounded-xl border border-white/5">
+                No matches yet. Save your keywords and wait for the next scrape cycle.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </motion.main>
   );
 }

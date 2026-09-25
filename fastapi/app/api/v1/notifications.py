@@ -6,19 +6,19 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
-from app.db.session import get_db
-from app.models.notification import NotificationDelivery, NotificationRecord
-from app.models.preference import UserPreferences
-from app.models.user import User
-from app.services.billing import destinations_from_preferences, filter_channels_for_user, is_pro
-from app.services.notification_service import (
+from database.core.session import get_db
+from database.models.notification import NotificationDelivery, NotificationRecord
+from database.models.preference import UserPreferences
+from database.models.user import User
+from backend.application.services.billing import destinations_from_preferences, filter_channels_for_user, is_pro
+from backend.application.services.notification_service import (
     NotificationAction,
     NotificationChannel,
     NotificationPayload,
     NotificationPriority,
     NotificationService,
 )
-from app.services.persistent_notifications import PersistentNotificationService
+from backend.application.services.persistent_notifications import PersistentNotificationService
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 legacy_service = NotificationService()

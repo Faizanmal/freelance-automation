@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  /* Default dark theme */
   --ink: #10140f;
   --paper: #f3f0e7;
   --fog: #d9d4c5;
@@ -9,6 +10,24 @@
   --ember: #e4572e;
   --mute: #6d7268;
   --panel: rgba(16, 20, 15, 0.72);
+  --bg-gradient: radial-gradient(1200px 600px at 12% -10%, rgba(198, 242, 92, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(228, 87, 46, 0.14), transparent 50%),
+    linear-gradient(160deg, #0c100c 0%, #151b14 42%, #0f1411 100%);
+}
+
+[data-theme='light'] {
+  /* Light theme overrides */
+  --ink: #f3f0e7;
+  --paper: #10140f;
+  --fog: #333333;
+  --moss: #99c2a2;
+  --signal: #4f850d;
+  --ember: #e4572e;
+  --mute: #888888;
+  --panel: rgba(243, 240, 231, 0.72);
+  --bg-gradient: radial-gradient(1200px 600px at 12% -10%, rgba(79, 133, 13, 0.1), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(228, 87, 46, 0.1), transparent 50%),
+    linear-gradient(160deg, #f3f0e7 0%, #ebe7d9 42%, #e0dccc 100%);
 }
 
 @theme inline {
@@ -35,11 +54,9 @@ body {
 body {
   margin: 0;
   color: var(--paper);
-  background:
-    radial-gradient(1200px 600px at 12% -10%, rgba(198, 242, 92, 0.18), transparent 55%),
-    radial-gradient(900px 500px at 90% 0%, rgba(228, 87, 46, 0.14), transparent 50%),
-    linear-gradient(160deg, #0c100c 0%, #151b14 42%, #0f1411 100%);
+  background: var(--bg-gradient);
   font-family: var(--font-body), "Segoe UI", sans-serif;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 a {

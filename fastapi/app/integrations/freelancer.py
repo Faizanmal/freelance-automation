@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 from app.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -143,7 +143,7 @@ async def place_bid(
             try:
                 detail = response.json()
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("Failed to parse freelancer error response as JSON", exc_info=True)
             raise RuntimeError(f"Freelancer bid failed ({response.status_code}): {detail}")
         payload = response.json()
     result = payload.get("result")

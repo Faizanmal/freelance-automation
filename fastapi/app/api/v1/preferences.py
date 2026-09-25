@@ -6,13 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
-from app.db.session import get_db
-from app.models.preference import UserPreferences
-from app.models.user import User
-from app.repositories.job_repository import SQLAlchemyJobRepository
-from app.services.billing import filter_channels_for_user, is_pro
-from app.services.lead_findings import LeadFindingsService
-from app.services.matching import MatchingService
+from database.core.session import get_db
+from database.models.preference import UserPreferences
+from database.models.user import User
+from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
+from backend.application.services.billing import filter_channels_for_user, is_pro
+from backend.application.services.lead_findings import LeadFindingsService
+from backend.application.services.matching import MatchingService
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 

@@ -28,7 +28,6 @@ Key qualities:
 ```
 freelance_automation/
   backend/
-    api/
     application/
       services/
       use_cases/
@@ -47,13 +46,14 @@ freelance_automation/
     services/
     types/
   scrapers/
-    contracts/
+    core/
     sources/
       upwork/
       freelancer/
       remoteok/
       linkedin/
-    shared/
+    scripts/
+    utils/
     tests/
   workers/
     scheduler/
@@ -62,10 +62,7 @@ freelance_automation/
     queues/
     tests/
   database/
-    models/
-    repositories/
-    migrations/
-    adapters/
+    (models and migrations currently in fastapi/)
     tests/
   notifications/
     channels/
@@ -129,8 +126,9 @@ freelance_automation/
 - Use `database`, `ai`, `notifications`, and `scrapers` through contracts.
 
 ### `database`
-- Define persistence schema for jobs, sources, users, preferences, matches, and notifications.
-- Provide repository implementations for read/write operations.
+- Currently holds schema design notes (`schema.sql` and `README.md`).
+- Note: Actual SQLAlchemy models and Alembic migrations reside in `fastapi/app/models` and `fastapi/migrations`.
+- Provide repository implementations for read/write operations (currently in `backend/infrastructure/repositories`).
 - Implement the Repository Pattern to hide storage details from application code.
 - Support transaction boundaries and optimistic updates.
 - Expose typed repository interfaces for `backend` and `workers`.

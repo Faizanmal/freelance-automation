@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse
 
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 from app.core.security.oauth_state import create_upwork_oauth_state, validate_upwork_oauth_state
 from app.ingestion.sources import (
     COMMERCIAL_FREE_SOURCES,

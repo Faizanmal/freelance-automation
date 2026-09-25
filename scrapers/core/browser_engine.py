@@ -4,7 +4,7 @@ import asyncio
 import logging
 import random
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -42,7 +42,7 @@ class BrowserSessionConfig:
     headless: bool = True
     proxy: str | None = None
     user_agent: str | None = None
-    block_resource_types: Iterable[str] = DEFAULT_BLOCKED_RESOURCE_TYPES
+    block_resource_types: Iterable[str] = field(default_factory=lambda: DEFAULT_BLOCKED_RESOURCE_TYPES)
     stealth: bool = True
     timeout: int = 30
     viewport: dict[str, int] | None = None

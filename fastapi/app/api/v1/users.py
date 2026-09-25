@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_current_user
-from app.models.user import User
+from database.models.user import User
 from app.schemas.user import UserRead
 
 router = APIRouter(prefix="/users", tags=["users"])

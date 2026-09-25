@@ -6,17 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
-from app.db.session import get_db
-from app.models.preference import UserPreferences
-from app.models.user import User
+from database.core.session import get_db
+from database.models.preference import UserPreferences
+from database.models.user import User
 from app.ingestion.sources import COMMERCIAL_FREE_SOURCES, COMMERCIAL_PRO_SOURCES
-from app.repositories.job_repository import SQLAlchemyJobRepository
-from app.services.apply_service import ApplyError, ApplyService
-from app.services.billing import blocked_restricted_sources, filter_sources_for_user, limits_for_user
-from app.services.duplicate_detection import DuplicateDetectionService, JobCandidate
-from app.services.job_ingestion import JobIngestionService
-from app.services.proposal_draft import ProposalDraftService
-from app.services.scrape_service import ScrapeService
+from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
+from backend.application.services.apply_service import ApplyError, ApplyService
+from backend.application.services.billing import blocked_restricted_sources, filter_sources_for_user, limits_for_user
+from backend.application.services.duplicate_detection import DuplicateDetectionService, JobCandidate
+from backend.application.services.job_ingestion import JobIngestionService
+from backend.application.services.proposal_draft import ProposalDraftService
+from backend.application.services.scrape_service import ScrapeService
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 duplicate_service = DuplicateDetectionService()
@@ -174,16 +174,43 @@ async def scrape_jobs(
             },
         )
     limit = min(payload.limit, limits.scrape_limit)
-    service = ScrapeService(session)
-    summary = await service.run(
-        allowed_sources,
-        limit=limit,
-        notify_matches=payload.notify_matches,
-        query=payload.query,
-    )
-    summary["plan"] = limits.name
-    summary["scrape_limit"] = limits.scrape_limit
-    return summary
+    
+    # Dispatch to Celery background task
+    import sys
+    import os
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+        
+    try:
+        from workers.jobs.tasks import scrape_jobs_task
+        task = scrape_jobs_task.delay(
+            sources=allowed_sources, 
+            limit=limit, 
+            notify_matches=payload.notify_matches, 
+            query=payload.query
+        )
+        task_id = task.id
+        status = "queued"
+    except ImportError:
+        # Fallback to synchronous execution if celery is not configured correctly
+        service = ScrapeService(session)
+        await service.run(
+            allowed_sources,
+            limit=limit,
+            notify_matches=payload.notify_matches,
+            query=payload.query,
+        )
+        task_id = None
+        status = "completed synchronously"
+
+    return {
+        "status": status,
+        "task_id": task_id,
+        "message": "Scrape operation queued successfully.",
+        "plan": limits.name,
+        "scrape_limit": limits.scrape_limit,
+    }
 
 
 @router.post("/{job_id}/proposal-draft")

@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.billing import (
+from backend.application.services.billing import (
     PLAN_FREE,
     PLAN_PRO,
     filter_channels_for_user,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import redis.asyncio as redis
 
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 
 _client: redis.Redis | None = None
 

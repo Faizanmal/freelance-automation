@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 
 APIFY_BASE = "https://api.apify.com/v2"
 

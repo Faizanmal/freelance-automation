@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.core.config.settings import get_settings
+from config.settings import get_settings
 from app.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
