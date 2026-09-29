@@ -339,8 +339,8 @@ class UpworkSource:
     name = "upwork"
 
     async def fetch(self, *, limit: int = 50, query: str | None = None) -> list[JobCandidate]:
-        from config.settings import get_settings
         from app.integrations import upwork as upwork_api
+        from config.settings import get_settings
 
         settings = get_settings()
         search_query = query or settings.upwork_search_query
@@ -368,8 +368,8 @@ class FreelancerSource:
     name = "freelancer"
 
     async def fetch(self, *, limit: int = 50, query: str | None = None) -> list[JobCandidate]:
-        from config.settings import get_settings
         from app.integrations import freelancer as freelancer_api
+        from config.settings import get_settings
 
         settings = get_settings()
         search_query = query or settings.freelancer_search_query
@@ -399,8 +399,8 @@ class PeoplePerHourSource:
     async def fetch(
         self, *, limit: int = 50, query: str | None = None
     ) -> list[JobCandidate]:
-        from config.settings import get_settings
         from app.integrations.apify_marketplaces import search_peopleperhour
+        from config.settings import get_settings
 
         settings = get_settings()
         rows = await search_peopleperhour(
@@ -417,8 +417,8 @@ class GuruSource:
     async def fetch(
         self, *, limit: int = 50, query: str | None = None
     ) -> list[JobCandidate]:
-        from config.settings import get_settings
         from app.integrations.apify_marketplaces import search_guru
+        from config.settings import get_settings
 
         settings = get_settings()
         rows = await search_guru(query or settings.guru_search_query, limit)
@@ -543,15 +543,15 @@ class LinkedInBrowserSource:
     name = "linkedin_browser"
 
     async def fetch(self, *, limit: int = 20, query: str | None = None) -> list[JobCandidate]:
-        import sys
         import os
+        import sys
         # Ensure scrapers module is accessible
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
             
-        from scrapers.sources.linkedin_browser import LinkedInBrowserScraper
         from scrapers.core.browser_engine import BrowserEngine
+        from scrapers.sources.linkedin_browser import LinkedInBrowserScraper
         
         engine = BrowserEngine(headless=True)
         await engine.start()
@@ -585,15 +585,15 @@ class UpworkBrowserSource:
     name = "upwork_browser"
 
     async def fetch(self, *, limit: int = 20, query: str | None = None) -> list[JobCandidate]:
-        import sys
         import os
+        import sys
         # Ensure scrapers module is accessible
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
             
-        from scrapers.sources.upwork_browser import UpworkBrowserScraper
         from scrapers.core.browser_engine import BrowserEngine
+        from scrapers.sources.upwork_browser import UpworkBrowserScraper
         
         engine = BrowserEngine(headless=True)
         await engine.start()

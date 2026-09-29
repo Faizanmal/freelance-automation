@@ -16,3 +16,4 @@ httpx>=0.28.1
 python-multipart>=0.0.32
 stripe>=15.6.1
 celery>=5.4.0
+sentry-sdk[fastapi]>=2.0.0

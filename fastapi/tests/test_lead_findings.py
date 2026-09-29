@@ -1,9 +1,9 @@
 import unittest
 from datetime import datetime, timezone
 
-from app.models.job import JobRecord
-from app.models.preference import UserPreferences
 from backend.application.services.lead_findings import LeadFindingsService
+from database.models.job import JobRecord
+from database.models.preference import UserPreferences
 
 
 def _job(**kwargs) -> JobRecord:

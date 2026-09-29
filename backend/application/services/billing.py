@@ -8,8 +8,8 @@ from app.ingestion.sources import (
     MARKETPLACE_SOURCES,
     RESTRICTED_SOURCES,
 )
-from database.models.user import User
 
+from database.models.user import User
 
 PLAN_FREE = "free"
 PLAN_PRO = "pro"
@@ -77,7 +77,7 @@ def is_pro(user: User) -> bool:
     if normalize_plan(user.plan) != PLAN_PRO:
         return False
     status = (user.subscription_status or "active").lower()
-    return status in {"active", "trialing", "dev"}
+    return status in {"active", "trialing", "dev", "past_due"}
 
 
 def limits_for_user(user: User) -> PlanLimits:

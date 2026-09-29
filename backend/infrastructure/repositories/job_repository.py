@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from typing import Any
 from datetime import datetime
+from typing import Any
+
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from database.models.job import JobRecord, JobSource
 
 from backend.application.services.listing_presentation import public_job_payload
 from backend.domain.interfaces import IJobRepository
 from backend.domain.models import JobOpportunity
+from database.models.job import JobRecord, JobSource
+
 
 class DomainJobRepository(IJobRepository):
     def __init__(self, session: AsyncSession) -> None:

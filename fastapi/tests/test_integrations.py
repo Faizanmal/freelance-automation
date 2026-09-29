@@ -14,13 +14,15 @@ class FreelancerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         })
         mock_response.raise_for_status = AsyncMock()
 
-        with patch("app.integrations.freelancer.httpx.AsyncClient.post", return_value=mock_response) as mock_post:
+        with patch("app.integrations.freelancer._auth_headers", return_value={"Authorization": "test-token"}), \
+            patch("app.integrations.freelancer.httpx.AsyncClient.post", return_value=mock_response) as mock_post:
             result = await place_bid(
                 project_id=1,
                 amount=500.0,
                 period=7,
                 description="Hello",
-                milestone_percentage=100
+                milestone_percentage=100,
+                bidder_id=42,
             )
 
         mock_post.assert_awaited_once()

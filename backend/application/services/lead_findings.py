@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from app.ingestion.sources import MARKETPLACE_SOURCES, SOURCE_ATTRIBUTION
-from database.models.job import JobRecord
-from database.models.preference import UserPreferences
+
 from backend.application.services.listing_presentation import make_excerpt
 from backend.application.services.matching import JobMatch, MatchingService
+from database.models.job import JobRecord
+from database.models.preference import UserPreferences
 
 Action = Literal["draft_bid", "watch", "skip"]
 

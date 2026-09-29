@@ -1,15 +1,22 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from app.api.dependencies import get_current_user
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user
+from backend.application.services.billing import (
+    PLAN_FREE,
+    PLAN_PRO,
+    PLANS,
+    is_pro,
+    limits_for_user,
+    normalize_plan,
+)
 from config.settings import get_settings
 from database.core.session import get_db
 from database.models.user import User
-from backend.application.services.billing import PLAN_FREE, PLAN_PRO, PLANS, is_pro, limits_for_user, normalize_plan
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -48,7 +55,7 @@ async def list_plans() -> dict[str, object]:
 
 
 @router.get("/me", response_model=BillingStatus)
-async def my_billing(user: User = Depends(get_current_user)) -> BillingStatus:
+async def my_billing(user: User = Depends(get_current_user)) -> BillingStatus:  # noqa: B008
     settings = get_settings()
     limits = limits_for_user(user)
     return BillingStatus(
@@ -68,8 +75,8 @@ async def my_billing(user: User = Depends(get_current_user)) -> BillingStatus:
 
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),  # noqa: B008
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> CheckoutResponse:
     settings = get_settings()
     if not settings.stripe_enabled:
@@ -105,7 +112,7 @@ async def create_checkout(
 
 @router.post("/portal", response_model=CheckoutResponse)
 async def create_portal(
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),  # noqa: B008
 ) -> CheckoutResponse:
     settings = get_settings()
     if not settings.stripe_enabled:
@@ -127,8 +134,8 @@ async def create_portal(
 
 @router.post("/dev-activate-pro", response_model=BillingStatus)
 async def dev_activate_pro(
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),  # noqa: B008
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> BillingStatus:
     """Local-only upgrade path when Stripe keys are not configured yet."""
     settings = get_settings()
@@ -143,7 +150,7 @@ async def dev_activate_pro(
 
 
 @router.post("/webhook")
-async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_db)) -> dict[str, str]:  # noqa: B008
     settings = get_settings()
     if not settings.stripe_enabled:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
@@ -201,7 +208,9 @@ async def _apply_subscription_event(session: AsyncSession, data_object: dict, *,
         user.stripe_subscription_id = subscription_id
 
     status_value = data_object.get("status")
-    if active and (status_value in {None, "active", "trialing"} or data_object.get("mode") == "subscription"):
+    active_statuses = {None, "active", "trialing", "past_due"}
+    
+    if active and (status_value in active_statuses or data_object.get("mode") == "subscription"):
         user.plan = PLAN_PRO
         user.subscription_status = status_value or "active"
     else:

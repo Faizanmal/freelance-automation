@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from app.api.dependencies import get_current_user
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user
-from database.core.session import get_db
-from database.models.preference import UserPreferences
-from database.models.user import User
-from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from backend.application.services.billing import filter_channels_for_user, is_pro
 from backend.application.services.lead_findings import LeadFindingsService
 from backend.application.services.matching import MatchingService
+from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
+from database.core.session import get_db
+from database.models.preference import UserPreferences
+from database.models.user import User
+from fastapi import APIRouter, Depends, HTTPException
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
@@ -83,8 +83,8 @@ async def _get_or_create_preferences(session: AsyncSession, user: User) -> UserP
 
 @router.get("/me", response_model=PreferencesOut)
 async def get_my_preferences(
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),  # noqa: B008
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> PreferencesOut:
     prefs = await _get_or_create_preferences(session, user)
     return _prefs_out(prefs)
@@ -93,8 +93,8 @@ async def get_my_preferences(
 @router.put("/me", response_model=PreferencesOut)
 async def update_my_preferences(
     payload: PreferencesPayload,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),  # noqa: B008
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> PreferencesOut:
     prefs = await _get_or_create_preferences(session, user)
     channels = filter_channels_for_user(user, payload.notification_channels)
@@ -126,8 +126,8 @@ async def update_my_preferences(
 @router.get("/matches")
 async def list_matches(
     limit: int = 50,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),  # noqa: B008
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     prefs = await _get_or_create_preferences(session, user)
     repo = SQLAlchemyJobRepository(session)
@@ -155,8 +155,8 @@ async def list_matches(
 async def list_findings(
     limit: int = 10,
     freelance_focus: bool = True,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),  # noqa: B008
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     """Decision digest: why a lead matters now and what to do next."""
     prefs = await _get_or_create_preferences(session, user)
@@ -172,7 +172,7 @@ async def demo_findings(
     keywords: str = "python,react,fastapi,typescript,remote",
     limit: int = 10,
     freelance_focus: bool = True,
-    session: AsyncSession = Depends(get_db),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     """Unauthenticated lead findings digest for the desk demo."""
     repo = SQLAlchemyJobRepository(session)
@@ -200,7 +200,7 @@ async def demo_findings(
 async def demo_matches(
     keywords: str = "python,react,fastapi,typescript,remote",
     limit: int = 50,
-    session: AsyncSession = Depends(get_db),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     """Unauthenticated matching for the demo dashboard."""
     repo = SQLAlchemyJobRepository(session)

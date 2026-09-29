@@ -7,8 +7,8 @@ from typing import Any
 
 import httpx
 
-from config.settings import get_settings
 from app.core.logging.logger import get_logger
+from config.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -231,8 +231,7 @@ def _normalize_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
 
     # Legacy flat results shape
-    for item in search.get("results") or []:
-        rows.append(item)
+    rows.extend(search.get("results") or [])
 
     # Connection/edges shape
     for edge in search.get("edges") or []:

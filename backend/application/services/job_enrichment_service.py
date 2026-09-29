@@ -4,7 +4,7 @@ import logging
 import re
 
 from backend.domain.interfaces import IJobEnrichmentService
-from backend.domain.models import JobOpportunity, EnrichedJob
+from backend.domain.models import EnrichedJob, JobOpportunity
 
 logger = logging.getLogger(__name__)
 

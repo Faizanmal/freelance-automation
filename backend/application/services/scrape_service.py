@@ -1,23 +1,33 @@
 from __future__ import annotations
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.ingestion.sources import PUBLIC_SOURCES, SOURCE_REGISTRY
 from app.integrations.apify_marketplaces import (
     SourceNotConfiguredError as ApifyNotConfigured,
 )
-from app.integrations.freelancer import SourceNotConfiguredError as FreelancerNotConfigured
-from app.integrations.serpapi_discovery import SourceNotConfiguredError as SerpApiNotConfigured
+from app.integrations.freelancer import (
+    SourceNotConfiguredError as FreelancerNotConfigured,
+)
+from app.integrations.serpapi_discovery import (
+    SourceNotConfiguredError as SerpApiNotConfigured,
+)
 from app.integrations.upwork import SourceNotConfiguredError as UpworkNotConfigured
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.application.services.billing import destinations_from_preferences
+from backend.application.services.job_ingestion import JobIngestionService
+from backend.application.services.matching import MatchingService
+from backend.application.services.notification_service import (
+    NotificationChannel,
+    NotificationPayload,
+    NotificationPriority,
+)
+from backend.application.services.persistent_notifications import (
+    PersistentNotificationService,
+)
+from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.models.preference import UserPreferences
 from database.models.user import User
-from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
-from backend.application.services.job_ingestion import JobIngestionService
-from backend.application.services.billing import destinations_from_preferences
-from backend.application.services.matching import MatchingService
-from backend.application.services.notification_service import NotificationChannel, NotificationPayload, NotificationPriority
-from backend.application.services.persistent_notifications import PersistentNotificationService
 
 
 class ScrapeService:
@@ -108,7 +118,7 @@ class ScrapeService:
         if not jobs:
             return 0
 
-        users_result = await self.session.execute(select(User).where(User.is_active.is_(True)))
+        users_result = await self.session.execute(select(User).where(User.is_active.is_(True), User.is_verified.is_(True)))
         users = list(users_result.scalars().all())
         matcher = MatchingService()
         notifier = PersistentNotificationService(self.session)

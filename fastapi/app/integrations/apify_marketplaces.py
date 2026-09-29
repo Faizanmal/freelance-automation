@@ -42,7 +42,7 @@ async def run_actor(
         payload = response.json()
 
     if not isinstance(payload, list):
-        raise RuntimeError(f"Unexpected Apify response for {actor_id}")
+        raise TypeError(f"Unexpected Apify response for {actor_id}")
     return [item for item in payload if isinstance(item, dict)][:limit]
 
 

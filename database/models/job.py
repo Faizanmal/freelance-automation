@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.core.base import Base
@@ -39,7 +49,7 @@ class JobRecord(Base):
         onupdate=func.now(),
     )
 
-    sources: Mapped[list["JobSource"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    sources: Mapped[list[JobSource]] = relationship(back_populates="job", cascade="all, delete-orphan")
 
 
 class JobSource(Base):

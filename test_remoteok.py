@@ -1,6 +1,8 @@
 import asyncio
 import json
+
 from scrapers.sources.remoteok import RemoteOKScraper
+
 
 async def main():
     s = RemoteOKScraper(limit=2)

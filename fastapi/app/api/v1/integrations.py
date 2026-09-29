@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import RedirectResponse
-
-from config.settings import get_settings
-from app.core.security.oauth_state import create_upwork_oauth_state, validate_upwork_oauth_state
+from app.core.security.oauth_state import (
+    create_upwork_oauth_state,
+    validate_upwork_oauth_state,
+)
 from app.ingestion.sources import (
     COMMERCIAL_FREE_SOURCES,
     COMMERCIAL_PRO_SOURCES,
@@ -14,10 +13,13 @@ from app.ingestion.sources import (
     RESTRICTED_SOURCES,
     SOURCE_REGISTRY,
 )
-from app.integrations import apify_marketplaces
+from app.integrations import apify_marketplaces, serpapi_discovery
 from app.integrations import freelancer as freelancer_api
-from app.integrations import serpapi_discovery
 from app.integrations import upwork as upwork_api
+from fastapi.responses import RedirectResponse
+
+from config.settings import get_settings
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 

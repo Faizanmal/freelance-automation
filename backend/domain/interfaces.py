@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Protocol, Any
+from typing import Any, Protocol
 
 from .models import (
-    JobOpportunity,
-    UserPreferences,
-    MatchResult,
     EnrichedJob,
+    JobOpportunity,
+    MatchResult,
     ScoreResult,
-    SourceHealthStatus
+    SourceHealthStatus,
+    UserPreferences,
 )
 
 

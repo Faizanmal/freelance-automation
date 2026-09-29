@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from backend.domain.models import JobOpportunity, SourceHealthStatus
 from scrapers.core.base_scraper import BaseScraper
 from scrapers.core.navigation import wait_for_element
-from backend.domain.models import JobOpportunity, SourceHealthStatus
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class UpworkBrowserScraper(BaseScraper):
         try:
             await wait_for_element(self.page, ".nav-item-user", timeout=5)
             logger.info("Successfully identified logged-in state via cookies.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("Could not find user avatar, login might be required manually.")
             
     async def search(self, query: str, **kwargs: Any) -> None:
@@ -36,7 +36,7 @@ class UpworkBrowserScraper(BaseScraper):
         await self.page.goto(url)
         try:
             await wait_for_element(self.page, "section[data-test='job-tile-list']", timeout=15)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("Job list not found, might have hit captcha or anti-bot mechanism.")
             if hasattr(self, "capture_screenshot"):
                 await self.capture_screenshot("upwork_search_failure")
@@ -61,7 +61,7 @@ class UpworkBrowserScraper(BaseScraper):
                     "url": f"https://www.upwork.com{url}" if url else "",
                     "description": desc.strip()
                 })
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug("Failed to parse a job tile: %s", e)
                 
             if len(raw_jobs) >= limit:
@@ -95,7 +95,7 @@ class UpworkBrowserScraper(BaseScraper):
             await self.login()
             is_healthy = True
             msg = None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             is_healthy = False
             msg = str(e)
             

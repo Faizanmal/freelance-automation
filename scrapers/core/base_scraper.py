@@ -4,16 +4,16 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from scrapers.core.browser_use import BrowserUse
 from scrapers.core.errors import SelectorFallbackError
 from scrapers.core.interfaces import IScraper
 from scrapers.core.selector_store import ISelectorStore, MemorySelectorStore
-from scrapers.utils.retry import retry_async
 from scrapers.utils.rate_limit import RateLimiter
+from scrapers.utils.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class BaseScraper(IScraper, ABC):
         self.page: Page | None = None
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-    async def __aenter__(self) -> BaseScraper:
+    async def __aenter__(self) -> Self:
         await self.launch_browser()
         return self
 
@@ -80,7 +80,7 @@ class BaseScraper(IScraper, ABC):
             try:
                 cookies = json.loads(text)
                 await self.context.add_cookies(cookies)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to load cookies: %s", exc)
 
     async def save_cookies(self) -> None:
@@ -98,9 +98,9 @@ class BaseScraper(IScraper, ABC):
     async def _execute_with_retries(self, coro: Any, *args: Any, **kwargs: Any) -> Any:
         return await retry_async(
             coro,
+            *args,
             max_retries=self.max_retries,
             recover_callback=self._handle_failure,
-            *args,
             **kwargs,
         )
 

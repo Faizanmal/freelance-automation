@@ -5,9 +5,9 @@ from abc import ABC, abstractmethod
 
 from playwright.async_api import Page
 
-from scrapers.core.selector_store import ISelectorStore
 from scrapers.core.helpers import is_captcha_page
 from scrapers.core.navigation import wait_for_element
+from scrapers.core.selector_store import ISelectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class BrowserUse(IBrowserUse):
                 logger.info("Selector identified for %s: %s", field_name, selector)
                 await self.selector_store.save_selector(field_name, selector)
                 return selector
-            except Exception:
+            except Exception:  # noqa: BLE001, S112
                 continue
         return None
 
@@ -62,7 +62,7 @@ class BrowserUse(IBrowserUse):
             try:
                 await wait_for_element(self.page, persisted, timeout=5)
                 return persisted
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.info("Persisted selector failed for %s: %s", field_name, persisted)
 
         if self.fallback_selectors.get(field_name):
@@ -74,7 +74,7 @@ class BrowserUse(IBrowserUse):
         try:
             await wait_for_element(self.page, current_selector, timeout=5)
             return current_selector
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("Primary selector failed for %s: %s", field_name, current_selector)
             return await self.resolve_selector(field_name, candidates)
 

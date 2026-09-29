@@ -18,6 +18,8 @@ class UserCreate(UserBase):
 
 class UserRead(UserBase):
     id: str
+    is_active: bool
+    is_verified: bool = False
     plan: str = "free"
     subscription_status: str = "inactive"
     created_at: datetime
@@ -26,3 +28,16 @@ class UserRead(UserBase):
     model_config = {
         "from_attributes": True,
     }
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr

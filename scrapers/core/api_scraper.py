@@ -15,7 +15,6 @@ class BaseApiScraper(IScraper, ABC):
 
     async def login(self) -> None:
         """API scrapers generally don't require an explicit login step."""
-        pass
 
     async def save(self, job: dict[str, Any]) -> None:
         """For testing/standalone usage, this can be overridden."""

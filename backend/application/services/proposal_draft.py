@@ -4,10 +4,10 @@ import json
 import re
 from typing import Any
 
+from backend.application.services.llm import any_llm_configured, chat_completion
 from database.models.job import JobRecord
 from database.models.preference import UserPreferences
 from database.models.user import User
-from backend.application.services.llm import any_llm_configured, chat_completion
 
 MARKETPLACE_API_BID = {"freelancer"}
 MARKETPLACE_API_PROPOSAL = {"upwork"}
@@ -159,7 +159,7 @@ class ProposalDraftService:
             )
             parsed = json.loads(result.content)
             return self._merge_llm_fields(fallback, parsed), result.provider
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None, "template"
 
     def _merge_llm_fields(self, fallback: dict[str, Any], parsed: dict[str, Any]) -> dict[str, Any]:
@@ -224,8 +224,8 @@ class ProposalDraftService:
             return None
 
 
-_EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
-_MAILTO_RE = re.compile(r"mailto:([^?\s\"']+)", re.I)
+_EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
+_MAILTO_RE = re.compile(r"mailto:([^?\s\"']+)", re.IGNORECASE)
 
 
 def extract_apply_email(job: JobRecord) -> str | None:

@@ -12,3 +12,9 @@ class IUserRepository:
 
     async def create(self, user: User) -> User:
         raise NotImplementedError
+
+    async def update(self, user: User) -> User:
+        raise NotImplementedError
+
+    async def delete(self, user: User) -> None:
+        raise NotImplementedError

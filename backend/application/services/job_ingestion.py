@@ -4,10 +4,13 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models.job import JobRecord, JobSource
-from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
-from backend.application.services.duplicate_detection import DuplicateDetectionService, JobCandidate
+from backend.application.services.duplicate_detection import (
+    DuplicateDetectionService,
+    JobCandidate,
+)
 from backend.application.services.enrichment import EnrichmentService, JobEnrichment
+from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
+from database.models.job import JobRecord, JobSource
 
 
 class JobIngestionService:

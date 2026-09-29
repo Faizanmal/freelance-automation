@@ -1,7 +1,12 @@
 import asyncio
 import unittest
 
-from backend.application.services.notification_service import NotificationChannel, NotificationPayload, NotificationPriority, NotificationService
+from backend.application.services.notification_service import (
+    NotificationChannel,
+    NotificationPayload,
+    NotificationPriority,
+    NotificationService,
+)
 
 
 class NotificationServiceTests(unittest.TestCase):

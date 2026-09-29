@@ -7,8 +7,8 @@ from urllib.parse import urlparse
 
 import httpx
 
-from config.settings import get_settings
 from app.core.logging.logger import get_logger
+from config.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -114,7 +114,7 @@ def build_companies_site_queries(
 
 
 def _stable_id(url: str, title: str) -> str:
-    digest = hashlib.sha1(f"{url}|{title}".encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(f"{url}|{title}".encode()).hexdigest()[:16]
     return digest
 
 

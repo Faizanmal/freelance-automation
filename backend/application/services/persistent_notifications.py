@@ -4,12 +4,12 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models.notification import NotificationDelivery, NotificationRecord
 from backend.application.services.notification_service import (
     NotificationPayload,
     NotificationResult,
     NotificationService,
 )
+from database.models.notification import NotificationDelivery, NotificationRecord
 
 
 class PersistentNotificationService:

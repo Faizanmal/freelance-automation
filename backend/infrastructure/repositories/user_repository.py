@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models.user import User
 from backend.domain.repositories.user_repository import IUserRepository
+from database.models.user import User
+from database.models.notification import NotificationRecord
 
 
 class SQLAlchemyUserRepository(IUserRepository):
@@ -24,3 +25,13 @@ class SQLAlchemyUserRepository(IUserRepository):
         await self.session.commit()
         await self.session.refresh(user)
         return user
+
+    async def update(self, user: User) -> User:
+        await self.session.commit()
+        await self.session.refresh(user)
+        return user
+
+    async def delete(self, user: User) -> None:
+        await self.session.execute(delete(NotificationRecord).where(NotificationRecord.user_id == user.id))
+        await self.session.delete(user)
+        await self.session.commit()

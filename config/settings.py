@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     environment: str = Field("development", alias="APP_ENV")
     version: str = Field("0.5.0", alias="VERSION")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
+    sentry_dsn: str | None = Field(None, alias="SENTRY_DSN")
 
     database_url: str = Field(
         "postgresql+asyncpg://postgres:postgres@localhost:5432/freelance",
@@ -116,6 +117,13 @@ class Settings(BaseSettings):
     serpapi_gl: str = Field("us", alias="SERPAPI_GL")
     serpapi_hl: str = Field("en", alias="SERPAPI_HL")
 
+    # Email delivery
+    email_smtp_host: str | None = Field(None, alias="EMAIL_SMTP_HOST")
+    email_smtp_port: int = Field(587, alias="EMAIL_SMTP_PORT")
+    email_username: str | None = Field(None, alias="EMAIL_USERNAME")
+    email_password: str | None = Field(None, alias="EMAIL_PASSWORD")
+    email_from: str | None = Field(None, alias="EMAIL_FROM")
+
     # Stripe billing (optional until keys are set)
     stripe_secret_key: str | None = Field(None, alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(None, alias="STRIPE_WEBHOOK_SECRET")
@@ -131,7 +139,7 @@ class Settings(BaseSettings):
     public_app_url: str = Field("http://localhost:3000", alias="PUBLIC_APP_URL")
 
     @model_validator(mode="after")
-    def validate_production_settings(self) -> "Settings":
+    def validate_production_settings(self) -> Settings:
         if self.environment.lower() != "production":
             return self
 

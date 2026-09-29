@@ -4,9 +4,8 @@ from uuid import uuid4
 
 from passlib.context import CryptContext
 
-from database.models.user import User
 from backend.domain.repositories.user_repository import IUserRepository
-
+from database.models.user import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -29,6 +28,8 @@ class UserService:
         user = await self.user_repository.get_by_email(email)
         if not user or not self.verify_password(password, user.hashed_password):
             return None
+        if not user.is_active:
+            return None
         return user
 
     @staticmethod
@@ -38,3 +39,22 @@ class UserService:
     @staticmethod
     def verify_password(password: str, hashed_password: str) -> bool:
         return pwd_context.verify(password, hashed_password)
+
+    async def update_password(self, email: str, new_password: str) -> bool:
+        user = await self.user_repository.get_by_email(email)
+        if not user:
+            return False
+        user.hashed_password = self.hash_password(new_password)
+        await self.user_repository.update(user)
+        return True
+
+    async def verify_email(self, email: str) -> bool:
+        user = await self.user_repository.get_by_email(email)
+        if not user:
+            return False
+        user.is_verified = True
+        await self.user_repository.update(user)
+        return True
+
+    async def delete_user(self, user: User) -> None:
+        await self.user_repository.delete(user)

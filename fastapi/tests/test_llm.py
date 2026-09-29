@@ -2,7 +2,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from backend.application.services.llm import FALLBACK_ORDER, any_llm_configured, configured_providers
+from backend.application.services.llm import (
+    FALLBACK_ORDER,
+    any_llm_configured,
+    configured_providers,
+)
 
 
 class LLMConfigTests(unittest.TestCase):
@@ -22,7 +26,7 @@ class LLMConfigTests(unittest.TestCase):
             anthropic_api_key="a",
             anthropic_model="claude",
         )
-        with patch("app.services.llm.get_settings", return_value=settings):
+        with patch("backend.application.services.llm.get_settings", return_value=settings):
             self.assertTrue(any_llm_configured())
             self.assertEqual(configured_providers(), ["groq", "gemini", "anthropic"])
 

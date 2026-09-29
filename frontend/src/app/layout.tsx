@@ -3,6 +3,7 @@ import { Fraunces, Manrope } from "next/font/google";
 import Link from "next/link";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CookieConsent } from "@/components/cookie-consent";
 import "./globals.css";const display = Fraunces({
   variable: "--font-display",
   subsets: ["latin"],
@@ -18,6 +19,19 @@ const body = Manrope({
 export const metadata: Metadata = {
   title: "Signal Desk — Freelance Intelligence",
   description: "Live freelance and remote jobs matched to your preferences.",
+  openGraph: {
+    title: "Signal Desk — Freelance Intelligence",
+    description: "Live freelance and remote jobs matched to your preferences.",
+    url: "https://signaldesk.com",
+    siteName: "Signal Desk",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Signal Desk — Freelance Intelligence",
+    description: "Live freelance and remote jobs matched to your preferences.",
+  },
 };
 
 const nav = [
@@ -60,8 +74,21 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 </nav>
               </div>
             </header>
-            {children}
+            <main className="flex-grow">
+              {children}
+            </main>
+            <footer className="mt-16 border-t border-[var(--mute)]/20 pt-8 flex flex-wrap items-center justify-between gap-4 text-sm text-[var(--mute)]">
+              <p>&copy; {new Date().getFullYear()} Signal Desk. All rights reserved.</p>
+              <div className="flex gap-4">
+                <Link href="/terms" className="hover:text-[var(--signal)]">Terms</Link>
+                <Link href="/privacy" className="hover:text-[var(--signal)]">Privacy</Link>
+                <a href="mailto:support@signaldesk.com" className="hover:text-[var(--signal)]">Support</a>
+              </div>
+            </footer>
           </div>
+          <CookieConsent />
+          {/* Web Analytics */}
+          <script defer data-domain="signaldesk.com" src="https://plausible.io/js/script.js"></script>
         </ThemeProvider>
       </body>
     </html>

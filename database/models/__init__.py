@@ -5,11 +5,11 @@ from database.models.preference import UserPreferences
 from database.models.user import User
 
 __all__ = [
-    "User",
-    "UserPreferences",
+    "JobApplication",
     "JobRecord",
     "JobSource",
-    "JobApplication",
-    "NotificationRecord",
     "NotificationDelivery",
+    "NotificationRecord",
+    "User",
+    "UserPreferences",
 ]

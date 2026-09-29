@@ -3,16 +3,25 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.v1 import auth, billing, health, integrations, jobs, notifications, preferences, users
-from config.settings import get_settings
+from app.api.v1 import (
+    auth,
+    billing,
+    health,
+    integrations,
+    jobs,
+    notifications,
+    preferences,
+    users,
+)
 from app.core.exceptions import AppException
 from app.core.logging.logger import get_logger
+from backend.application.services.scrape_service import ScrapeService
+from config.settings import get_settings
 from database.core.base import Base
 from database.core.schema_patch import ensure_sqlite_columns
 from database.core.session import get_engine, get_session
@@ -25,10 +34,18 @@ from database.models import (  # noqa: F401
     User,
     UserPreferences,
 )
-from backend.application.services.scrape_service import ScrapeService
+from fastapi import FastAPI
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+if settings.sentry_dsn:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        traces_sample_rate=1.0 if not settings.is_production else 0.1,
+    )
 
 
 async def _run_scrape_cycle(reason: str) -> None:

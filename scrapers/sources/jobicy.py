@@ -18,7 +18,7 @@ class JobicyScraper(BaseApiScraper):
     async def search(self, query: str = "", **kwargs: Any) -> None:
         headers = {"User-Agent": "FreelanceIntelligence/0.4"}
         params = {"count": min(max(self.limit, 1), 100)}
-        if "tag" in kwargs and kwargs["tag"]:
+        if kwargs.get("tag"):
              params["tag"] = kwargs["tag"]
         
         async with httpx.AsyncClient(

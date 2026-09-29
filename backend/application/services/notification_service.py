@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta, timezone
-from enum import Enum
-from typing import Any, Protocol
 import asyncio
 import base64
 import json
@@ -13,6 +8,11 @@ import random
 import smtplib
 import urllib.parse
 import urllib.request
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta, timezone
+from enum import Enum
+from typing import Any, Protocol
 
 
 class NotificationChannel(str, Enum):
@@ -122,7 +122,7 @@ class WebhookAdapter:
             status = await asyncio.to_thread(self._send_sync, endpoint, payload)
             if int(status) < 400:
                 return NotificationResult(channel=self.channel, delivered=True, message_id=status)
-        except Exception as exc:  # pragma: no cover - network path
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - network path
             return NotificationResult(channel=self.channel, delivered=False, error=str(exc))
         return NotificationResult(channel=self.channel, delivered=False, error="provider_error")
 
@@ -147,7 +147,7 @@ class TelegramAdapter:
             status = await asyncio.to_thread(self._send_sync, endpoint, payload)
             if int(status) < 400:
                 return NotificationResult(channel=self.channel, delivered=True, message_id=status)
-        except Exception as exc:  # pragma: no cover - network path
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - network path
             return NotificationResult(channel=self.channel, delivered=False, error=str(exc))
         return NotificationResult(channel=self.channel, delivered=False, error="provider_error")
 
@@ -186,11 +186,11 @@ class WhatsAppAdapter:
             payload = urllib.parse.urlencode(
                 {"To": to_number, "From": from_number, "Body": f"{envelope.title}\n{envelope.body}"}
             ).encode("utf-8")
-            credentials = base64.b64encode(f"{account_sid}:{auth_token}".encode("utf-8")).decode("ascii")
+            credentials = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode("ascii")
             status = await asyncio.to_thread(self._send_sync, account_sid, credentials, payload)
             if int(status) < 400:
                 return NotificationResult(channel=self.channel, delivered=True, message_id=status)
-        except Exception as exc:  # pragma: no cover - network path
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - network path
             return NotificationResult(channel=self.channel, delivered=False, error=str(exc))
         return NotificationResult(channel=self.channel, delivered=False, error="provider_error")
 
@@ -221,7 +221,7 @@ class EmailAdapter:
                 smtp_host, smtp_port, username, password, from_address, to_address, envelope.title, envelope.body
             )
             return NotificationResult(channel=self.channel, delivered=True, message_id="smtp")
-        except Exception as exc:  # pragma: no cover - network path
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - network path
             return NotificationResult(channel=self.channel, delivered=False, error=str(exc))
 
 

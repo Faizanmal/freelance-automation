@@ -1,6 +1,7 @@
-import asyncio
 import argparse
+import asyncio
 import logging
+
 from scrapers.core.browser_engine import BrowserManager
 
 logging.basicConfig(level=logging.INFO)

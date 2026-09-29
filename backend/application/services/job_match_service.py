@@ -4,7 +4,12 @@ import re
 from datetime import datetime, timezone
 
 from backend.domain.interfaces import IJobMatchService
-from backend.domain.models import JobOpportunity, UserPreferences, MatchResult, ScoreResult
+from backend.domain.models import (
+    JobOpportunity,
+    MatchResult,
+    ScoreResult,
+    UserPreferences,
+)
 
 RED_FLAG_PATTERNS = (
     r"\bunpaid\b",
@@ -50,9 +55,8 @@ class DomainJobMatchService(IJobMatchService):
 
         min_budget = preferences.min_budget
         job_max = job.metadata.get("budget_max")
-        if min_budget is not None and job_max is not None:
-            if float(job_max) < min_budget:
-                return None
+        if min_budget is not None and job_max is not None and float(job_max) < min_budget:
+            return None
 
         red_flags = self._detect_red_flags(haystack)
         matched: list[str] = []
@@ -97,7 +101,7 @@ class DomainJobMatchService(IJobMatchService):
         return MatchResult(
             job=job,
             score_result=score_result,
-            matched_at=datetime.utcnow()
+            matched_at=datetime.now(timezone.utc)
         )
 
     async def batch_match(self, job_ids: list[str], user_id: str) -> list[MatchResult]:

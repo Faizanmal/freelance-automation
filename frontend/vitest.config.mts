@@ -7,6 +7,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
+    pool: 'forks',
+    fileParallelism: false,
+    maxWorkers: 1,
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),
     },

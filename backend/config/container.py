@@ -1,17 +1,20 @@
 from __future__ import annotations
+
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.infrastructure.di import DIContainer
-from backend.domain.interfaces import (
-    IConfigProvider,
-    IJobRepository,
-    IJobMatchService,
-    IJobEnrichmentService
+from backend.application.services.job_enrichment_service import (
+    DomainJobEnrichmentService,
 )
 from backend.application.services.job_match_service import DomainJobMatchService
-from backend.application.services.job_enrichment_service import DomainJobEnrichmentService
+from backend.domain.interfaces import (
+    IConfigProvider,
+    IJobEnrichmentService,
+    IJobMatchService,
+    IJobRepository,
+)
+from backend.infrastructure.di import DIContainer
 from backend.infrastructure.repositories.job_repository import DomainJobRepository
 
 

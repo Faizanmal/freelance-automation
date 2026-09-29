@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from backend.domain.models import JobOpportunity, SourceHealthStatus
 from scrapers.core.base_scraper import BaseScraper
 from scrapers.core.navigation import wait_for_element
-from backend.domain.models import JobOpportunity, SourceHealthStatus
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class LinkedInBrowserScraper(BaseScraper):
         try:
             await wait_for_element(self.page, "#global-nav-typeahead", timeout=5)
             logger.info("Already logged in via cookies.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("Not logged in. A manual login with headless=False is likely required.")
             
     async def search(self, query: str, **kwargs: Any) -> None:
@@ -37,7 +37,7 @@ class LinkedInBrowserScraper(BaseScraper):
         
         try:
             await wait_for_element(self.page, ".scaffold-layout__list", timeout=15)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("Could not load job list. Captcha or auth failure.")
             if hasattr(self, "capture_screenshot"):
                 await self.capture_screenshot("linkedin_search_failure")
@@ -63,7 +63,7 @@ class LinkedInBrowserScraper(BaseScraper):
                     "url": f"https://www.linkedin.com{url.split('?')[0]}" if url else "",
                     "description": ""  # LinkedIn list view doesn't have full desc without clicking
                 })
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug("Failed to parse LinkedIn job card: %s", e)
                 
             if len(raw_jobs) >= limit:
@@ -97,7 +97,7 @@ class LinkedInBrowserScraper(BaseScraper):
             await self.login()
             is_healthy = True
             msg = None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             is_healthy = False
             msg = str(e)
             

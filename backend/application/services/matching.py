@@ -61,12 +61,10 @@ class MatchingService:
             if self._contains_keyword(haystack, exclude):
                 return None
 
-        if preferences.min_budget is not None and job.budget_max is not None:
-            if job.budget_max < preferences.min_budget:
-                return None
-        if preferences.max_budget is not None and job.budget_min is not None:
-            if job.budget_min > preferences.max_budget:
-                return None
+        if preferences.min_budget is not None and job.budget_max is not None and job.budget_max < preferences.min_budget:
+            return None
+        if preferences.max_budget is not None and job.budget_min is not None and job.budget_min > preferences.max_budget:
+            return None
 
         red_flags = self._detect_red_flags(haystack)
         matched: list[str] = []

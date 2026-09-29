@@ -1,22 +1,29 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from app.api.dependencies import get_current_user, rate_limit_api
+from app.ingestion.sources import COMMERCIAL_FREE_SOURCES, COMMERCIAL_PRO_SOURCES
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user
-from database.core.session import get_db
-from database.models.preference import UserPreferences
-from database.models.user import User
-from app.ingestion.sources import COMMERCIAL_FREE_SOURCES, COMMERCIAL_PRO_SOURCES
-from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from backend.application.services.apply_service import ApplyError, ApplyService
-from backend.application.services.billing import blocked_restricted_sources, filter_sources_for_user, limits_for_user
-from backend.application.services.duplicate_detection import DuplicateDetectionService, JobCandidate
+from backend.application.services.billing import (
+    blocked_restricted_sources,
+    filter_sources_for_user,
+    limits_for_user,
+)
+from backend.application.services.duplicate_detection import (
+    DuplicateDetectionService,
+    JobCandidate,
+)
 from backend.application.services.job_ingestion import JobIngestionService
 from backend.application.services.proposal_draft import ProposalDraftService
 from backend.application.services.scrape_service import ScrapeService
+from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
+from database.core.session import get_db
+from database.models.preference import UserPreferences
+from database.models.user import User
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 duplicate_service = DuplicateDetectionService()
@@ -99,7 +106,7 @@ async def list_jobs(
     offset: int = Query(0, ge=0),
     source: str | None = None,
     search: str | None = None,
-    session: AsyncSession = Depends(get_db),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_jobs(limit=limit, offset=offset, source=source, search=search)
@@ -111,7 +118,7 @@ async def list_jobs(
 
 
 @router.get("/{job_id}", response_model=JobOut)
-async def get_job(job_id: int, session: AsyncSession = Depends(get_db)) -> JobOut:
+async def get_job(job_id: int, session: AsyncSession = Depends(get_db)) -> JobOut:  # noqa: B008
     repo = SQLAlchemyJobRepository(session)
     job = await repo.get_by_id(job_id)
     if job is None:
@@ -122,8 +129,8 @@ async def get_job(job_id: int, session: AsyncSession = Depends(get_db)) -> JobOu
 @router.post("/ingest")
 async def ingest_job(
     payload: JobIngestionRequest,
-    session: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    _current_user: User = Depends(rate_limit_api),  # noqa: B008
 ) -> dict[str, object]:
     service = JobIngestionService(session)
     candidate = JobCandidate(
@@ -144,8 +151,8 @@ async def ingest_job(
 @router.post("/scrape")
 async def scrape_jobs(
     payload: ScrapeRequest,
-    session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(rate_limit_api),  # noqa: B008
 ) -> dict[str, object]:
     restricted = blocked_restricted_sources(payload.sources)
     if restricted:
@@ -176,8 +183,8 @@ async def scrape_jobs(
     limit = min(payload.limit, limits.scrape_limit)
     
     # Dispatch to Celery background task
-    import sys
     import os
+    import sys
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
@@ -216,8 +223,8 @@ async def scrape_jobs(
 @router.post("/{job_id}/proposal-draft")
 async def proposal_draft(
     job_id: int,
-    session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(rate_limit_api),  # noqa: B008
 ) -> dict[str, object]:
     repo = SQLAlchemyJobRepository(session)
     job = await repo.get_by_id(job_id)
@@ -243,8 +250,8 @@ async def proposal_draft(
 async def apply_to_job(
     job_id: int,
     payload: ApplyRequest,
-    session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(rate_limit_api),  # noqa: B008
 ) -> dict[str, object]:
     repo = SQLAlchemyJobRepository(session)
     job = await repo.get_by_id(job_id)
@@ -272,8 +279,8 @@ async def apply_to_job(
 @router.post("/detect-duplicate", response_model=DuplicateCheckResponse)
 async def detect_duplicate(
     payload: JobIngestionRequest,
-    session: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    _current_user: User = Depends(rate_limit_api),  # noqa: B008
 ) -> DuplicateCheckResponse:
     candidate = JobCandidate(
         source_name=payload.source_name,

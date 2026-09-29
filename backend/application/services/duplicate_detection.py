@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from hashlib import sha1
 from typing import Any
-import math
 
 
 @dataclass(slots=True)
@@ -215,7 +215,7 @@ class DuplicateDetectionService:
             return right
         if right is None:
             return left
-        return left if left >= right else right
+        return max(left, right)
 
     def _choose_value(self, left: str | None, right: str | None) -> str | None:
         return left or right

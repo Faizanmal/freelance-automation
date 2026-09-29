@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from app.core.logging.logger import get_logger
 
 from config.settings import get_settings
-from app.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
 

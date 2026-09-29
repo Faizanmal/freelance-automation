@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import logging
 import inspect
-from typing import Any, Callable, TypeVar, Type
+import logging
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +17,12 @@ class DIContainer:
     """
 
     def __init__(self) -> None:
-        self._singletons: dict[Type[Any], Any] = {}
-        self._factories: dict[Type[Any], Callable[..., Any]] = {}
+        self._singletons: dict[type[Any], Any] = {}
+        self._factories: dict[type[Any], Callable[..., Any]] = {}
 
-    def register_singleton(self, interface: Type[T], implementation: T | Callable[..., T]) -> None:
+    def register_singleton(self, interface: type[T], implementation: T | Callable[..., T]) -> None:
         """Register a singleton instance or a factory that returns a singleton."""
-        if callable(implementation) and not inspect.isclass(implementation) and not hasattr(implementation, "__call__"):
+        if callable(implementation) and not inspect.isclass(implementation) and not hasattr(implementation, "__call__"):  # noqa: B004
             # It's a factory function, we won't instantiate until resolved
             self._factories[interface] = implementation
         elif inspect.isclass(implementation):
@@ -30,11 +31,11 @@ class DIContainer:
         else:
             self._singletons[interface] = implementation
 
-    def register_factory(self, interface: Type[T], factory: Callable[..., T]) -> None:
+    def register_factory(self, interface: type[T], factory: Callable[..., T]) -> None:
         """Register a factory that is called every time the interface is resolved."""
         self._factories[interface] = factory
 
-    def resolve(self, interface: Type[T]) -> T:
+    def resolve(self, interface: type[T]) -> T:
         """Resolve an implementation for the given interface."""
         if interface in self._singletons:
             return self._singletons[interface]

@@ -4,11 +4,12 @@ import asyncio
 import logging
 import random
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 logger = logging.getLogger(__name__)
 

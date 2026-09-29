@@ -22,7 +22,7 @@ class RemoteOKScraper(BaseApiScraper):
     async def search(self, query: str = "", **kwargs: Any) -> None:
         if query:
             self.tags = [query]
-        if "tags" in kwargs and kwargs["tags"]:
+        if kwargs.get("tags"):
             self.tags = kwargs["tags"]
 
         headers = {"User-Agent": "FreelanceIntelligence/0.1"}

@@ -1,6 +1,7 @@
 from workers.app import celery_app
 from workers.jobs.tasks import scrape_jobs_task
 
+
 @celery_app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     # Example: Run every 30 minutes. 

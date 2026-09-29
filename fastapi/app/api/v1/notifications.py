@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from app.api.dependencies import get_current_user
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user
-from database.core.session import get_db
-from database.models.notification import NotificationDelivery, NotificationRecord
-from database.models.preference import UserPreferences
-from database.models.user import User
-from backend.application.services.billing import destinations_from_preferences, filter_channels_for_user, is_pro
+from backend.application.services.billing import (
+    destinations_from_preferences,
+    filter_channels_for_user,
+    is_pro,
+)
 from backend.application.services.notification_service import (
     NotificationAction,
     NotificationChannel,
@@ -18,7 +17,14 @@ from backend.application.services.notification_service import (
     NotificationPriority,
     NotificationService,
 )
-from backend.application.services.persistent_notifications import PersistentNotificationService
+from backend.application.services.persistent_notifications import (
+    PersistentNotificationService,
+)
+from database.core.session import get_db
+from database.models.notification import NotificationDelivery, NotificationRecord
+from database.models.preference import UserPreferences
+from database.models.user import User
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 legacy_service = NotificationService()
@@ -55,8 +61,8 @@ async def _load_destinations(session: AsyncSession, user: User) -> dict[str, str
 @router.post("/send")
 async def send_notification(
     payload: NotificationRequest,
-    session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, object]:
     quiet_start = None
     quiet_end = None
@@ -94,8 +100,8 @@ async def send_notification(
 @router.post("/digest")
 async def send_digest(
     payload: DigestRequest,
-    session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, object]:
     if not payload.items:
         raise HTTPException(status_code=400, detail="At least one item is required")
@@ -124,8 +130,8 @@ async def send_digest(
 @router.get("/history")
 async def notification_history(
     limit: int = Query(50, ge=1, le=200),
-    session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, object]:
     user_id = str(current_user.id)
     result = await session.execute(
@@ -168,5 +174,5 @@ async def notification_history(
 
 
 @router.get("/retry-queue")
-async def retry_queue(_current_user: User = Depends(get_current_user)) -> dict[str, object]:
+async def retry_queue(_current_user: User = Depends(get_current_user)) -> dict[str, object]:  # noqa: B008
     return {"items": [entry.__dict__ for entry in legacy_service.get_retry_queue()]}

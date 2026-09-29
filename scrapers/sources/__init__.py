@@ -11,11 +11,11 @@ from scrapers.sources.remotive import RemotiveScraper
 from scrapers.sources.upwork import UpworkScraper
 
 __all__ = [
-    "RemoteOKScraper",
-    "RemotiveScraper",
     "ArbeitnowScraper",
+    "FreelancerScraper",
     "HimalayasScraper",
     "JobicyScraper",
+    "RemoteOKScraper",
+    "RemotiveScraper",
     "UpworkScraper",
-    "FreelancerScraper",
 ]

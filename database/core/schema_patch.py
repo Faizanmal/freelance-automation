@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+from app.core.logging.logger import get_logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
-
-from app.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
 

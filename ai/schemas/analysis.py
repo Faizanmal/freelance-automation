@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import List
 
 
 class JobAnalysis(BaseModel):
-    skills: List[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
     budget: str | None = None
     difficulty: str | None = None
     seniority: str | None = None
@@ -17,12 +16,12 @@ class JobAnalysis(BaseModel):
     success_probability: float | None = None
     estimated_hours: float | None = None
     estimated_profit: float | None = None
-    missing_skills: List[str] = Field(default_factory=list)
+    missing_skills: list[str] = Field(default_factory=list)
     risk_score: float | None = None
 
     summary: str | None = None
     proposal_draft: str | None = None
-    questions_to_ask: List[str] = Field(default_factory=list)
+    questions_to_ask: list[str] = Field(default_factory=list)
 
     raw_json: dict[str, object] | None = None
 

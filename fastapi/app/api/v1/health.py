@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
 from sqlalchemy import text
 
 from config.settings import get_settings
 from database.core.session import get_engine
+from fastapi import APIRouter
 
 router = APIRouter(prefix="/health", tags=["health"])
 

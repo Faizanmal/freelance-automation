@@ -3,7 +3,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from backend.application.services.apply_service import ApplyError, ApplyService
-from backend.application.services.proposal_draft import ProposalDraftService, extract_apply_email, submit_mode_for_source
+from backend.application.services.proposal_draft import (
+    ProposalDraftService,
+    extract_apply_email,
+    submit_mode_for_source,
+)
 
 
 class ProposalDraftShapeTests(unittest.IsolatedAsyncioTestCase):
@@ -28,7 +32,7 @@ class ProposalDraftShapeTests(unittest.IsolatedAsyncioTestCase):
             analysis_summary="Backend API work",
             enrichment={"summary": "API + auth"},
         )
-        with patch("app.services.proposal_draft.any_llm_configured", return_value=False):
+        with patch("backend.application.services.proposal_draft.any_llm_configured", return_value=False):
             result = await ProposalDraftService().draft(user=user, preferences=prefs, job=job)
 
         fields = result["form_fields"]
@@ -69,7 +73,7 @@ class ApplyServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         service = ApplyService(session)  # type: ignore[arg-type]
         with patch(
-            "app.services.apply_service.freelancer_api.place_bid",
+            "backend.application.services.apply_service.freelancer_api.place_bid",
             new=AsyncMock(return_value={"id": 99}),
         ) as place_bid:
             result = await service.submit(
@@ -112,14 +116,13 @@ class ApplyServiceTests(unittest.IsolatedAsyncioTestCase):
             description="desc",
         )
         service = ApplyService(session)  # type: ignore[arg-type]
-        with patch("app.services.apply_service.upwork_api.upwork_configured", return_value=True):
-            with self.assertRaises(ApplyError) as ctx:
-                await service.submit(
-                    user=user,
-                    job=job,
-                    form_fields={"proposal": "Hello"},
-                    confirm=True,
-                )
+        with patch("backend.application.services.apply_service.upwork_api.upwork_configured", return_value=True), self.assertRaises(ApplyError) as ctx:
+            await service.submit(
+                user=user,
+                job=job,
+                form_fields={"proposal": "Hello"},
+                confirm=True,
+            )
         self.assertEqual(ctx.exception.code, "upwork_submit_unavailable")
 
     async def test_email_submit_success(self) -> None:
@@ -139,7 +142,7 @@ class ApplyServiceTests(unittest.IsolatedAsyncioTestCase):
             "EMAIL_USERNAME": "testuser",
             "EMAIL_PASSWORD": "testpassword",
             "EMAIL_FROM": "bot@test.com"
-        }), patch("app.services.apply_service.smtplib.SMTP") as mock_smtp:
+        }), patch("backend.application.services.apply_service.smtplib.SMTP") as mock_smtp:
             result = await service.submit(
                 user=user,
                 job=job,

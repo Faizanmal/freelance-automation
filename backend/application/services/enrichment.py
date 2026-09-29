@@ -5,6 +5,7 @@ import re
 from dataclasses import asdict, dataclass, field
 
 from app.core.logging.logger import get_logger
+
 from backend.application.services.duplicate_detection import JobCandidate
 from backend.application.services.llm import any_llm_configured, chat_completion
 

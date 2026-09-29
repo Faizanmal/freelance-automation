@@ -5,14 +5,17 @@ import smtplib
 from email.message import EmailMessage
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.integrations import freelancer as freelancer_api
 from app.integrations import upwork as upwork_api
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.application.services.proposal_draft import (
+    extract_apply_email,
+    submit_mode_for_source,
+)
 from database.models.application import JobApplication
 from database.models.job import JobRecord
 from database.models.user import User
-from backend.application.services.proposal_draft import extract_apply_email, submit_mode_for_source
 
 
 class ApplyError(RuntimeError):
@@ -87,7 +90,7 @@ class ApplyService:
             application.error = str(exc)
             await self.session.flush()
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             application.status = "failed"
             application.error = str(exc)
             await self.session.flush()
@@ -186,7 +189,7 @@ class ApplyService:
                 smtp.starttls()
                 smtp.login(username, password)
                 smtp.send_message(message)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ApplyError(f"SMTP send failed: {exc}", code="email_send_failed") from exc
 
         return {

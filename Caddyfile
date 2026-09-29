@@ -1,0 +1,14 @@
+{$DOMAIN:localhost} {
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+    handle_path /docs* {
+        reverse_proxy api:8000
+    }
+    handle_path /openapi.json {
+        reverse_proxy api:8000
+    }
+    handle {
+        reverse_proxy frontend:3000
+    }
+}

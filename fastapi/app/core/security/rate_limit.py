@@ -12,21 +12,41 @@ class SlidingWindowRateLimiter:
         self._buckets: dict[str, deque[datetime]] = defaultdict(deque)
         self._lock = Lock()
 
-    def check(self, key: str, *, limit: int, window_seconds: int) -> None:
+    async def check(self, key: str, *, limit: int, window_seconds: int) -> None:
+        from app.core.redis_client import get_redis
+        client = await get_redis()
         now = datetime.now(timezone.utc)
-        with self._lock:
-            bucket = self._buckets[key]
-            while bucket and now - bucket[0] > timedelta(seconds=window_seconds):
-                bucket.popleft()
-            if len(bucket) >= limit:
+        
+        if client:
+            pipeline = client.pipeline()
+            pipeline.zremrangebyscore(key, 0, now.timestamp() - window_seconds)
+            pipeline.zcard(key)
+            pipeline.zadd(key, {str(now.timestamp()): now.timestamp()})
+            pipeline.expire(key, window_seconds)
+            results = await pipeline.execute()
+            
+            # The second command in pipeline is zcard (count)
+            count = results[1]
+            if count >= limit:
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail="Too many attempts. Try again shortly.",
                 )
-            bucket.append(now)
+        else:
+            with self._lock:
+                bucket = self._buckets[key]
+                while bucket and now - bucket[0] > timedelta(seconds=window_seconds):
+                    bucket.popleft()
+                if len(bucket) >= limit:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="Too many attempts. Try again shortly.",
+                    )
+                bucket.append(now)
 
 
 auth_rate_limiter = SlidingWindowRateLimiter()
+api_rate_limiter = SlidingWindowRateLimiter()
 
 
 def client_ip(request: Request) -> str:
