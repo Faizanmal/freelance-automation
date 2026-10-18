@@ -31,7 +31,9 @@ class FreelancerScraper(BaseApiScraper):
             "full_description": "true",
             "job_details": "true",
         }
-        async with httpx.AsyncClient(timeout=45.0, headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=45.0, headers=headers, follow_redirects=True
+        ) as client:
             response = await client.get(self.api_url, params=params)
             response.raise_for_status()
             data = response.json()
@@ -39,7 +41,7 @@ class FreelancerScraper(BaseApiScraper):
         self.payload = ((data.get("result") or {}).get("projects")) or []
 
     async def extract_jobs(self) -> list[dict[str, Any]]:
-        return self.payload[:self.limit]
+        return self.payload[: self.limit]
 
     async def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         project_id = raw_job.get("id")

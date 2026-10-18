@@ -10,7 +10,9 @@ async def wait_for_element(page: Page, selector: str, timeout: int = 30) -> None
     await page.wait_for_selector(selector, timeout=timeout * 1000)
 
 
-async def infinite_scroll(page: Page, pause_time: float = 1.0, max_cycles: int = 20) -> None:
+async def infinite_scroll(
+    page: Page, pause_time: float = 1.0, max_cycles: int = 20
+) -> None:
     previous_height = await page.evaluate("() => document.body.scrollHeight")
     cycles = 0
     while cycles < max_cycles:
@@ -23,7 +25,9 @@ async def infinite_scroll(page: Page, pause_time: float = 1.0, max_cycles: int =
         cycles += 1
 
 
-async def paginate(page: Page, next_button_selector: str, max_pages: int = 10, timeout: int = 30) -> list[Any]:
+async def paginate(
+    page: Page, next_button_selector: str, max_pages: int = 10, timeout: int = 30
+) -> list[Any]:
     pages = []
     for _ in range(max_pages):
         await asyncio.sleep(1)

@@ -11,7 +11,9 @@ from backend.application.services.llm import (
 
 class LLMConfigTests(unittest.TestCase):
     def test_fallback_order(self) -> None:
-        self.assertEqual(FALLBACK_ORDER, ("groq", "nvidia", "gemini", "openai", "anthropic"))
+        self.assertEqual(
+            FALLBACK_ORDER, ("groq", "nvidia", "gemini", "openai", "anthropic")
+        )
 
     def test_configured_providers_respect_keys(self) -> None:
         settings = SimpleNamespace(
@@ -26,7 +28,9 @@ class LLMConfigTests(unittest.TestCase):
             anthropic_api_key="a",
             anthropic_model="claude",
         )
-        with patch("backend.application.services.llm.get_settings", return_value=settings):
+        with patch(
+            "backend.application.services.llm.get_settings", return_value=settings
+        ):
             self.assertTrue(any_llm_configured())
             self.assertEqual(configured_providers(), ["groq", "gemini", "anthropic"])
 

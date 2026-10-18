@@ -55,5 +55,9 @@ tmp/
 temp/
 .cache/
 
-# Project Management
-.internal_dev_cache.md
+# Local scratch / temp runtime artifacts
+.cache_warmup.log
+.worker_heartbeat.tmp
+.ingest_trace.out
+.build_manifest.tmp
+.internal_*.md

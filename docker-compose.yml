@@ -1,8 +1,22 @@
 version: "3.9"
 
+x-api-build: &api-build
+  context: .
+  dockerfile: fastapi/Dockerfile
+
+x-api-volumes: &api-volumes
+  - ./fastapi:/app/fastapi
+  - ./config:/app/config
+  - ./database:/app/database
+  - ./backend:/app/backend
+  - ./workers:/app/workers
+  - ./scrapers:/app/scrapers
+  - ./ai:/app/ai
+  - ./notifications:/app/notifications
+
 services:
   api:
-    build: ./fastapi
+    build: *api-build
     command: sh -c "alembic -c database/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --reload"
     ports:
       - "8000:8000"
@@ -15,14 +29,42 @@ services:
       JWT_SECRET_KEY: docker-dev-secret
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       SCRAPE_ON_STARTUP: "true"
+      SCRAPE_SOURCES: serpapi_freelance,serpapi_jobs,serpapi_companies
+      PYTHONPATH: /app/fastapi:/app
     depends_on:
       - db
       - redis
-    volumes:
-      - ./fastapi:/app
-      - ./config:/app/config
-      - ./database:/app/database
-      - ./backend:/app/backend
+    volumes: *api-volumes
+
+  worker:
+    build: *api-build
+    command: celery -A workers.app.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/freelance
+      REDIS_URL: redis://redis:6379/0
+      REDIS_OPTIONAL: "true"
+      JWT_SECRET_KEY: docker-dev-secret
+      PYTHONPATH: /app/fastapi:/app
+    depends_on:
+      - db
+      - redis
+    volumes: *api-volumes
+
+  beat:
+    build: *api-build
+    command: celery -A workers.app.celery_app beat --loglevel=info
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/freelance
+      REDIS_URL: redis://redis:6379/0
+      REDIS_OPTIONAL: "true"
+      JWT_SECRET_KEY: docker-dev-secret
+      PYTHONPATH: /app/fastapi:/app
+    depends_on:
+      - redis
+      - worker
+    volumes: *api-volumes
 
   db:
     image: postgres:16-alpine
@@ -37,8 +79,15 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: always
+
+  adminer:
+    image: adminer:latest
+    restart: always
     ports:
-      - "6379:6379"
+      - "8080:8080"
+    depends_on:
+      - db
 
   frontend:
     image: node:22-alpine

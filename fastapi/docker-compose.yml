@@ -1,23 +1,31 @@
-version: '3.9'
+version: "3.9"
 
 services:
   web:
-    build: .
+    build:
+      context: ..
+      dockerfile: fastapi/Dockerfile
     command: sh -c "alembic -c database/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"
     ports:
-      - '8000:8000'
+      - "8000:8000"
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/freelance
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /app/fastapi:/app
     depends_on:
       - db
       - redis
     volumes:
-      - .:/app
+      - ../fastapi:/app/fastapi
       - ../config:/app/config
       - ../database:/app/database
       - ../backend:/app/backend
+      - ../workers:/app/workers
+      - ../scrapers:/app/scrapers
+      - ../ai:/app/ai
+      - ../notifications:/app/notifications
 
   db:
     image: postgres:16-alpine
@@ -26,14 +34,14 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - '5432:5432'
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
     ports:
-      - '6379:6379'
+      - "6379:6379"
 
 volumes:
   postgres_data:

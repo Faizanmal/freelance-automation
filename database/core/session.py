@@ -20,7 +20,11 @@ def get_engine() -> AsyncEngine:
     global _engine, _session_factory
     if _engine is None:
         settings = get_settings()
-        connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+        connect_args = (
+            {"check_same_thread": False}
+            if settings.database_url.startswith("sqlite")
+            else {}
+        )
         _engine = create_async_engine(
             settings.database_url,
             echo=False,

@@ -27,7 +27,13 @@ fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
-config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/freelance"))
+config.set_main_option(
+    "sqlalchemy.url",
+    os.environ.get(
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/freelance",
+    ),
+)
 
 
 def run_migrations_offline() -> None:

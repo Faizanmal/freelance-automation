@@ -20,10 +20,12 @@ class DomainJobRepository(IJobRepository):
         posted_at = None
         if record.posted_at:
             try:
-                posted_at = datetime.fromisoformat(str(record.posted_at).replace("Z", "+00:00"))
+                posted_at = datetime.fromisoformat(
+                    str(record.posted_at).replace("Z", "+00:00")
+                )
             except ValueError:
                 pass
-                
+
         return JobOpportunity(
             source=record.source_name,
             external_id=record.source_id,
@@ -39,8 +41,8 @@ class DomainJobRepository(IJobRepository):
                 "budget_max": record.budget_max,
                 "seniority": record.seniority,
                 "enrichment": record.enrichment,
-                "analysis_summary": record.analysis_summary
-            }
+                "analysis_summary": record.analysis_summary,
+            },
         )
 
     def _to_record(self, job: JobOpportunity) -> JobRecord:
@@ -70,9 +72,13 @@ class DomainJobRepository(IJobRepository):
         await self.session.refresh(record)
         return record
 
-    async def find_by_external_id(self, source_id: str, external_id: str) -> JobOpportunity | None:
+    async def find_by_external_id(
+        self, source_id: str, external_id: str
+    ) -> JobOpportunity | None:
         result = await self.session.execute(
-            select(JobRecord).where(JobRecord.source_name == source_id, JobRecord.source_id == external_id)
+            select(JobRecord).where(
+                JobRecord.source_name == source_id, JobRecord.source_id == external_id
+            )
         )
         record = result.scalar_one_or_none()
         if record:
@@ -80,28 +86,37 @@ class DomainJobRepository(IJobRepository):
         return None
 
     async def find_pending_for_match(self) -> list[JobOpportunity]:
-        # Typically we might filter jobs that haven't been matched yet. 
+        # Typically we might filter jobs that haven't been matched yet.
         # For simplicity in this adaptation, return the most recent 100 jobs.
-        result = await self.session.execute(select(JobRecord).order_by(desc(JobRecord.created_at)).limit(100))
+        result = await self.session.execute(
+            select(JobRecord).order_by(desc(JobRecord.created_at)).limit(100)
+        )
         records = result.scalars().all()
         return [self._to_domain(r) for r in records]
+
 
 class SQLAlchemyJobRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def get_by_id(self, job_id: int) -> JobRecord | None:
-        result = await self.session.execute(select(JobRecord).where(JobRecord.id == job_id))
+        result = await self.session.execute(
+            select(JobRecord).where(JobRecord.id == job_id)
+        )
         return result.scalar_one_or_none()
 
     async def get_by_source(self, source_name: str, source_id: str) -> JobRecord | None:
         result = await self.session.execute(
-            select(JobRecord).where(JobRecord.source_name == source_name, JobRecord.source_id == source_id)
+            select(JobRecord).where(
+                JobRecord.source_name == source_name, JobRecord.source_id == source_id
+            )
         )
         return result.scalar_one_or_none()
 
     async def get_by_url(self, url: str) -> JobRecord | None:
-        result = await self.session.execute(select(JobRecord).where(JobRecord.url == url))
+        result = await self.session.execute(
+            select(JobRecord).where(JobRecord.url == url)
+        )
         return result.scalar_one_or_none()
 
     async def list_jobs(
@@ -112,7 +127,12 @@ class SQLAlchemyJobRepository:
         source: str | None = None,
         search: str | None = None,
     ) -> list[JobRecord]:
-        query = select(JobRecord).order_by(desc(JobRecord.created_at)).offset(offset).limit(limit)
+        query = (
+            select(JobRecord)
+            .order_by(desc(JobRecord.created_at))
+            .offset(offset)
+            .limit(limit)
+        )
         if source:
             query = query.where(JobRecord.source_name == source)
         if search:
@@ -127,7 +147,9 @@ class SQLAlchemyJobRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def count_jobs(self, *, source: str | None = None, search: str | None = None) -> int:
+    async def count_jobs(
+        self, *, source: str | None = None, search: str | None = None
+    ) -> int:
         from sqlalchemy import func
 
         query = select(func.count()).select_from(JobRecord)
@@ -146,7 +168,9 @@ class SQLAlchemyJobRepository:
         return int(result.scalar_one())
 
     async def list_recent(self, limit: int = 200) -> list[JobRecord]:
-        result = await self.session.execute(select(JobRecord).order_by(desc(JobRecord.created_at)).limit(limit))
+        result = await self.session.execute(
+            select(JobRecord).order_by(desc(JobRecord.created_at)).limit(limit)
+        )
         return list(result.scalars().all())
 
     async def create(self, job: JobRecord) -> JobRecord:
@@ -161,8 +185,12 @@ class SQLAlchemyJobRepository:
         await self.session.refresh(job)
         return job
 
-    async def add_source(self, job: JobRecord, source_name: str, source_id: str, url: str) -> JobSource:
-        source = JobSource(job=job, source_name=source_name, source_id=source_id, url=url)
+    async def add_source(
+        self, job: JobRecord, source_name: str, source_id: str, url: str
+    ) -> JobSource:
+        source = JobSource(
+            job=job, source_name=source_name, source_id=source_id, url=url
+        )
         job.source_count = (job.source_count or 1) + 1
         self.session.add(source)
         await self.session.commit()
@@ -192,4 +220,3 @@ class SQLAlchemyJobRepository:
             "created_at": job.created_at.isoformat() if job.created_at else None,
         }
         return public_job_payload(raw)
-

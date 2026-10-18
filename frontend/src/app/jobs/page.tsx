@@ -110,44 +110,71 @@ export default function JobsPage() {
 
       <motion.div layout className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <AnimatePresence mode="popLayout">
-          {jobs.map((job, index) => (
-            <Card 
-              key={job.id} 
-              className="flex flex-col p-6"
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ delay: Math.min(index * 0.05, 0.5) }}
+          {jobs.length === 0 && !pending && !error ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="col-span-full flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 py-24 text-center"
             >
-              <div className="mb-4 flex items-start justify-between gap-2">
-                <h2 className="text-xl font-medium leading-tight text-[var(--paper)]">{job.title}</h2>
-                <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[10px] tracking-wider text-[var(--mute)] uppercase">
-                  {job.source_name}
-                </span>
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-3xl">
+                📭
               </div>
-              <p className="mb-4 text-sm text-[var(--fog)] font-medium">
-                {[job.company, job.location].filter(Boolean).join(" · ")}
+              <h3 className="mb-2 text-xl font-medium text-[var(--paper)]">No jobs found</h3>
+              <p className="max-w-sm text-sm text-[var(--fog)]">
+                We couldn&apos;t find any job listings matching your current search or source filters. Try adjusting your criteria or check back later!
               </p>
-              <p className="mb-6 line-clamp-3 flex-1 text-sm leading-relaxed text-[var(--mute)]">
-                {stripHtml(job.description)}
-              </p>
-              <div className="mt-auto pt-4 border-t border-white/5">
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {(job.tags || []).slice(0, 4).map((tag) => (
-                    <span key={tag} className="rounded bg-black/40 px-2 py-1 text-xs text-[var(--signal)] border border-[var(--signal)]/20">
-                      {tag}
-                    </span>
-                  ))}
+              <Button
+                variant="outline"
+                className="mt-6"
+                onClick={() => {
+                  setSearch("");
+                  setSource("");
+                  load("", "");
+                }}
+              >
+                Clear filters
+              </Button>
+            </motion.div>
+          ) : (
+            jobs.map((job, index) => (
+              <Card 
+                key={job.id} 
+                className="flex flex-col p-6"
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ delay: Math.min(index * 0.05, 0.5) }}
+              >
+                <div className="mb-4 flex items-start justify-between gap-2">
+                  <h2 className="text-xl font-medium leading-tight text-[var(--paper)]">{job.title}</h2>
+                  <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[10px] tracking-wider text-[var(--mute)] uppercase">
+                    {job.source_name}
+                  </span>
                 </div>
-                <Button 
-                  variant="outline" 
-                  className="w-full text-sm py-2"
-                  onClick={() => window.open(job.url, "_blank")}
-                >
-                  View Details
-                </Button>
-              </div>
-            </Card>
-          ))}
+                <p className="mb-4 text-sm text-[var(--fog)] font-medium">
+                  {[job.company, job.location].filter(Boolean).join(" · ")}
+                </p>
+                <p className="mb-6 line-clamp-3 flex-1 text-sm leading-relaxed text-[var(--mute)]">
+                  {stripHtml(job.description)}
+                </p>
+                <div className="mt-auto pt-4 border-t border-white/5">
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {(job.tags || []).slice(0, 4).map((tag) => (
+                      <span key={tag} className="rounded bg-black/40 px-2 py-1 text-xs text-[var(--signal)] border border-[var(--signal)]/20">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    className="w-full text-sm py-2"
+                    onClick={() => window.open(job.url, "_blank")}
+                  >
+                    View Details
+                  </Button>
+                </div>
+              </Card>
+            ))
+          )}
         </AnimatePresence>
       </motion.div>
     </motion.main>

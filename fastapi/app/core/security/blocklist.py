@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis.asyncio as redis
 
@@ -18,12 +18,13 @@ class JWTBlocklist:
 
     async def get_redis(self):
         from app.core.redis_client import get_redis
+
         return await get_redis()
 
     async def block_token(self, jti: str, exp: datetime) -> None:
         client = await self.get_redis()
         if client:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             ttl = int((exp - now).total_seconds())
             if ttl > 0:
                 await client.setex(f"blocklist:{jti}", ttl, "1")

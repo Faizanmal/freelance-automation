@@ -20,13 +20,15 @@ class DIContainer:
         self._singletons: dict[type[Any], Any] = {}
         self._factories: dict[type[Any], Callable[..., Any]] = {}
 
-    def register_singleton(self, interface: type[T], implementation: T | Callable[..., T]) -> None:
+    def register_singleton(
+        self, interface: type[T], implementation: T | Callable[..., T]
+    ) -> None:
         """Register a singleton instance or a factory that returns a singleton."""
-        if callable(implementation) and not inspect.isclass(implementation) and not hasattr(implementation, "__call__"):  # noqa: B004
-            # It's a factory function, we won't instantiate until resolved
+        if callable(implementation) and not inspect.isclass(implementation):
+            # Factory function — instantiate on first resolve
             self._factories[interface] = implementation
         elif inspect.isclass(implementation):
-            # We delay class instantiation to `resolve` so dependencies can be injected
+            # Delay class instantiation to `resolve` so dependencies can be injected
             self._factories[interface] = implementation
         else:
             self._singletons[interface] = implementation
@@ -42,7 +44,7 @@ class DIContainer:
 
         if interface in self._factories:
             factory_or_class = self._factories[interface]
-            
+
             # Simple auto-wiring attempt for classes
             if inspect.isclass(factory_or_class):
                 signature = inspect.signature(factory_or_class.__init__)
@@ -56,14 +58,15 @@ class DIContainer:
                             kwargs[name] = self.resolve(param.annotation)
                         except KeyError:
                             if param.default == inspect.Parameter.empty:
-                                raise ValueError(f"Cannot resolve dependency {name}: {param.annotation} for {interface}")
-                
+                                raise ValueError(
+                                    f"Cannot resolve dependency {name}: {param.annotation} for {interface}"
+                                )
+
                 instance = factory_or_class(**kwargs)
             else:
                 instance = factory_or_class(self)
-                
+
             self._singletons[interface] = instance
             return instance
 
         raise KeyError(f"No registration found for {interface.__name__}")
-

@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from backend.application.services.lead_findings import LeadFindingsService
 from database.models.job import JobRecord
@@ -18,7 +18,7 @@ def _job(**kwargs) -> JobRecord:
         "company": "Acme Labs",
         "budget_min": 4000,
         "budget_max": 7000,
-        "posted_at": datetime.now(timezone.utc).isoformat(),
+        "posted_at": datetime.now(UTC).isoformat(),
         "tags": ["python", "fastapi"],
     }
     defaults.update(kwargs)
@@ -38,7 +38,9 @@ class LeadFindingsServiceTests(unittest.TestCase):
         )
 
     def test_strong_lead_suggests_draft_bid(self) -> None:
-        payload = self.service.build([_job()], self.prefs, limit=5, freelance_focus=False)
+        payload = self.service.build(
+            [_job()], self.prefs, limit=5, freelance_focus=False
+        )
         self.assertEqual(payload["total_findings"], 1)
         item = payload["items"][0]
         self.assertEqual(item["action"], "draft_bid")
@@ -98,7 +100,9 @@ class LeadFindingsServiceTests(unittest.TestCase):
             budget_min=None,
             budget_max=None,
         )
-        payload = self.service.build([full_time], self.prefs, limit=5, freelance_focus=True)
+        payload = self.service.build(
+            [full_time], self.prefs, limit=5, freelance_focus=True
+        )
         if payload["items"]:
             item = payload["items"][0]
             self.assertTrue(item["employment_risks"])

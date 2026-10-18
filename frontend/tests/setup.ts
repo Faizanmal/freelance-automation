@@ -1,5 +1,23 @@
 import '@testing-library/jest-dom/vitest'
-import { vi } from 'vitest'
+import { cleanup } from '@testing-library/react'
+import { afterEach, vi } from 'vitest'
+
+afterEach(() => {
+  cleanup()
+})
+
+// Mock localStorage
+const localStorageMock = {
+  getItem: vi.fn(() => null),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  length: 0,
+  key: vi.fn(() => null),
+}
+Object.defineProperty(window, 'localStorage', {
+  value: localStorageMock,
+})
 
 vi.mock('next/font/google', () => ({
   Fraunces: () => ({

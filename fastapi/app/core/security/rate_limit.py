@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 
 from fastapi import HTTPException, Request, status
@@ -14,9 +14,10 @@ class SlidingWindowRateLimiter:
 
     async def check(self, key: str, *, limit: int, window_seconds: int) -> None:
         from app.core.redis_client import get_redis
+
         client = await get_redis()
-        now = datetime.now(timezone.utc)
-        
+        now = datetime.now(UTC)
+
         if client:
             pipeline = client.pipeline()
             pipeline.zremrangebyscore(key, 0, now.timestamp() - window_seconds)
@@ -24,7 +25,7 @@ class SlidingWindowRateLimiter:
             pipeline.zadd(key, {str(now.timestamp()): now.timestamp()})
             pipeline.expire(key, window_seconds)
             results = await pipeline.execute()
-            
+
             # The second command in pipeline is zcard (count)
             count = results[1]
             if count >= limit:

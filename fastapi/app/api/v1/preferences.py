@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated, Literal
+
 from app.api.dependencies import get_current_user
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
@@ -10,6 +12,8 @@ from backend.application.services.lead_findings import LeadFindingsService
 from backend.application.services.matching import MatchingService
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.core.session import get_db
+from database.models.job import JobRecord
+from database.models.lead_action import UserLeadAction
 from database.models.preference import UserPreferences
 from database.models.user import User
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,14 +22,24 @@ router = APIRouter(prefix="/preferences", tags=["preferences"])
 
 
 class PreferencesPayload(BaseModel):
-    keywords: list[str] = Field(default_factory=lambda: ["python", "fastapi", "react"], max_length=40)
+    keywords: list[str] = Field(
+        default_factory=lambda: ["python", "fastapi", "react"], max_length=40
+    )
     exclude_keywords: list[str] = Field(default_factory=list, max_length=40)
     min_budget: float | None = None
     max_budget: float | None = None
     sources: list[str] = Field(default_factory=list, max_length=20)
     match_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
-    notification_channels: list[str] = Field(default_factory=lambda: ["email"], max_length=10)
-    digest_mode: bool = False
+    notification_channels: list[str] = Field(
+        default_factory=lambda: ["email"], max_length=10
+    )
+    digest_mode: bool = True
+    freelance_focus: bool = True
+    location: str | None = Field(default=None, max_length=128)
+    timezone: str | None = Field(default=None, max_length=64)
+    digest_days: list[str] | None = Field(default=None, max_length=7)
+    digest_time_local: str | None = Field(default=None, max_length=8)
+    max_per_digest: int = Field(default=10, ge=1, le=50)
     notes: str | None = Field(default=None, max_length=2000)
     alert_email: EmailStr | None = None
     slack_webhook_url: str | None = Field(default=None, max_length=1024)
@@ -37,6 +51,26 @@ class PreferencesPayload(BaseModel):
 class PreferencesOut(PreferencesPayload):
     id: int
     user_id: str
+
+
+class LeadActionPayload(BaseModel):
+    status: Literal["save", "skip", "clear"]
+
+
+async def _lead_status_sets(
+    session: AsyncSession, user_id: str
+) -> tuple[set[int], set[int]]:
+    result = await session.execute(
+        select(UserLeadAction).where(UserLeadAction.user_id == user_id)
+    )
+    skipped: set[int] = set()
+    saved: set[int] = set()
+    for row in result.scalars().all():
+        if row.status == "skip":
+            skipped.add(row.job_id)
+        elif row.status == "save":
+            saved.add(row.job_id)
+    return skipped, saved
 
 
 def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
@@ -51,6 +85,14 @@ def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
         match_threshold=prefs.match_threshold,
         notification_channels=prefs.notification_channels or [],
         digest_mode=bool(prefs.digest_mode),
+        freelance_focus=bool(getattr(prefs, "freelance_focus", True)),
+        location=getattr(prefs, "location", None),
+        timezone=getattr(prefs, "timezone", None),
+        digest_days=(
+            list(prefs.digest_days) if getattr(prefs, "digest_days", None) else None
+        ),
+        digest_time_local=getattr(prefs, "digest_time_local", None),
+        max_per_digest=int(getattr(prefs, "max_per_digest", None) or 10),
         notes=prefs.notes,
         alert_email=prefs.alert_email,
         slack_webhook_url=prefs.slack_webhook_url,
@@ -60,8 +102,12 @@ def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
     )
 
 
-async def _get_or_create_preferences(session: AsyncSession, user: User) -> UserPreferences:
-    result = await session.execute(select(UserPreferences).where(UserPreferences.user_id == user.id))
+async def _get_or_create_preferences(
+    session: AsyncSession, user: User
+) -> UserPreferences:
+    result = await session.execute(
+        select(UserPreferences).where(UserPreferences.user_id == user.id)
+    )
     prefs = result.scalar_one_or_none()
     if prefs:
         return prefs
@@ -72,7 +118,11 @@ async def _get_or_create_preferences(session: AsyncSession, user: User) -> UserP
         sources=[],
         notification_channels=["email"],
         match_threshold=0.35,
-        digest_mode=False,
+        digest_mode=True,
+        freelance_focus=True,
+        digest_days=["mon", "tue", "wed", "thu", "fri"],
+        digest_time_local="09:00",
+        max_per_digest=10,
         alert_email=user.email,
     )
     session.add(prefs)
@@ -83,8 +133,8 @@ async def _get_or_create_preferences(session: AsyncSession, user: User) -> UserP
 
 @router.get("/me", response_model=PreferencesOut)
 async def get_my_preferences(
-    user: User = Depends(get_current_user),  # noqa: B008
-    session: AsyncSession = Depends(get_db),  # noqa: B008
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
 ) -> PreferencesOut:
     prefs = await _get_or_create_preferences(session, user)
     return _prefs_out(prefs)
@@ -93,15 +143,18 @@ async def get_my_preferences(
 @router.put("/me", response_model=PreferencesOut)
 async def update_my_preferences(
     payload: PreferencesPayload,
-    user: User = Depends(get_current_user),  # noqa: B008
-    session: AsyncSession = Depends(get_db),  # noqa: B008
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
 ) -> PreferencesOut:
     prefs = await _get_or_create_preferences(session, user)
     channels = filter_channels_for_user(user, payload.notification_channels)
     if not channels:
         channels = ["email"]
     if not is_pro(user) and set(channels) - {"email"}:
-        raise HTTPException(status_code=402, detail="Multi-channel alerts require Pro. Upgrade at /pricing.")
+        raise HTTPException(
+            status_code=402,
+            detail="Multi-channel alerts require Pro. Upgrade at /pricing.",
+        )
 
     prefs.keywords = payload.keywords
     prefs.exclude_keywords = payload.exclude_keywords
@@ -111,6 +164,12 @@ async def update_my_preferences(
     prefs.match_threshold = payload.match_threshold
     prefs.notification_channels = channels
     prefs.digest_mode = payload.digest_mode
+    prefs.freelance_focus = payload.freelance_focus
+    prefs.location = payload.location
+    prefs.timezone = payload.timezone
+    prefs.digest_days = payload.digest_days
+    prefs.digest_time_local = payload.digest_time_local
+    prefs.max_per_digest = payload.max_per_digest
     prefs.notes = payload.notes
     prefs.alert_email = str(payload.alert_email) if payload.alert_email else user.email
     prefs.slack_webhook_url = payload.slack_webhook_url
@@ -125,9 +184,9 @@ async def update_my_preferences(
 
 @router.get("/matches")
 async def list_matches(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
     limit: int = 50,
-    user: User = Depends(get_current_user),  # noqa: B008
-    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     prefs = await _get_or_create_preferences(session, user)
     repo = SQLAlchemyJobRepository(session)
@@ -153,26 +212,76 @@ async def list_matches(
 
 @router.get("/findings")
 async def list_findings(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
     limit: int = 10,
-    freelance_focus: bool = True,
-    user: User = Depends(get_current_user),  # noqa: B008
-    session: AsyncSession = Depends(get_db),  # noqa: B008
+    freelance_focus: bool | None = None,
+    include_skipped: bool = False,
 ) -> dict:
     """Decision digest: why a lead matters now and what to do next."""
     prefs = await _get_or_create_preferences(session, user)
+    focus = (
+        bool(freelance_focus)
+        if freelance_focus is not None
+        else bool(getattr(prefs, "freelance_focus", True))
+    )
+    skipped, saved = await _lead_status_sets(session, user.id)
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
     return LeadFindingsService().build(
-        jobs, prefs, limit=limit, freelance_focus=freelance_focus
+        jobs,
+        prefs,
+        limit=limit,
+        freelance_focus=focus,
+        skip_job_ids=skipped,
+        saved_job_ids=saved,
+        include_skipped=include_skipped,
     )
+
+
+@router.put("/leads/{job_id}/action")
+async def set_lead_action(
+    job_id: int,
+    payload: LeadActionPayload,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Persist Save / Skip for a lead, or clear the stored action."""
+    job = await session.get(JobRecord, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    result = await session.execute(
+        select(UserLeadAction).where(
+            UserLeadAction.user_id == user.id,
+            UserLeadAction.job_id == job_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+
+    if payload.status == "clear":
+        if row is not None:
+            await session.delete(row)
+            await session.commit()
+        return {"job_id": job_id, "status": None}
+
+    if row is None:
+        row = UserLeadAction(user_id=user.id, job_id=job_id, status=payload.status)
+        session.add(row)
+    else:
+        row.status = payload.status
+        session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    return {"job_id": job_id, "status": row.status}
 
 
 @router.get("/demo-findings")
 async def demo_findings(
+    session: Annotated[AsyncSession, Depends(get_db)],
     keywords: str = "python,react,fastapi,typescript,remote",
     limit: int = 10,
     freelance_focus: bool = True,
-    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     """Unauthenticated lead findings digest for the desk demo."""
     repo = SQLAlchemyJobRepository(session)
@@ -198,9 +307,9 @@ async def demo_findings(
 
 @router.get("/demo-matches")
 async def demo_matches(
+    session: Annotated[AsyncSession, Depends(get_db)],
     keywords: str = "python,react,fastapi,typescript,remote",
     limit: int = 50,
-    session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> dict:
     """Unauthenticated matching for the demo dashboard."""
     repo = SQLAlchemyJobRepository(session)

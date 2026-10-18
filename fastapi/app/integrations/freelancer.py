@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 import httpx
@@ -20,7 +21,9 @@ def freelancer_configured() -> bool:
     return bool(get_settings().freelancer_oauth_token)
 
 
-async def search_projects(*, query: str = "python", limit: int = 20) -> list[dict[str, Any]]:
+async def search_projects(
+    *, query: str = "python", limit: int = 20
+) -> list[dict[str, Any]]:
     settings = get_settings()
     token = settings.freelancer_oauth_token
     if not token:
@@ -41,8 +44,12 @@ async def search_projects(*, query: str = "python", limit: int = 20) -> list[dic
         "job_details": "true",
     }
 
-    async with httpx.AsyncClient(timeout=45.0, headers=headers, follow_redirects=True) as client:
-        response = await client.get(f"{API_BASE}/projects/0.1/projects/active/", params=params)
+    async with httpx.AsyncClient(
+        timeout=45.0, headers=headers, follow_redirects=True
+    ) as client:
+        response = await client.get(
+            f"{API_BASE}/projects/0.1/projects/active/", params=params
+        )
         if response.status_code in {401, 403}:
             raise SourceNotConfiguredError("Freelancer token rejected (401/403)")
         response.raise_for_status()
@@ -56,7 +63,11 @@ async def search_projects(*, query: str = "python", limit: int = 20) -> list[dic
         title = project.get("title") or "Untitled"
         description = project.get("description") or title
         seo_url = project.get("seo_url")
-        url = f"https://www.freelancer.com/projects/{seo_url}" if seo_url else f"https://www.freelancer.com/projects/{project_id}"
+        url = (
+            f"https://www.freelancer.com/projects/{seo_url}"
+            if seo_url
+            else f"https://www.freelancer.com/projects/{project_id}"
+        )
         budget = project.get("budget") or {}
         tags = []
         for job in project.get("jobs") or []:
@@ -99,7 +110,9 @@ def _auth_headers() -> dict[str, str]:
 
 
 async def get_self_user_id() -> int:
-    async with httpx.AsyncClient(timeout=30.0, headers=_auth_headers(), follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        timeout=30.0, headers=_auth_headers(), follow_redirects=True
+    ) as client:
         response = await client.get(f"{API_BASE}/users/0.1/self/")
         if response.status_code in {401, 403}:
             raise SourceNotConfiguredError("Freelancer token rejected (401/403)")
@@ -131,7 +144,9 @@ async def place_bid(
         "milestone_percentage": int(milestone_percentage),
         "description": description,
     }
-    async with httpx.AsyncClient(timeout=45.0, headers=_auth_headers(), follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        timeout=45.0, headers=_auth_headers(), follow_redirects=True
+    ) as client:
         response = await client.post(f"{API_BASE}/projects/0.1/bids/", json=body)
         if response.status_code in {401, 403}:
             raise SourceNotConfiguredError(
@@ -143,8 +158,12 @@ async def place_bid(
             try:
                 detail = response.json()
             except Exception:
-                logger.debug("Failed to parse freelancer error response as JSON", exc_info=True)
-            raise RuntimeError(f"Freelancer bid failed ({response.status_code}): {detail}")
+                logger.debug(
+                    "Failed to parse freelancer error response as JSON", exc_info=True
+                )
+            raise RuntimeError(
+                f"Freelancer bid failed ({response.status_code}): {detail}"
+            )
         payload = response.json()
     result = payload.get("result")
     return result if isinstance(result, dict) else {"raw": payload}
@@ -163,8 +182,8 @@ def _epoch_to_iso(value: Any) -> str | None:
     if value is None:
         return None
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.fromtimestamp(int(value), tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(int(value), tz=UTC).isoformat()
     except (TypeError, ValueError, OSError):
         return str(value) if value else None

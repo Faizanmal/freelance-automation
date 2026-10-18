@@ -77,7 +77,8 @@ def is_pro(user: User) -> bool:
     if normalize_plan(user.plan) != PLAN_PRO:
         return False
     status = (user.subscription_status or "active").lower()
-    return status in {"active", "trialing", "dev", "past_due"}
+    # past_due keeps the Stripe subscription id but does not unlock Pro features.
+    return status in {"active", "trialing", "dev"}
 
 
 def limits_for_user(user: User) -> PlanLimits:

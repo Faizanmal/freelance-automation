@@ -22,7 +22,13 @@ async def retry_async(
     while True:
         try:
             return await fn(*args, **kwargs)
-        except Exception as exc:
+        except (
+            TimeoutError,
+            OSError,
+            ValueError,
+            RuntimeError,
+            ConnectionError,
+        ) as exc:
             attempt += 1
             logger.warning("Retry %s failed on attempt %s: %s", label, attempt, exc)
             if recover_callback:

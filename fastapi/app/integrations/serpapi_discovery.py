@@ -43,7 +43,8 @@ DEFAULT_COMPANY_CAREER_SITES: tuple[str, ...] = (
     "scig.oorwin.ai",
 )
 
-# High-traffic aggregators / ATS platforms — never accept as company careers hits.
+# High-traffic job aggregators — never accept as company careers hits.
+# ATS platforms are intentional V1 spine targets (see ATS_DISCOVERY_SITES).
 HIGH_TRAFFIC_HOST_MARKERS: tuple[str, ...] = (
     "linkedin.com",
     "dice.com",
@@ -51,16 +52,18 @@ HIGH_TRAFFIC_HOST_MARKERS: tuple[str, ...] = (
     "indeed.com",
     "glassdoor.com",
     "ziprecruiter.com",
-    "greenhouse.io",
-    "lever.co",
-    "ashbyhq.com",
-    "smartrecruiters.com",
-    "workable.com",
-    "jobdiva.com",
-    "ats.rippling.com",
-    "rippling.com",
     "torre.ai",
     "wdtalenthub.com",
+)
+
+# Public ATS hosts used for SerpAPI site: discovery (contract/freelance keywords).
+ATS_DISCOVERY_SITES: tuple[str, ...] = (
+    "boards.greenhouse.io",
+    "jobs.lever.co",
+    "jobs.ashbyhq.com",
+    "jobs.smartrecruiters.com",
+    "apply.workable.com",
+    "ats.rippling.com",
 )
 
 COMPANY_SITE_BATCH_SIZE = 8
@@ -82,13 +85,15 @@ def normalize_company_host(value: str) -> str:
 
 
 def resolve_company_career_sites(raw: str | None = None) -> list[str]:
-    """Return curated company hosts; env override replaces the built-in list when set."""
+    """Return ATS spine + curated company hosts; env override replaces when set."""
     if raw is None:
         raw = get_settings().serpapi_company_sites
     if raw and raw.strip():
-        sites = [normalize_company_host(part) for part in raw.split(",") if part.strip()]
+        sites = [
+            normalize_company_host(part) for part in raw.split(",") if part.strip()
+        ]
         return list(dict.fromkeys(site for site in sites if site))
-    return list(DEFAULT_COMPANY_CAREER_SITES)
+    return list(dict.fromkeys([*ATS_DISCOVERY_SITES, *DEFAULT_COMPANY_CAREER_SITES]))
 
 
 def build_companies_site_queries(
@@ -177,8 +182,12 @@ def _looks_like_company_careers(
     host = _hostname(link)
     if _host_matches(host, HIGH_TRAFFIC_HOST_MARKERS):
         return False
+    if _host_matches(host, ATS_DISCOVERY_SITES):
+        return True
 
-    allowlist = company_sites if company_sites is not None else resolve_company_career_sites()
+    allowlist = (
+        company_sites if company_sites is not None else resolve_company_career_sites()
+    )
     if _host_matches(host, allowlist):
         return True
 
@@ -202,7 +211,9 @@ def _looks_like_company_careers(
         "career opportunities",
         "job openings",
     )
-    return any(token in blob for token in path_hits) or any(token in blob for token in text_hits)
+    return any(token in blob for token in path_hits) or any(
+        token in blob for token in text_hits
+    )
 
 
 async def search_discovery(
@@ -325,7 +336,9 @@ async def _search_google_organic(
     for item in payload.get("organic_results") or []:
         title = str(item.get("title") or "Untitled").strip()
         link = str(item.get("link") or "").strip()
-        snippet = str(item.get("snippet") or item.get("about_this_result") or title).strip()
+        snippet = str(
+            item.get("snippet") or item.get("about_this_result") or title
+        ).strip()
         if not link:
             continue
         if mode == "freelance" and not _looks_useful_freelance(title, snippet, link):
@@ -335,7 +348,9 @@ async def _search_google_organic(
         ):
             continue
         host = _hostname(link)
-        location = "Company careers page" if mode == "companies" else "Remote / web discovery"
+        location = (
+            "Company careers page" if mode == "companies" else "Remote / web discovery"
+        )
         rows.append(
             {
                 "source_id": _stable_id(link, title),
@@ -469,7 +484,9 @@ async def _search_google_jobs(
     for item in payload.get("jobs_results") or []:
         title = str(item.get("title") or "Untitled").strip()
         company = item.get("company_name")
-        description = str(item.get("description") or item.get("share_link") or title).strip()
+        description = str(
+            item.get("description") or item.get("share_link") or title
+        ).strip()
         apply_options = item.get("apply_options") or []
         link = ""
         if isinstance(apply_options, list) and apply_options:
@@ -488,7 +505,9 @@ async def _search_google_jobs(
             location_label = ", ".join(str(part) for part in locations[:3])
 
         extensions = item.get("detected_extensions") or {}
-        schedule = extensions.get("schedule_type") if isinstance(extensions, dict) else None
+        schedule = (
+            extensions.get("schedule_type") if isinstance(extensions, dict) else None
+        )
         tags = ["discovery", "serpapi", "jobs"]
         if schedule:
             tags.append(str(schedule).lower())
@@ -505,7 +524,11 @@ async def _search_google_jobs(
                 "company": company,
                 "budget_min": None,
                 "budget_max": None,
-                "posted_at": (extensions or {}).get("posted_at") if isinstance(extensions, dict) else None,
+                "posted_at": (
+                    (extensions or {}).get("posted_at")
+                    if isinstance(extensions, dict)
+                    else None
+                ),
                 "tags": tags[:12],
                 "location": location_label or "Remote / unspecified",
                 "metadata": {
@@ -523,7 +546,9 @@ async def _search_google_jobs(
 
 async def _get_json(params: dict[str, Any]) -> dict[str, Any]:
     headers = {"User-Agent": "FreelanceIntelligence/0.5 (+serpapi)"}
-    async with httpx.AsyncClient(timeout=45.0, headers=headers, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        timeout=45.0, headers=headers, follow_redirects=True
+    ) as client:
         response = await client.get(SERPAPI_URL, params=params)
         if response.status_code in {401, 403}:
             raise SourceNotConfiguredError("SerpAPI key rejected (401/403)")

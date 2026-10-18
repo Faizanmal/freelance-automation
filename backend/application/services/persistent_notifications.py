@@ -15,11 +15,15 @@ from database.models.notification import NotificationDelivery, NotificationRecor
 class PersistentNotificationService:
     """Wraps the in-memory dispatcher and writes durable history."""
 
-    def __init__(self, session: AsyncSession, dispatcher: NotificationService | None = None) -> None:
+    def __init__(
+        self, session: AsyncSession, dispatcher: NotificationService | None = None
+    ) -> None:
         self.session = session
         self.dispatcher = dispatcher or NotificationService()
 
-    async def send(self, payload: NotificationPayload, *, job_id: int | None = None) -> dict[str, object]:
+    async def send(
+        self, payload: NotificationPayload, *, job_id: int | None = None
+    ) -> dict[str, object]:
         public_id = str(uuid4())
         record = NotificationRecord(
             public_id=public_id,
@@ -38,9 +42,13 @@ class PersistentNotificationService:
         await self.session.flush()
 
         results = await self.dispatcher.dispatch(payload)
-        delivered_any = False
+        delivered_count = 0
+        failed_count = 0
         for result in results:
-            delivered_any = delivered_any or result.delivered
+            if result.delivered:
+                delivered_count += 1
+            else:
+                failed_count += 1
             self.session.add(
                 NotificationDelivery(
                     notification_id=record.id,
@@ -51,7 +59,12 @@ class PersistentNotificationService:
                 )
             )
 
-        record.status = "delivered" if delivered_any else "failed"
+        if delivered_count and failed_count:
+            record.status = "partial"
+        elif delivered_count:
+            record.status = "delivered"
+        else:
+            record.status = "failed"
         await self.session.commit()
         await self.session.refresh(record)
 
@@ -59,6 +72,8 @@ class PersistentNotificationService:
             "id": record.id,
             "public_id": record.public_id,
             "status": record.status,
+            "delivered_count": delivered_count,
+            "failed_count": failed_count,
             "results": [_result_dict(result) for result in results],
         }
 

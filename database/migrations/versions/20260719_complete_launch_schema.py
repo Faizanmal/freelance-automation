@@ -44,8 +44,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("public_id"),
     )
-    op.create_index("ix_notifications_public_id", "notifications", ["public_id"], unique=True)
-    op.create_index("ix_notifications_user_id", "notifications", ["user_id"], unique=False)
+    op.create_index(
+        "ix_notifications_public_id", "notifications", ["public_id"], unique=True
+    )
+    op.create_index(
+        "ix_notifications_user_id", "notifications", ["user_id"], unique=False
+    )
 
     op.create_table(
         "notification_deliveries",
@@ -61,7 +65,9 @@ def upgrade() -> None:
             server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(["notification_id"], ["notifications.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["notification_id"], ["notifications.id"], ondelete="CASCADE"
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(

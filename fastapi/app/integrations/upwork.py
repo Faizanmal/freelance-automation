@@ -151,7 +151,9 @@ def build_authorize_url(state: str = "signal-desk") -> str:
 async def exchange_code_for_tokens(code: str) -> UpworkTokens:
     settings = get_settings()
     if not settings.upwork_client_id or not settings.upwork_client_secret:
-        raise SourceNotConfiguredError("UPWORK_CLIENT_ID / UPWORK_CLIENT_SECRET required")
+        raise SourceNotConfiguredError(
+            "UPWORK_CLIENT_ID / UPWORK_CLIENT_SECRET required"
+        )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -181,7 +183,9 @@ async def exchange_code_for_tokens(code: str) -> UpworkTokens:
 async def refresh_access_token(refresh_token: str) -> UpworkTokens:
     settings = get_settings()
     if not settings.upwork_client_id or not settings.upwork_client_secret:
-        raise SourceNotConfiguredError("UPWORK_CLIENT_ID / UPWORK_CLIENT_SECRET required to refresh")
+        raise SourceNotConfiguredError(
+            "UPWORK_CLIENT_ID / UPWORK_CLIENT_SECRET required to refresh"
+        )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -207,7 +211,9 @@ async def refresh_access_token(refresh_token: str) -> UpworkTokens:
     return tokens
 
 
-async def _graphql(access_token: str, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+async def _graphql(
+    access_token: str, query: str, variables: dict[str, Any]
+) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=45.0) as client:
         response = await client.post(
             GRAPHQL_URL,
@@ -246,7 +252,11 @@ def _row_to_fields(row: dict[str, Any]) -> dict[str, Any]:
     job_content = ((row.get("job") or {}).get("content")) or {}
     title = row.get("title") or job_content.get("title") or "Untitled"
     description = row.get("description") or job_content.get("description") or title
-    skills = [str(skill.get("name")).lower() for skill in (row.get("skills") or []) if isinstance(skill, dict) and skill.get("name")]
+    skills = [
+        str(skill.get("name")).lower()
+        for skill in (row.get("skills") or [])
+        if isinstance(skill, dict) and skill.get("name")
+    ]
 
     budget = row.get("budget") or {}
     amount = row.get("amount") or {}
@@ -287,7 +297,9 @@ def _row_to_fields(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def search_jobs(*, query: str = "python", limit: int = 20) -> list[dict[str, Any]]:
+async def search_jobs(
+    *, query: str = "python", limit: int = 20
+) -> list[dict[str, Any]]:
     tokens = load_tokens()
     if not tokens:
         raise SourceNotConfiguredError(
@@ -303,7 +315,9 @@ async def search_jobs(*, query: str = "python", limit: int = 20) -> list[dict[st
         data = await _graphql(tokens.access_token, JOB_SEARCH_QUERY_LEGACY, variables)
     except PermissionError:
         if not tokens.refresh_token:
-            raise SourceNotConfiguredError("Upwork access token expired and no refresh token available")
+            raise SourceNotConfiguredError(
+                "Upwork access token expired and no refresh token available"
+            )
         tokens = await refresh_access_token(tokens.refresh_token)
         data = await _graphql(tokens.access_token, JOB_SEARCH_QUERY_LEGACY, variables)
     except RuntimeError:

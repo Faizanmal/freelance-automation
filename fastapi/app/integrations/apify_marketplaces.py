@@ -77,11 +77,14 @@ async def search_guru(query: str, limit: int) -> list[dict[str, Any]]:
 
 def _normalize_marketplace_row(source: str, row: dict[str, Any]) -> dict[str, Any]:
     title = _first(row, "title", "jobTitle", "name", "projectTitle") or "Untitled"
-    description = _first(
-        row, "description", "jobDescription", "summary", "projectDescription"
-    ) or title
+    description = (
+        _first(row, "description", "jobDescription", "summary", "projectDescription")
+        or title
+    )
     url = _first(row, "url", "jobUrl", "job_url", "projectUrl", "link") or ""
-    source_id = _first(row, "id", "jobId", "job_id", "projectId", "slug", "url") or title
+    source_id = (
+        _first(row, "id", "jobId", "job_id", "projectId", "slug", "url") or title
+    )
     company = _first(row, "company", "clientName", "buyerName", "employer") or (
         "PeoplePerHour client" if source == "peopleperhour" else "Guru client"
     )

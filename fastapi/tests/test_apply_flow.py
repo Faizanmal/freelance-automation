@@ -6,6 +6,7 @@ from backend.application.services.apply_service import ApplyError, ApplyService
 from backend.application.services.proposal_draft import (
     ProposalDraftService,
     extract_apply_email,
+    submit_mode_for_job,
     submit_mode_for_source,
 )
 
@@ -32,8 +33,13 @@ class ProposalDraftShapeTests(unittest.IsolatedAsyncioTestCase):
             analysis_summary="Backend API work",
             enrichment={"summary": "API + auth"},
         )
-        with patch("backend.application.services.proposal_draft.any_llm_configured", return_value=False):
-            result = await ProposalDraftService().draft(user=user, preferences=prefs, job=job)
+        with patch(
+            "backend.application.services.proposal_draft.any_llm_configured",
+            return_value=False,
+        ):
+            result = await ProposalDraftService().draft(
+                user=user, preferences=prefs, job=job
+            )
 
         fields = result["form_fields"]
         assert isinstance(fields, dict)
@@ -45,11 +51,27 @@ class ProposalDraftShapeTests(unittest.IsolatedAsyncioTestCase):
 
     def test_submit_modes(self) -> None:
         self.assertEqual(submit_mode_for_source("freelancer"), "api_bid")
-        self.assertEqual(submit_mode_for_source("upwork"), "api_proposal")
-        self.assertEqual(submit_mode_for_source("remoteok"), "email_apply")
-        self.assertEqual(submit_mode_for_source("himalayas"), "email_apply")
-        self.assertEqual(submit_mode_for_source("jobicy"), "email_apply")
+        self.assertEqual(submit_mode_for_source("upwork"), "external_apply")
+        self.assertEqual(submit_mode_for_source("remoteok"), "external_apply")
+        self.assertEqual(submit_mode_for_source("himalayas"), "external_apply")
+        self.assertEqual(submit_mode_for_source("jobicy"), "external_apply")
         self.assertEqual(submit_mode_for_source("unknown"), "unsupported")
+
+    def test_submit_mode_for_job_email_when_present(self) -> None:
+        job = SimpleNamespace(
+            source_name="remoteok",
+            url="https://remoteok.com/1",
+            description="Apply at hiring@acme.test",
+        )
+        self.assertEqual(submit_mode_for_job(job), "email_apply")
+        self.assertEqual(
+            submit_mode_for_job(
+                SimpleNamespace(
+                    source_name="upwork", url="https://upwork.com/1", description="x"
+                )
+            ),
+            "external_apply",
+        )
 
     def test_extract_apply_email(self) -> None:
         job = SimpleNamespace(
@@ -98,13 +120,20 @@ class ApplyServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ApplyError) as ctx:
             await service.submit(
                 user=SimpleNamespace(id="u1", email="a@b.c"),
-                job=SimpleNamespace(id=1, source_name="freelancer", source_id="1", title="t", url="u", description="d"),
+                job=SimpleNamespace(
+                    id=1,
+                    source_name="freelancer",
+                    source_id="1",
+                    title="t",
+                    url="u",
+                    description="d",
+                ),
                 form_fields={"proposal": "hi", "bid_amount": 10},
                 confirm=False,
             )
         self.assertEqual(ctx.exception.code, "confirm_required")
 
-    async def test_upwork_submit_raises_unavailable(self) -> None:
+    async def test_upwork_confirm_prepares_external(self) -> None:
         session = SimpleNamespace(add=lambda *_: None, flush=AsyncMock())
         user = SimpleNamespace(id="u1", email="ada@example.com")
         job = SimpleNamespace(
@@ -116,14 +145,15 @@ class ApplyServiceTests(unittest.IsolatedAsyncioTestCase):
             description="desc",
         )
         service = ApplyService(session)  # type: ignore[arg-type]
-        with patch("backend.application.services.apply_service.upwork_api.upwork_configured", return_value=True), self.assertRaises(ApplyError) as ctx:
-            await service.submit(
-                user=user,
-                job=job,
-                form_fields={"proposal": "Hello"},
-                confirm=True,
-            )
-        self.assertEqual(ctx.exception.code, "upwork_submit_unavailable")
+        result = await service.submit(
+            user=user,
+            job=job,
+            form_fields={"proposal": "Hello"},
+            confirm=True,
+        )
+        self.assertEqual(result["status"], "prepared")
+        self.assertEqual(result["submit_mode"], "external_apply")
+        self.assertEqual(result["apply_url"], job.url)
 
     async def test_email_submit_success(self) -> None:
         session = SimpleNamespace(add=lambda *_: None, flush=AsyncMock())
@@ -137,12 +167,17 @@ class ApplyServiceTests(unittest.IsolatedAsyncioTestCase):
             description="Apply at hiring@example.com",
         )
         service = ApplyService(session)  # type: ignore[arg-type]
-        with patch.dict("os.environ", {
-            "EMAIL_SMTP_HOST": "smtp.test",
-            "EMAIL_USERNAME": "testuser",
-            "EMAIL_PASSWORD": "testpassword",
-            "EMAIL_FROM": "bot@test.com"
-        }), patch("backend.application.services.apply_service.smtplib.SMTP") as mock_smtp:
+        with patch.dict(
+            "os.environ",
+            {
+                "EMAIL_SMTP_HOST": "smtp.test",
+                "EMAIL_USERNAME": "testuser",
+                "EMAIL_PASSWORD": "testpassword",
+                "EMAIL_FROM": "bot@test.com",
+            },
+        ), patch(
+            "backend.application.services.apply_service.smtplib.SMTP"
+        ) as mock_smtp:
             result = await service.submit(
                 user=user,
                 job=job,

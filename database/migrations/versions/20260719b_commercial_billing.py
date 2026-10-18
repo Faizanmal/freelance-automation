@@ -17,20 +17,50 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("plan", sa.String(length=32), nullable=False, server_default="free"))
     op.add_column(
         "users",
-        sa.Column("subscription_status", sa.String(length=32), nullable=False, server_default="inactive"),
+        sa.Column("plan", sa.String(length=32), nullable=False, server_default="free"),
     )
-    op.add_column("users", sa.Column("stripe_customer_id", sa.String(length=128), nullable=True))
-    op.add_column("users", sa.Column("stripe_subscription_id", sa.String(length=128), nullable=True))
-    op.create_index("ix_users_stripe_customer_id", "users", ["stripe_customer_id"], unique=False)
+    op.add_column(
+        "users",
+        sa.Column(
+            "subscription_status",
+            sa.String(length=32),
+            nullable=False,
+            server_default="inactive",
+        ),
+    )
+    op.add_column(
+        "users", sa.Column("stripe_customer_id", sa.String(length=128), nullable=True)
+    )
+    op.add_column(
+        "users",
+        sa.Column("stripe_subscription_id", sa.String(length=128), nullable=True),
+    )
+    op.create_index(
+        "ix_users_stripe_customer_id", "users", ["stripe_customer_id"], unique=False
+    )
 
-    op.add_column("user_preferences", sa.Column("alert_email", sa.String(length=256), nullable=True))
-    op.add_column("user_preferences", sa.Column("slack_webhook_url", sa.String(length=1024), nullable=True))
-    op.add_column("user_preferences", sa.Column("telegram_chat_id", sa.String(length=128), nullable=True))
-    op.add_column("user_preferences", sa.Column("discord_webhook_url", sa.String(length=1024), nullable=True))
-    op.add_column("user_preferences", sa.Column("whatsapp_to", sa.String(length=64), nullable=True))
+    op.add_column(
+        "user_preferences",
+        sa.Column("alert_email", sa.String(length=256), nullable=True),
+    )
+    op.add_column(
+        "user_preferences",
+        sa.Column("slack_webhook_url", sa.String(length=1024), nullable=True),
+    )
+    op.add_column(
+        "user_preferences",
+        sa.Column("telegram_chat_id", sa.String(length=128), nullable=True),
+    )
+    op.add_column(
+        "user_preferences",
+        sa.Column("discord_webhook_url", sa.String(length=1024), nullable=True),
+    )
+    op.add_column(
+        "user_preferences",
+        sa.Column("whatsapp_to", sa.String(length=64), nullable=True),
+    )
 
 
 def downgrade() -> None:

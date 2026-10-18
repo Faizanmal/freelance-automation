@@ -1,10 +1,60 @@
+x-api-environment: &api-environment
+  APP_ENV: production
+  DATABASE_URL: postgresql+asyncpg://freelance:${POSTGRES_PASSWORD}@db:5432/freelance
+  REDIS_URL: redis://redis:6379/0
+  REDIS_OPTIONAL: "false"
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY}
+  CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS}
+  SCRAPE_INTERVAL_MINUTES: ${SCRAPE_INTERVAL_MINUTES:-15}
+  SCRAPE_SOURCES: ${SCRAPE_SOURCES:-serpapi_freelance,serpapi_jobs,serpapi_companies}
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
+  SERPAPI_FREELANCE_QUERY: ${SERPAPI_FREELANCE_QUERY:-}
+  SERPAPI_JOBS_QUERY: ${SERPAPI_JOBS_QUERY:-}
+  SERPAPI_MAPS_LL: ${SERPAPI_MAPS_LL:-}
+  UPWORK_CLIENT_ID: ${UPWORK_CLIENT_ID:-}
+  UPWORK_CLIENT_SECRET: ${UPWORK_CLIENT_SECRET:-}
+  UPWORK_REDIRECT_URI: ${UPWORK_REDIRECT_URI:-}
+  UPWORK_ACCESS_TOKEN: ${UPWORK_ACCESS_TOKEN:-}
+  UPWORK_REFRESH_TOKEN: ${UPWORK_REFRESH_TOKEN:-}
+  FREELANCER_OAUTH_TOKEN: ${FREELANCER_OAUTH_TOKEN:-}
+  APIFY_TOKEN: ${APIFY_TOKEN:-}
+  SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+  DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+  WHATSAPP_TWILIO_SID: ${WHATSAPP_TWILIO_SID:-}
+  WHATSAPP_TWILIO_TOKEN: ${WHATSAPP_TWILIO_TOKEN:-}
+  WHATSAPP_TWILIO_FROM: ${WHATSAPP_TWILIO_FROM:-}
+  WHATSAPP_TO: ${WHATSAPP_TO:-}
+  EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-}
+  EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-587}
+  EMAIL_USERNAME: ${EMAIL_USERNAME:-}
+  EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+  EMAIL_FROM: ${EMAIL_FROM:-}
+  EMAIL_TO: ${EMAIL_TO:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
+  STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-}
+  STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-}
+  PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  AWS_SECRETS_MANAGER_ARN: ${AWS_SECRETS_MANAGER_ARN:-}
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+
 services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      # Set CADDY_BIND=127.0.0.1 when the Cloudflare tunnel is the only public entry.
+      - "${CADDY_BIND:-0.0.0.0}:80:80"
+      - "${CADDY_BIND:-0.0.0.0}:443:443"
     environment:
       - DOMAIN=${PUBLIC_DOMAIN:-localhost}
     volumes:
@@ -14,6 +64,14 @@ services:
     depends_on:
       - api
       - frontend
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ["cloudflare"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - caddy
 
   db:
     image: postgres:16-alpine
@@ -69,47 +127,26 @@ services:
       timeout: 5s
       retries: 5
 
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080" # Only accessible locally or via SSH tunnel for security
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     build:
       context: .
       dockerfile: fastapi/Dockerfile
     restart: unless-stopped
+    # Trust only the compose network (Caddy). Avoid wildcard forwarded-allow-ips.
     command: >
       sh -c "alembic -c database/alembic.ini upgrade head &&
-      uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=172.16.0.0/12,10.0.0.0/8,192.168.0.0/16 "
     environment:
-      APP_ENV: production
-      DATABASE_URL: postgresql+asyncpg://freelance:${POSTGRES_PASSWORD}@db:5432/freelance
-      REDIS_URL: redis://redis:6379/0
-      REDIS_OPTIONAL: "false"
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY}
-      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS}
-      SCRAPE_INTERVAL_MINUTES: ${SCRAPE_INTERVAL_MINUTES:-15}
-      SCRAPE_SOURCES: ${SCRAPE_SOURCES:-remoteok,arbeitnow}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      UPWORK_CLIENT_ID: ${UPWORK_CLIENT_ID:-}
-      UPWORK_CLIENT_SECRET: ${UPWORK_CLIENT_SECRET:-}
-      UPWORK_REDIRECT_URI: ${UPWORK_REDIRECT_URI:-}
-      UPWORK_ACCESS_TOKEN: ${UPWORK_ACCESS_TOKEN:-}
-      UPWORK_REFRESH_TOKEN: ${UPWORK_REFRESH_TOKEN:-}
-      FREELANCER_OAUTH_TOKEN: ${FREELANCER_OAUTH_TOKEN:-}
-      APIFY_TOKEN: ${APIFY_TOKEN:-}
-      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
-      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-}
-      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-587}
-      EMAIL_USERNAME: ${EMAIL_USERNAME:-}
-      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
-      EMAIL_FROM: ${EMAIL_FROM:-}
-      EMAIL_TO: ${EMAIL_TO:-}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
-      STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-}
-      STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-}
-      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      <<: *api-environment
     expose:
       - "8000"
     logging:
@@ -122,6 +159,44 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: fastapi/Dockerfile
+    restart: unless-stopped
+    command: celery -A workers.app.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      <<: *api-environment
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: .
+      dockerfile: fastapi/Dockerfile
+    restart: unless-stopped
+    command: celery -A workers.app.celery_app beat --loglevel=info
+    environment:
+      <<: *api-environment
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
 
   frontend:
     build:

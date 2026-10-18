@@ -28,10 +28,10 @@ class HimalayasScraper(BaseApiScraper):
                     self.api_url, params={"offset": offset, "limit": page_limit}
                 )
                 response.raise_for_status()
-                rows = (response.json().get("jobs") or [])
+                rows = response.json().get("jobs") or []
                 if not rows:
                     break
-                
+
                 # If a query is provided, we might want to filter locally since the API might not support it
                 if query:
                     filtered = []
@@ -48,10 +48,14 @@ class HimalayasScraper(BaseApiScraper):
                     break
 
     async def extract_jobs(self) -> list[dict[str, Any]]:
-        return self.payload[:self.limit]
+        return self.payload[: self.limit]
 
     async def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
-        guid = raw_job.get("guid") or raw_job.get("applicationLink") or raw_job.get("title")
+        guid = (
+            raw_job.get("guid")
+            or raw_job.get("applicationLink")
+            or raw_job.get("title")
+        )
         location = raw_job.get("locationRestrictions") or []
         if isinstance(location, list):
             location_label = ", ".join(str(item) for item in location) or "Remote"

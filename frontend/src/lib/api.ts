@@ -1,5 +1,6 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 const TOKEN_KEY = "signal_desk_token";
+const TOKEN_CHANGE_EVENT = "signal-desk-token-change";
 
 export type Job = {
   id: number;
@@ -45,6 +46,12 @@ export type Preferences = {
   match_threshold: number;
   notification_channels: string[];
   digest_mode: boolean;
+  freelance_focus?: boolean;
+  location?: string | null;
+  timezone?: string | null;
+  digest_days?: string[] | null;
+  digest_time_local?: string | null;
+  max_per_digest?: number;
   notes: string | null;
   alert_email?: string | null;
   slack_webhook_url?: string | null;
@@ -59,6 +66,12 @@ export type User = {
   full_name?: string | null;
   plan?: string;
   subscription_status?: string;
+  is_active?: boolean;
+  is_verified?: boolean;
+  is_superuser?: boolean;
+  is_totp_enabled?: boolean;
+  verification_email_sent?: boolean | null;
+  detail?: string | null;
 };
 
 export type BillingStatus = {
@@ -66,6 +79,7 @@ export type BillingStatus = {
   subscription_status: string;
   is_pro: boolean;
   stripe_enabled: boolean;
+  dev_activate_allowed?: boolean;
   limits: {
     scrape_limit: number;
     marketplace: boolean;
@@ -93,9 +107,31 @@ export function setToken(token: string | null) {
   if (typeof window === "undefined") return;
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
+  window.dispatchEvent(new Event(TOKEN_CHANGE_EVENT));
 }
 
-async function request<T>(path: string, init?: RequestInit & { auth?: boolean }): Promise<T> {
+export function subscribeAuth(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const sync = () => onStoreChange();
+  window.addEventListener("storage", sync);
+  window.addEventListener("focus", sync);
+  window.addEventListener(TOKEN_CHANGE_EVENT, sync);
+  return () => {
+    window.removeEventListener("storage", sync);
+    window.removeEventListener("focus", sync);
+    window.removeEventListener(TOKEN_CHANGE_EVENT, sync);
+  };
+}
+
+export function getAuthSnapshot() {
+  return Boolean(getToken());
+}
+
+export function getAuthServerSnapshot() {
+  return false;
+}
+
+export async function request<T>(path: string, init?: RequestInit & { auth?: boolean }): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...((init?.headers as Record<string, string>) || {}),
@@ -109,6 +145,9 @@ async function request<T>(path: string, init?: RequestInit & { auth?: boolean })
     headers,
     cache: "no-store",
   });
+  if (response.status === 204 || response.status === 205) {
+    return undefined as T;
+  }
   if (!response.ok) {
     const raw = await response.text();
     try {
@@ -141,22 +180,34 @@ export async function listJobs(params?: { search?: string; source?: string; limi
   return request<{ total: number; items: Job[] }>(`/jobs?${query.toString()}`);
 }
 
+export type ScrapeResult = {
+  status: string;
+  task_id?: string | null;
+  message?: string;
+  plan?: string;
+  scrape_limit?: number;
+  total_fetched: number;
+  total_ingested: number;
+  total_merged: number;
+  total_skipped: number;
+  alerts_sent?: number;
+  sources: Record<string, unknown>;
+};
+
 export async function scrapeJobs(
-  sources: string[] = ["remoteok", "arbeitnow", "himalayas", "jobicy"],
+  sources?: string[],
   limit = 40,
   notify_matches = false,
 ) {
-  return request<{
-    total_fetched: number;
-    total_ingested: number;
-    total_merged: number;
-    total_skipped: number;
-    alerts_sent?: number;
-    sources: Record<string, unknown>;
-  }>("/jobs/scrape", {
+  return request<ScrapeResult>("/jobs/scrape", {
     method: "POST",
     auth: true,
-    body: JSON.stringify({ sources, limit, notify_matches }),
+    body: JSON.stringify({
+      ...(sources?.length ? { sources } : {}),
+      limit,
+      notify_matches,
+      background: false,
+    }),
   });
 }
 
@@ -191,7 +242,7 @@ export async function draftProposal(jobId: number) {
 export async function submitApplication(
   jobId: number,
   formFields: ApplyFormFields,
-  confirm = true,
+  confirm: boolean,
 ) {
   return request<{
     application_id: number;
@@ -201,6 +252,7 @@ export async function submitApplication(
     status: string;
     external_id?: string | null;
     detail?: string | null;
+    apply_url?: string | null;
   }>(`/jobs/${jobId}/apply`, {
     method: "POST",
     auth: true,
@@ -247,6 +299,7 @@ export type LeadFinding = {
   freelance_benefits?: string[];
   freelance_benefits_line?: string | null;
   employment_risks?: string[];
+  user_status?: "save" | "skip" | null;
 };
 
 export type LeadFindingsResponse = {
@@ -279,6 +332,17 @@ export async function getAuthFindings(limit = 10, freelanceFocus = true) {
     freelance_focus: String(freelanceFocus),
   });
   return request<LeadFindingsResponse>(`/preferences/findings?${query}`, { auth: true });
+}
+
+export async function setLeadAction(jobId: number, status: "save" | "skip" | "clear") {
+  return request<{ job_id: number; status: "save" | "skip" | null }>(
+    `/preferences/leads/${jobId}/action`,
+    {
+      method: "PUT",
+      auth: true,
+      body: JSON.stringify({ status }),
+    },
+  );
 }
 
 export async function sendNotification(payload: {
@@ -358,21 +422,55 @@ export async function getIntegrationsStatus() {
 }
 
 export async function register(email: string, password: string, full_name?: string) {
-  return request<User>("/auth/register", {
+  return request<
+    User & {
+      verification_email_sent?: boolean | null;
+      auto_verified?: boolean | null;
+      verify_url?: string | null;
+      detail?: string | null;
+    }
+  >("/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password, full_name }),
   });
 }
 
-export async function login(email: string, password: string) {
+function friendlyAuthError(status: number, detail: string): string {
+  const normalized = detail.trim();
+  if (normalized === "TOTP_REQUIRED") return normalized;
+  if (status === 401 || /invalid credentials/i.test(normalized)) {
+    return "Invalid email or password.";
+  }
+  if (status >= 500 || /internal server error/i.test(normalized)) {
+    return "Sign-in is temporarily unavailable. Try again in a moment.";
+  }
+  return normalized || `Sign-in failed (${status}).`;
+}
+
+export async function login(email: string, password: string, totp_code?: string) {
   const body = new URLSearchParams({ username: email, password });
-  const response = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
+  if (totp_code) {
+    body.append("totp_code", totp_code);
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+  } catch {
+    throw new Error("Can't reach the API. Check that the backend is running.");
+  }
   if (!response.ok) {
-    throw new Error(await response.text());
+    let detail = await response.text();
+    try {
+      const parsed = JSON.parse(detail);
+      if (parsed.detail) detail = String(parsed.detail);
+    } catch {
+      // keep raw text
+    }
+    throw new Error(friendlyAuthError(response.status, detail));
   }
   const data = (await response.json()) as { access_token: string };
   setToken(data.access_token);
@@ -404,7 +502,11 @@ export async function getBilling() {
 }
 
 export async function listBillingPlans() {
-  return request<{ stripe_enabled: boolean; plans: BillingPlan[] }>("/billing/plans");
+  return request<{
+    stripe_enabled: boolean;
+    dev_activate_allowed?: boolean;
+    plans: BillingPlan[];
+  }>("/billing/plans");
 }
 
 export async function startCheckout() {
@@ -421,4 +523,83 @@ export async function activateDevPro() {
 
 export function logout() {
   setToken(null);
+}
+
+export async function setup2fa() {
+  return request<{ secret: string; provisioning_uri: string }>("/auth/2fa/setup", { method: "POST", auth: true });
+}
+
+export async function enable2fa(code: string) {
+  return request<{ detail: string }>("/auth/2fa/enable", { method: "POST", auth: true, body: JSON.stringify({ code }) });
+}
+
+export async function disable2fa(code: string) {
+  return request<{ detail: string }>("/auth/2fa/disable", { method: "POST", auth: true, body: JSON.stringify({ code }) });
+}
+
+export async function forgotPassword(email: string) {
+  return request<{ detail: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export async function resetPassword(token: string, new_password: string) {
+  return request<{ detail: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password }) });
+}
+
+export async function verifyEmail(token: string) {
+  return request<{ detail: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
+}
+
+export async function resendVerification(email: string) {
+  return request<{
+    detail: string;
+    email_delivered?: boolean | null;
+    auto_verified?: boolean;
+    verify_url?: string;
+  }>("/auth/resend-verification", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export async function devVerifyEmail() {
+  return request<{ detail: string; is_verified: boolean }>("/auth/dev-verify", {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function adminListUsers(skip = 0, limit = 100) {
+  return request<User[]>(`/admin/users?skip=${skip}&limit=${limit}`, { auth: true });
+}
+
+export async function adminUpdateUser(
+  userId: string,
+  data: { is_active?: boolean; is_superuser?: boolean; is_verified?: boolean; plan?: string },
+) {
+  return request<User>(`/admin/users/${userId}`, { method: "PATCH", auth: true, body: JSON.stringify(data) });
+}
+
+export type RoadmapItem = {
+  key: string;
+  title: string;
+  description: string;
+  status: string;
+  votes: number;
+  voted: boolean;
+};
+
+export async function listRoadmap(voterId?: string) {
+  const query = voterId ? `?voter_id=${encodeURIComponent(voterId)}` : "";
+  return request<RoadmapItem[]>(`/roadmap${query}`);
+}
+
+export async function voteRoadmap(featureKey: string, voterId: string) {
+  return request<RoadmapItem>("/roadmap/votes", {
+    method: "POST",
+    body: JSON.stringify({ feature_key: featureKey, voter_id: voterId }),
+  });
+}
+
+export async function submitCancellationFeedback(payload: { reason: string; details?: string; email?: string }) {
+  return request<{ detail: string }>("/feedback/cancellation", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

@@ -21,12 +21,16 @@ from database.core.base import Base
 
 class JobRecord(Base):
     __tablename__ = "jobs"
-    __table_args__ = (UniqueConstraint("source_name", "source_id", name="uq_jobs_source"),)
+    __table_args__ = (
+        UniqueConstraint("source_name", "source_id", name="uq_jobs_source"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     source_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
-    canonical_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    canonical_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[str] = mapped_column(String(2048), nullable=False, index=True)
@@ -42,24 +46,32 @@ class JobRecord(Base):
     seniority: Mapped[str | None] = mapped_column(String(64), nullable=True)
     analysis_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     enrichment: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
     )
 
-    sources: Mapped[list[JobSource]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    sources: Mapped[list[JobSource]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
 
 
 class JobSource(Base):
     __tablename__ = "job_sources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    job_id: Mapped[int] = mapped_column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     source_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     source_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     job: Mapped[JobRecord] = relationship(back_populates="sources")

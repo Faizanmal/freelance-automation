@@ -1,0 +1,16 @@
+name: Uptime
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ping /health/live
+        env:
+          UPTIME_URL: ${{ secrets.UPTIME_URL }}
+        run: python scripts/uptime_check.py

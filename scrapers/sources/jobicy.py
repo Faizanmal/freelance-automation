@@ -19,8 +19,8 @@ class JobicyScraper(BaseApiScraper):
         headers = {"User-Agent": "FreelanceIntelligence/0.4"}
         params = {"count": min(max(self.limit, 1), 100)}
         if kwargs.get("tag"):
-             params["tag"] = kwargs["tag"]
-        
+            params["tag"] = kwargs["tag"]
+
         async with httpx.AsyncClient(
             timeout=30.0, headers=headers, follow_redirects=True
         ) as client:
@@ -32,7 +32,9 @@ class JobicyScraper(BaseApiScraper):
                 filtered = []
                 for r in data:
                     title = str(r.get("jobTitle") or "").lower()
-                    desc = str(r.get("jobDescription") or r.get("jobExcerpt") or "").lower()
+                    desc = str(
+                        r.get("jobDescription") or r.get("jobExcerpt") or ""
+                    ).lower()
                     if query.lower() in title or query.lower() in desc:
                         filtered.append(r)
                 data = filtered
@@ -40,7 +42,7 @@ class JobicyScraper(BaseApiScraper):
             self.payload = data
 
     async def extract_jobs(self) -> list[dict[str, Any]]:
-        return self.payload[:self.limit]
+        return self.payload[: self.limit]
 
     async def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         industry = raw_job.get("jobIndustry") or []
@@ -48,11 +50,15 @@ class JobicyScraper(BaseApiScraper):
             industry = [industry] if industry else []
         return {
             "source": self.name,
-            "external_id": str(raw_job.get("id") or raw_job.get("jobSlug") or raw_job.get("url")),
+            "external_id": str(
+                raw_job.get("id") or raw_job.get("jobSlug") or raw_job.get("url")
+            ),
             "title": raw_job.get("jobTitle") or "Untitled",
             "company": raw_job.get("companyName"),
             "location": raw_job.get("jobGeo") or "Remote",
-            "description": raw_job.get("jobDescription") or raw_job.get("jobExcerpt") or "",
+            "description": raw_job.get("jobDescription")
+            or raw_job.get("jobExcerpt")
+            or "",
             "url": raw_job.get("url") or "",
             "posted_at": raw_job.get("pubDate"),
             "tags": [str(tag).lower() for tag in industry if tag],

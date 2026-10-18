@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from app.ingestion.sources import MARKETPLACE_SOURCES, SOURCE_ATTRIBUTION
@@ -76,9 +76,17 @@ class LeadFindingsService:
         *,
         limit: int = 10,
         freelance_focus: bool = False,
+        skip_job_ids: set[int] | None = None,
+        saved_job_ids: set[int] | None = None,
+        include_skipped: bool = False,
     ) -> dict[str, Any]:
+        skipped = skip_job_ids or set()
+        saved = saved_job_ids or set()
         matches = self.matcher.rank_jobs(jobs, preferences)
-        findings = [self._from_match(match, freelance_focus=freelance_focus) for match in matches]
+        findings = [
+            self._from_match(match, freelance_focus=freelance_focus)
+            for match in matches
+        ]
 
         if freelance_focus:
             findings = [
@@ -88,26 +96,47 @@ class LeadFindingsService:
                 or finding.job.source_name in MARKETPLACE_SOURCES
                 or finding.job.source_name == "serpapi_freelance"
             ]
-            findings.sort(
-                key=lambda item: (item.freelance_fit * 0.55) + (item.score * 0.45),
-                reverse=True,
-            )
-        else:
-            findings.sort(key=lambda item: item.score, reverse=True)
+
+        if not include_skipped and skipped:
+            findings = [
+                finding for finding in findings if finding.job.id not in skipped
+            ]
+
+        def _sort_key(item: LeadFinding) -> tuple[float, float, float]:
+            boost = 1.0 if item.job.id in saved else 0.0
+            if freelance_focus:
+                return (
+                    boost,
+                    (item.freelance_fit * 0.55) + (item.score * 0.45),
+                    item.score,
+                )
+            return (boost, item.score, item.freshness_score)
+
+        findings.sort(key=_sort_key, reverse=True)
 
         findings = findings[: max(1, min(limit, 25))] if findings else []
         action_counts = {"draft_bid": 0, "watch": 0, "skip": 0}
         for finding in findings:
             action_counts[finding.action] += 1
+        items = []
+        for finding in findings:
+            payload = self.to_dict(finding)
+            if finding.job.id in saved:
+                payload["user_status"] = "save"
+            elif finding.job.id in skipped:
+                payload["user_status"] = "skip"
+            else:
+                payload["user_status"] = None
+            items.append(payload)
         return {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "total_scanned": len(jobs),
             "total_matched": len(matches),
             "total_findings": len(findings),
             "freelance_focus": freelance_focus,
             "action_counts": action_counts,
             "keywords": list(preferences.keywords or []),
-            "items": [self.to_dict(finding) for finding in findings],
+            "items": items,
         }
 
     def _from_match(self, match: JobMatch, *, freelance_focus: bool) -> LeadFinding:
@@ -115,9 +144,13 @@ class LeadFindingsService:
         benefits, employment_risks, freelance_fit = self._freelance_profile(match.job)
         score = match.score
         if freelance_focus:
-            score = max(0.0, min(1.0, round((0.55 * match.score) + (0.45 * freelance_fit), 3)))
+            score = max(
+                0.0, min(1.0, round((0.55 * match.score) + (0.45 * freelance_fit), 3))
+            )
             if employment_risks and match.job.source_name not in MARKETPLACE_SOURCES:
-                score = max(0.0, round(score - min(0.25, 0.08 * len(employment_risks)), 3))
+                score = max(
+                    0.0, round(score - min(0.25, 0.08 * len(employment_risks)), 3)
+                )
 
         signals = self._signals(match)
         if freelance_focus and benefits:
@@ -152,7 +185,14 @@ class LeadFindingsService:
         )
         return replace(
             finding,
-            why=self._why(match, action, signals, risks, freelance_focus=freelance_focus, benefits=benefits),
+            why=self._why(
+                match,
+                action,
+                signals,
+                risks,
+                freelance_focus=freelance_focus,
+                benefits=benefits,
+            ),
         )
 
     def _freelance_profile(self, job: JobRecord) -> tuple[list[str], list[str], float]:
@@ -171,15 +211,24 @@ class LeadFindingsService:
 
         benefits: list[str] = []
         for pattern, label in FREELANCE_POSITIVE:
-            if re.search(pattern, haystack, flags=re.IGNORECASE) and label not in benefits:
+            if (
+                re.search(pattern, haystack, flags=re.IGNORECASE)
+                and label not in benefits
+            ):
                 benefits.append(label)
         for pattern, label in REMOTE_PATTERNS:
-            if re.search(pattern, haystack, flags=re.IGNORECASE) and label not in benefits:
+            if (
+                re.search(pattern, haystack, flags=re.IGNORECASE)
+                and label not in benefits
+            ):
                 benefits.append(label)
 
         employment_risks: list[str] = []
         for pattern, label in FREELANCE_NEGATIVE:
-            if re.search(pattern, haystack, flags=re.IGNORECASE) and label not in employment_risks:
+            if (
+                re.search(pattern, haystack, flags=re.IGNORECASE)
+                and label not in employment_risks
+            ):
                 employment_risks.append(label)
 
         fit = 0.25
@@ -205,7 +254,14 @@ class LeadFindingsService:
             fit += 0.25
             if "Local outreach lead" not in benefits:
                 benefits.insert(0, "Local outreach lead")
-        elif source in {"remoteok", "arbeitnow", "himalayas", "jobicy", "remotive", "weworkremotely"}:
+        elif source in {
+            "remoteok",
+            "arbeitnow",
+            "himalayas",
+            "jobicy",
+            "remotive",
+            "weworkremotely",
+        }:
             fit += 0.05
 
         fit += min(0.28, 0.07 * len(benefits))
@@ -213,11 +269,18 @@ class LeadFindingsService:
             fit += 0.12
             if "Clear budget signal" not in benefits:
                 benefits.append("Clear budget signal")
-        if job.location and re.search(r"remote|worldwide|anywhere", job.location, flags=re.IGNORECASE):
+        if job.location and re.search(
+            r"remote|worldwide|anywhere", job.location, flags=re.IGNORECASE
+        ):
             fit += 0.05
         fit -= min(0.35, 0.1 * len(employment_risks))
-        if source not in MARKETPLACE_SOURCES and employment_risks and not any(
-            token in " ".join(benefits).lower() for token in ("freelance", "contract", "hourly", "fixed")
+        if (
+            source not in MARKETPLACE_SOURCES
+            and employment_risks
+            and not any(
+                token in " ".join(benefits).lower()
+                for token in ("freelance", "contract", "hourly", "fixed")
+            )
         ):
             fit -= 0.15
 

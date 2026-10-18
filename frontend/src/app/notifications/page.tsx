@@ -6,14 +6,34 @@ import { getNotificationHistory, sendNotification } from "@/lib/api";
 const channelOptions = ["telegram", "whatsapp", "discord", "email", "slack"] as const;
 const priorityOptions = ["low", "normal", "high", "urgent"] as const;
 
+type DeliveryRow = {
+  channel?: string;
+  delivered?: boolean;
+  error?: string | null;
+};
+
+type HistoryItem = {
+  id?: number | string;
+  title?: string;
+  status?: string;
+  deliveries?: DeliveryRow[];
+};
+
+function statusLabel(status: string | undefined) {
+  if (status === "partial") return "Partial (some channels failed)";
+  if (status === "failed") return "Failed";
+  if (status === "delivered") return "Delivered";
+  return status || "unknown";
+}
+
 export default function NotificationsPage() {
   const [title, setTitle] = useState("New high-priority job match");
   const [body, setBody] = useState("A new job matches your profile and is ready for review.");
   const [channels, setChannels] = useState<string[]>(["email", "slack"]);
   const [priority, setPriority] = useState<string>("high");
   const [digest, setDigest] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [history, setHistory] = useState<Array<Record<string, unknown>>>([]);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -21,7 +41,7 @@ export default function NotificationsPage() {
     startTransition(async () => {
       try {
         const data = await getNotificationHistory();
-        setHistory(data.items);
+        setHistory(data.items as HistoryItem[]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Sign in to view alerts");
         setHistory([]);
@@ -46,9 +66,20 @@ export default function NotificationsPage() {
           priority,
           digest,
         });
-        setResult(JSON.stringify(response, null, 2));
+        setResult(response);
+        if (response.status === "failed" || response.status === "partial") {
+          const rows = Array.isArray(response.results) ? (response.results as DeliveryRow[]) : [];
+          const failed = rows.filter((row) => !row.delivered);
+          if (failed.length) {
+            setError(
+              failed
+                .map((row) => `${row.channel}: ${row.error || "delivery failed"}`)
+                .join(" · "),
+            );
+          }
+        }
         const data = await getNotificationHistory();
-        setHistory(data.items);
+        setHistory(data.items as HistoryItem[]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Send failed");
         setResult(null);
@@ -63,7 +94,8 @@ export default function NotificationsPage() {
           Alerts
         </h1>
         <p className="mt-2 max-w-2xl text-[var(--fog)]">
-          Compose multi-channel alerts. History is stored in the database.
+          Compose multi-channel alerts. Unconfigured providers return provider_not_configured per channel —
+          history shows partial vs failed clearly.
         </p>
       </section>
 
@@ -127,9 +159,28 @@ export default function NotificationsPage() {
             <h2 className="text-xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
               Last response
             </h2>
-            <pre className="mt-4 overflow-auto whitespace-pre-wrap text-xs text-[var(--mute)]">
-              {result || "Send an alert to see delivery metadata here."}
-            </pre>
+            {result ? (
+              <div className="mt-4 space-y-2 text-sm text-[var(--fog)]">
+                <p>
+                  Status:{" "}
+                  <span className="text-[var(--paper)]">{statusLabel(String(result.status))}</span>
+                </p>
+                <ul className="space-y-1">
+                  {(Array.isArray(result.results) ? (result.results as DeliveryRow[]) : []).map((row) => (
+                    <li key={`${row.channel}-${row.error || "ok"}`}>
+                      {row.channel}:{" "}
+                      {row.delivered ? (
+                        <span className="text-[var(--signal)]">delivered</span>
+                      ) : (
+                        <span className="text-[var(--ember)]">{row.error || "failed"}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="mt-4 text-xs text-[var(--mute)]">Send an alert to see delivery metadata here.</p>
+            )}
           </div>
           <div>
             <h2 className="text-xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
@@ -138,8 +189,20 @@ export default function NotificationsPage() {
             <ul className="mt-3 space-y-2 text-sm text-[var(--fog)]">
               {history.map((item) => (
                 <li key={String(item.id)} className="border-b border-white/10 pb-2">
-                  <span className="text-[var(--paper)]">{String(item.title)}</span>
-                  <span className="ml-2 text-xs text-[var(--mute)]">{String(item.status)}</span>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-[var(--paper)]">{String(item.title)}</span>
+                    <span className="text-xs text-[var(--mute)]">{statusLabel(item.status)}</span>
+                  </div>
+                  {item.deliveries?.length ? (
+                    <ul className="mt-1 text-xs text-[var(--mute)]">
+                      {item.deliveries.map((delivery) => (
+                        <li key={`${item.id}-${delivery.channel}`}>
+                          {delivery.channel}:{" "}
+                          {delivery.delivered ? "ok" : delivery.error || "failed"}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </li>
               ))}
               {history.length === 0 ? <li className="text-[var(--mute)]">No stored alerts yet.</li> : null}

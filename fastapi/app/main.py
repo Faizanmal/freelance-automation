@@ -9,13 +9,17 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1 import (
+    admin,
     auth,
     billing,
+    feedback,
     health,
     integrations,
     jobs,
     notifications,
     preferences,
+    roadmap,
+    telemetry,
     users,
 )
 from app.core.exceptions import AppException
@@ -23,15 +27,18 @@ from app.core.logging.logger import get_logger
 from backend.application.services.scrape_service import ScrapeService
 from config.settings import get_settings
 from database.core.base import Base
-from database.core.schema_patch import ensure_sqlite_columns
+from database.core.schema_patch import ensure_missing_columns
 from database.core.session import get_engine, get_session
 from database.models import (  # noqa: F401
+    CancellationFeedback,
     JobApplication,
     JobRecord,
     JobSource,
     NotificationDelivery,
     NotificationRecord,
+    RoadmapVote,
     User,
+    UserLeadAction,
     UserPreferences,
 )
 from fastapi import FastAPI
@@ -41,6 +48,7 @@ settings = get_settings()
 
 if settings.sentry_dsn:
     import sentry_sdk
+
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.environment,
@@ -57,13 +65,15 @@ async def _run_scrape_cycle(reason: str) -> None:
                 notify_matches=settings.scrape_notify_matches,
             )
             logger.info("Scrape (%s): %s", reason, summary)
-    except Exception:
+    except (RuntimeError, OSError, TimeoutError, ValueError):
         logger.exception("Scrape cycle failed (%s)", reason)
 
 
 async def _scheduler_loop(stop_event: asyncio.Event) -> None:
     interval = max(settings.scrape_interval_minutes, 1) * 60
-    logger.info("Scrape scheduler enabled every %s minutes", settings.scrape_interval_minutes)
+    logger.info(
+        "Scrape scheduler enabled every %s minutes", settings.scrape_interval_minutes
+    )
     while not stop_event.is_set():
         await _run_scrape_cycle("scheduler")
         try:
@@ -77,7 +87,7 @@ async def lifespan(app: FastAPI):
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    await ensure_sqlite_columns(engine)
+    await ensure_missing_columns(engine)
     logger.info("Database schema ready (%s)", settings.database_url.split("://")[0])
 
     stop_event = asyncio.Event()
@@ -126,6 +136,20 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def add_security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self'"
+        )
+        return response
+
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(health.router, prefix="/api/v1")
@@ -134,6 +158,10 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router, prefix="/api/v1")
     app.include_router(preferences.router, prefix="/api/v1")
     app.include_router(users.router, prefix="/api/v1")
+    app.include_router(admin.router, prefix="/api/v1")
+    app.include_router(roadmap.router, prefix="/api/v1")
+    app.include_router(feedback.router, prefix="/api/v1")
+    app.include_router(telemetry.router, prefix="/api/v1")
 
     app.include_router(auth.router)
     app.include_router(billing.router)
@@ -143,6 +171,10 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(preferences.router)
     app.include_router(users.router)
+    app.include_router(admin.router)
+    app.include_router(roadmap.router)
+    app.include_router(feedback.router)
+    app.include_router(telemetry.router)
 
     @app.get("/")
     async def root() -> dict[str, object]:

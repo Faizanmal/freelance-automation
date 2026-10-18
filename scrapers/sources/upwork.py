@@ -61,11 +61,13 @@ class UpworkScraper(BaseApiScraper):
         if data.get("errors"):
             raise RuntimeError(data["errors"])
 
-        results = ((data.get("data") or {}).get("marketplaceJobPostingsSearch") or {}).get("results") or []
+        results = (
+            (data.get("data") or {}).get("marketplaceJobPostingsSearch") or {}
+        ).get("results") or []
         self.payload = results
 
     async def extract_jobs(self) -> list[dict[str, Any]]:
-        return self.payload[:self.limit]
+        return self.payload[: self.limit]
 
     async def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         ciphertext = raw_job.get("ciphertext")
@@ -79,7 +81,11 @@ class UpworkScraper(BaseApiScraper):
             "url": raw_job.get("url")
             or (f"https://www.upwork.com/jobs/{ciphertext}" if ciphertext else ""),
             "posted_at": raw_job.get("createdDateTime"),
-            "tags": [str(s.get("name")).lower() for s in (raw_job.get("skills") or []) if s.get("name")],
+            "tags": [
+                str(s.get("name")).lower()
+                for s in (raw_job.get("skills") or [])
+                if s.get("name")
+            ],
             "budget_min": (raw_job.get("budget") or {}).get("amount"),
             "budget_max": (raw_job.get("budget") or {}).get("amount"),
         }

@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from backend.application.services.matching import MatchingService
 from database.models.job import JobRecord
@@ -18,7 +18,7 @@ def _job(**kwargs) -> JobRecord:
         "company": "Acme Labs",
         "budget_min": 4000,
         "budget_max": 7000,
-        "posted_at": datetime.now(timezone.utc).isoformat(),
+        "posted_at": datetime.now(UTC).isoformat(),
         "tags": ["python", "fastapi"],
     }
     defaults.update(kwargs)
@@ -38,7 +38,11 @@ class MatchingServiceTests(unittest.TestCase):
         )
 
     def test_word_boundary_avoids_false_positive(self) -> None:
-        job = _job(title="Angular frontend contractor", description="Ongoing React shipping work", tags=[])
+        job = _job(
+            title="Angular frontend contractor",
+            description="Ongoing React shipping work",
+            tags=[],
+        )
         self.prefs.keywords = ["go"]
         match = self.service.score_job(job, self.prefs)
         self.assertIsNone(match)

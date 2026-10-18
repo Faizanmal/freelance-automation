@@ -5,6 +5,7 @@ Revises: 20260630
 Create Date: 2026-07-15 00:00:00.000000
 
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -25,10 +26,25 @@ def upgrade() -> None:
         sa.Column("timezone", sa.String(length=64), nullable=True),
         sa.Column("locale", sa.String(length=16), nullable=True),
         sa.Column("hashed_password", sa.String(length=256), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("is_superuser", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")
+        ),
+        sa.Column(
+            "is_superuser",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("email"),
     )
@@ -45,10 +61,20 @@ def upgrade() -> None:
         sa.Column("sources", sa.JSON(), nullable=False),
         sa.Column("match_threshold", sa.Float(), nullable=False, server_default="0.35"),
         sa.Column("notification_channels", sa.JSON(), nullable=False),
-        sa.Column("digest_mode", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "digest_mode", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id"),

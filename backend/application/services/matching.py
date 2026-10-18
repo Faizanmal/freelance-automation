@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from database.models.job import JobRecord
 from database.models.preference import UserPreferences
@@ -36,10 +36,20 @@ class JobMatch:
 class MatchingService:
     """Score jobs with keyword fit, freshness, client-quality proxies, and red flags."""
 
-    def score_job(self, job: JobRecord, preferences: UserPreferences) -> JobMatch | None:
-        keywords = [k.strip().lower() for k in (preferences.keywords or []) if k and k.strip()]
-        excludes = [k.strip().lower() for k in (preferences.exclude_keywords or []) if k and k.strip()]
-        sources = [s.strip().lower() for s in (preferences.sources or []) if s and s.strip()]
+    def score_job(
+        self, job: JobRecord, preferences: UserPreferences
+    ) -> JobMatch | None:
+        keywords = [
+            k.strip().lower() for k in (preferences.keywords or []) if k and k.strip()
+        ]
+        excludes = [
+            k.strip().lower()
+            for k in (preferences.exclude_keywords or [])
+            if k and k.strip()
+        ]
+        sources = [
+            s.strip().lower() for s in (preferences.sources or []) if s and s.strip()
+        ]
 
         if sources and job.source_name.lower() not in sources:
             return None
@@ -61,9 +71,17 @@ class MatchingService:
             if self._contains_keyword(haystack, exclude):
                 return None
 
-        if preferences.min_budget is not None and job.budget_max is not None and job.budget_max < preferences.min_budget:
+        if (
+            preferences.min_budget is not None
+            and job.budget_max is not None
+            and job.budget_max < preferences.min_budget
+        ):
             return None
-        if preferences.max_budget is not None and job.budget_min is not None and job.budget_min > preferences.max_budget:
+        if (
+            preferences.max_budget is not None
+            and job.budget_min is not None
+            and job.budget_min > preferences.max_budget
+        ):
             return None
 
         red_flags = self._detect_red_flags(haystack)
@@ -93,7 +111,12 @@ class MatchingService:
         client_quality = self._client_quality_score(job)
         red_flag_penalty = min(0.35, 0.12 * len(red_flags))
 
-        score = (0.62 * keyword_score) + (0.20 * freshness) + (0.18 * client_quality) - red_flag_penalty
+        score = (
+            (0.62 * keyword_score)
+            + (0.20 * freshness)
+            + (0.18 * client_quality)
+            - red_flag_penalty
+        )
         score = max(0.0, min(1.0, score))
 
         if freshness >= 0.75:
@@ -103,7 +126,11 @@ class MatchingService:
         if red_flags:
             reasons.append(f"red flags: {', '.join(red_flags)}")
 
-        threshold = preferences.match_threshold if preferences.match_threshold is not None else 0.35
+        threshold = (
+            preferences.match_threshold
+            if preferences.match_threshold is not None
+            else 0.35
+        )
         if score < threshold:
             return None
 
@@ -117,8 +144,14 @@ class MatchingService:
             red_flags=red_flags,
         )
 
-    def rank_jobs(self, jobs: list[JobRecord], preferences: UserPreferences) -> list[JobMatch]:
-        matches = [match for job in jobs if (match := self.score_job(job, preferences)) is not None]
+    def rank_jobs(
+        self, jobs: list[JobRecord], preferences: UserPreferences
+    ) -> list[JobMatch]:
+        matches = [
+            match
+            for job in jobs
+            if (match := self.score_job(job, preferences)) is not None
+        ]
         matches.sort(key=lambda item: item.score, reverse=True)
         return matches
 
@@ -135,18 +168,25 @@ class MatchingService:
         flags: list[str] = []
         for pattern in RED_FLAG_PATTERNS:
             if re.search(pattern, haystack, flags=re.IGNORECASE):
-                flags.append(pattern.replace(r"\b", "").replace(r"\s+", " ").replace("\\", ""))
+                flags.append(
+                    pattern.replace(r"\b", "").replace(r"\s+", " ").replace("\\", "")
+                )
         return flags[:5]
 
     def _freshness_score(self, job: JobRecord) -> float:
-        stamp = job.posted_at or (job.created_at.isoformat() if job.created_at else None)
+        stamp = job.posted_at or (
+            job.created_at.isoformat() if job.created_at else None
+        )
         if not stamp:
             return 0.45
         try:
             parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            age_hours = max(0.0, (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() / 3600)
+                parsed = parsed.replace(tzinfo=UTC)
+            age_hours = max(
+                0.0,
+                (datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds() / 3600,
+            )
         except ValueError:
             return 0.45
         if age_hours <= 6:
@@ -170,7 +210,10 @@ class MatchingService:
                 score += 0.1
             if top >= 5000:
                 score += 0.05
-        if job.seniority and any(token in job.seniority.lower() for token in ("senior", "lead", "principal", "staff")):
+        if job.seniority and any(
+            token in job.seniority.lower()
+            for token in ("senior", "lead", "principal", "staff")
+        ):
             score += 0.05
         enrichment = job.enrichment or {}
         if enrichment.get("skills"):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.duplicate_detection import (
@@ -47,29 +48,61 @@ class JobIngestionService:
         merged = list(dict.fromkeys([*existing_tags, *enrichment.skills]))
         job.tags = merged[:30]
 
-    async def ingest(self, candidate: JobCandidate, *, location: str | None = None, tags: list | None = None) -> dict[str, object]:
-        existing = await self.repository.get_by_source(candidate.source_name, candidate.source_id)
+    async def ingest(
+        self,
+        candidate: JobCandidate,
+        *,
+        location: str | None = None,
+        tags: list | None = None,
+    ) -> dict[str, object]:
+        existing = await self.repository.get_by_source(
+            candidate.source_name, candidate.source_id
+        )
         if existing:
-            return {"action": "skipped", "reason": "already_exists", "job_id": existing.id}
+            return {
+                "action": "skipped",
+                "reason": "already_exists",
+                "job_id": existing.id,
+            }
 
         by_url = await self.repository.get_by_url(candidate.url)
         if by_url:
-            await self.repository.add_source(by_url, candidate.source_name, candidate.source_id, candidate.url)
+            await self.repository.add_source(
+                by_url, candidate.source_name, candidate.source_id, candidate.url
+            )
             return {"action": "linked", "reason": "same_url", "job_id": by_url.id}
 
         # Fuzzy dedupe only within the same source to avoid cross-board false merges.
-        recent = [job for job in await self.repository.list_recent(limit=150) if job.source_name == candidate.source_name]
+        recent = [
+            job
+            for job in await self.repository.list_recent(limit=150)
+            if job.source_name == candidate.source_name
+        ]
         for job in recent:
-            decision = self.duplicate_service.detect_duplicate(self._job_to_candidate(job), candidate)
+            decision = self.duplicate_service.detect_duplicate(
+                self._job_to_candidate(job), candidate
+            )
             if decision.is_duplicate:
-                merged = self.duplicate_service.merge_duplicate(self._job_to_candidate(job), candidate, decision)
+                merged = self.duplicate_service.merge_duplicate(
+                    self._job_to_candidate(job), candidate, decision
+                )
                 job.title = merged.title or job.title
                 job.description = merged.description or job.description
                 job.company = merged.company or job.company
-                job.budget_min = merged.budget_min if merged.budget_min is not None else job.budget_min
-                job.budget_max = merged.budget_max if merged.budget_max is not None else job.budget_max
+                job.budget_min = (
+                    merged.budget_min
+                    if merged.budget_min is not None
+                    else job.budget_min
+                )
+                job.budget_max = (
+                    merged.budget_max
+                    if merged.budget_max is not None
+                    else job.budget_max
+                )
                 job.duplicate_confidence = decision.confidence
-                await self.repository.add_source(job, candidate.source_name, candidate.source_id, candidate.url)
+                await self.repository.add_source(
+                    job, candidate.source_name, candidate.source_id, candidate.url
+                )
                 await self.repository.update(job)
                 return {
                     "action": "merged",
@@ -103,7 +136,27 @@ class JobIngestionService:
                 url=candidate.url,
             )
         )
-        await self.repository.create(job)
+        try:
+            await self.repository.create(job)
+        except IntegrityError:
+            await self.session.rollback()
+            raced = await self.repository.get_by_source(
+                candidate.source_name, candidate.source_id
+            )
+            if raced:
+                return {
+                    "action": "skipped",
+                    "reason": "race_duplicate",
+                    "job_id": raced.id,
+                }
+            by_url = await self.repository.get_by_url(candidate.url)
+            if by_url:
+                return {
+                    "action": "linked",
+                    "reason": "race_same_url",
+                    "job_id": by_url.id,
+                }
+            raise
         return {
             "action": "ingested",
             "confidence": 0.0,

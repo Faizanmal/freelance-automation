@@ -43,7 +43,9 @@ class BrowserSessionConfig:
     headless: bool = True
     proxy: str | None = None
     user_agent: str | None = None
-    block_resource_types: Iterable[str] = field(default_factory=lambda: DEFAULT_BLOCKED_RESOURCE_TYPES)
+    block_resource_types: Iterable[str] = field(
+        default_factory=lambda: DEFAULT_BLOCKED_RESOURCE_TYPES
+    )
     stealth: bool = True
     timeout: int = 30
     viewport: dict[str, int] | None = None
@@ -140,7 +142,9 @@ class BrowserManager:
             if self._started:
                 return
             self._playwright = await async_playwright().start()
-            self.browser = await self._playwright.chromium.launch(headless=self.headless)
+            self.browser = await self._playwright.chromium.launch(
+                headless=self.headless
+            )
             self._started = True
             logger.info("BrowserManager started with headless=%s", self.headless)
 
@@ -172,7 +176,10 @@ class BrowserManager:
             logger.debug("Released browser session %s", session.config.session_id)
         except asyncio.QueueFull:
             await session.close()
-            logger.debug("Closed browser session %s because pool was full", session.config.session_id)
+            logger.debug(
+                "Closed browser session %s because pool was full",
+                session.config.session_id,
+            )
 
     async def _create_session(self, session_id: str) -> BrowserSession:
         if self.browser is None:

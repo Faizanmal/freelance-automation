@@ -43,7 +43,9 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             rows = await serpapi_discovery.search_discovery(mode="freelance", limit=10)
 
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["title"], "Looking for Python freelancer for FastAPI project")
+        self.assertEqual(
+            rows[0]["title"], "Looking for Python freelancer for FastAPI project"
+        )
         self.assertEqual(rows[0]["company"], "example.com")
         self.assertIn("freelance", rows[0]["tags"])
 
@@ -57,7 +59,10 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                     "job_id": "abc123",
                     "location": "Anywhere",
                     "apply_options": [{"link": "https://boards.example.com/jobs/1"}],
-                    "detected_extensions": {"schedule_type": "Full-time", "posted_at": "2 days ago"},
+                    "detected_extensions": {
+                        "schedule_type": "Full-time",
+                        "posted_at": "2 days ago",
+                    },
                     "extensions": ["Remote"],
                 }
             ]
@@ -81,7 +86,9 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]["company"], "Acme")
         self.assertEqual(rows[0]["source_id"], "abc123")
 
-    async def test_companies_accepts_allowlisted_tenants_rejects_high_traffic(self) -> None:
+    async def test_companies_accepts_allowlisted_tenants_rejects_high_traffic(
+        self,
+    ) -> None:
         payload = {
             "organic_results": [
                 {
@@ -132,13 +139,13 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         urls = [row["url"] for row in rows]
         self.assertIn("https://www.apexsystems.com/careers", urls)
         self.assertIn("https://sparkbrighter-04a99f.careers.hibob.com/", urls)
+        self.assertIn("https://boards.greenhouse.io/acme", urls)
+        self.assertIn("https://jobs.smartrecruiters.com/Acme/123", urls)
         self.assertTrue(all("linkedin.com" not in url for url in urls))
-        self.assertTrue(all("greenhouse.io" not in url for url in urls))
-        self.assertTrue(all("smartrecruiters.com" not in url for url in urls))
 
     async def test_companies_batches_site_queries(self) -> None:
         sites = [f"company{i}.example" for i in range(10)]
-        keyword = '(careers OR jobs) python'
+        keyword = "(careers OR jobs) python"
         get_json = AsyncMock(
             side_effect=[
                 {
@@ -197,7 +204,9 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queries[1], "careers python (site:c.com)")
 
     def test_resolve_company_sites_env_override(self) -> None:
-        sites = serpapi_discovery.resolve_company_career_sites("ApexSystems.com, https://ZeekTek.com/careers")
+        sites = serpapi_discovery.resolve_company_career_sites(
+            "ApexSystems.com, https://ZeekTek.com/careers"
+        )
         self.assertEqual(sites, ["apexsystems.com", "zeektek.com"])
 
     async def test_maps_maps_local_results(self) -> None:

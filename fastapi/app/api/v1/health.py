@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from redis.exceptions import RedisError
 from sqlalchemy import text
 
 from config.settings import get_settings
@@ -18,21 +19,21 @@ async def readiness() -> dict[str, object]:
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1"))
 
-    if settings.redis_optional:
-        try:
-            from app.core.redis_client import get_redis
+    from app.core.redis_client import get_redis
 
-            client = get_redis()
-            await client.ping()
-            checks["redis"] = "ok"
-        except Exception as exc:  # noqa: BLE001
-            checks["redis"] = f"skipped:{exc.__class__.__name__}"
+    try:
+        client = await get_redis()
+    except (RedisError, OSError, TimeoutError, ValueError) as exc:
+        checks["redis"] = f"down:{exc.__class__.__name__}"
+        return {"status": "degraded", "checks": checks}
+
+    if client is None:
+        checks["redis"] = "skipped" if settings.redis_optional else "down"
     else:
-        from app.core.redis_client import get_redis
-
-        client = get_redis()
-        await client.ping()
         checks["redis"] = "ok"
+
+    if checks["redis"] == "down":
+        return {"status": "degraded", "checks": checks}
 
     return {"status": "ok", "checks": checks}
 

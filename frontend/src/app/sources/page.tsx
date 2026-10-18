@@ -42,7 +42,7 @@ export default function SourcesPage() {
           setMessage(`${source}: ${String(sourceResult.error)} — ${String(sourceResult.detail || "")}`);
         } else {
           setMessage(
-            `${source}: fetched ${result.total_fetched}, ingested ${result.total_ingested}, skipped ${result.total_skipped}`,
+            `${source}: fetched ${result.total_fetched ?? 0}, ingested ${result.total_ingested ?? 0}, skipped ${result.total_skipped ?? 0}`,
           );
         }
         setStatus(await getIntegrationsStatus());

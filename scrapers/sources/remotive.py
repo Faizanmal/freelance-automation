@@ -19,7 +19,9 @@ class RemotiveScraper:
         if category:
             params["category"] = category
         headers = {"User-Agent": "FreelanceIntelligence/0.1"}
-        async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0, headers=headers, follow_redirects=True
+        ) as client:
             response = await client.get(self.api_url, params=params)
             response.raise_for_status()
             payload = response.json()

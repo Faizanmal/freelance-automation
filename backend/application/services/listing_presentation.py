@@ -20,7 +20,9 @@ def make_excerpt(description: str, *, limit: int = EXCERPT_CHARS) -> str:
     return clean[: limit - 1].rstrip() + "…"
 
 
-def public_job_payload(job_dict: dict[str, Any], *, full_description: bool = False) -> dict[str, Any]:
+def public_job_payload(
+    job_dict: dict[str, Any], *, full_description: bool = False
+) -> dict[str, Any]:
     """Return a commercial-safe listing: excerpt + attribution + source link."""
     source = str(job_dict.get("source_name") or "")
     description = str(job_dict.get("description") or "")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -26,7 +26,9 @@ class RemoteOKScraper(BaseApiScraper):
             self.tags = kwargs["tags"]
 
         headers = {"User-Agent": "FreelanceIntelligence/0.1"}
-        async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0, headers=headers, follow_redirects=True
+        ) as client:
             response = await client.get(self.api_url)
             response.raise_for_status()
             self.payload = response.json()
@@ -48,7 +50,7 @@ class RemoteOKScraper(BaseApiScraper):
     async def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         epoch = raw_job.get("epoch")
         posted_at = (
-            datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+            datetime.fromtimestamp(epoch, tz=UTC).isoformat()
             if isinstance(epoch, (int, float))
             else raw_job.get("date")
         )
@@ -60,7 +62,8 @@ class RemoteOKScraper(BaseApiScraper):
             "company": raw_job.get("company"),
             "location": raw_job.get("location") or "Remote",
             "description": raw_job.get("description") or "",
-            "url": raw_job.get("url") or f"https://remoteok.com/remote-jobs/{raw_job['id']}",
+            "url": raw_job.get("url")
+            or f"https://remoteok.com/remote-jobs/{raw_job['id']}",
             "posted_at": posted_at,
             "tags": job_tags,
             "budget_min": raw_job.get("salary_min"),

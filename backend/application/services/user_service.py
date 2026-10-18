@@ -14,7 +14,9 @@ class UserService:
     def __init__(self, user_repository: IUserRepository) -> None:
         self.user_repository = user_repository
 
-    async def create_user(self, email: str, password: str, full_name: str | None = None) -> User:
+    async def create_user(
+        self, email: str, password: str, full_name: str | None = None
+    ) -> User:
         hashed_password = self.hash_password(password)
         user = User(
             id=str(uuid4()),

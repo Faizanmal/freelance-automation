@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+
 import redis.asyncio as redis
 
 from config.settings import get_settings
@@ -15,15 +16,15 @@ async def get_redis() -> redis.Redis | None:
         settings = get_settings()
         if not settings.redis_url:
             return None
-            
+
         try:
             temp_redis = redis.from_url(settings.redis_url, decode_responses=True)
             await temp_redis.ping()
             _client = temp_redis
-        except Exception as e:
+        except (redis.RedisError, OSError, TimeoutError, ValueError) as e:
             logger.warning("Failed to connect to Redis: %s", e)
             if not settings.redis_optional:
                 raise
             return None
-            
+
     return _client

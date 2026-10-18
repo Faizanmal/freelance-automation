@@ -6,12 +6,11 @@ from email.message import EmailMessage
 from typing import Any
 
 from app.integrations import freelancer as freelancer_api
-from app.integrations import upwork as upwork_api
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.proposal_draft import (
     extract_apply_email,
-    submit_mode_for_source,
+    submit_mode_for_job,
 )
 from database.models.application import JobApplication
 from database.models.job import JobRecord
@@ -39,13 +38,15 @@ class ApplyService:
         confirm: bool,
     ) -> dict[str, Any]:
         if not confirm:
-            raise ApplyError("Set confirm=true after reviewing the form.", code="confirm_required")
+            raise ApplyError(
+                "Set confirm=true after reviewing the form.", code="confirm_required"
+            )
 
         proposal = str(form_fields.get("proposal") or "").strip()
         if not proposal:
             raise ApplyError("Proposal text is required.", code="proposal_required")
 
-        submit_mode = submit_mode_for_source(job.source_name)
+        submit_mode = submit_mode_for_job(job)
         bid_amount = _to_float(form_fields.get("bid_amount"))
         delivery_days = _to_int(form_fields.get("delivery_days")) or 7
         milestone_percentage = _to_int(form_fields.get("milestone_percentage")) or 100
@@ -76,10 +77,13 @@ class ApplyService:
                     delivery_days=delivery_days,
                     milestone_percentage=milestone_percentage,
                 )
-            elif submit_mode == "api_proposal" and job.source_name == "upwork":
-                result = await self._submit_upwork(job=job, proposal=proposal)
+                final_status = "submitted"
             elif submit_mode == "email_apply":
                 result = await self._submit_email(job=job, user=user, proposal=proposal)
+                final_status = "submitted"
+            elif submit_mode == "external_apply":
+                result = self._prepare_external(job=job)
+                final_status = "prepared"
             else:
                 raise ApplyError(
                     f"Direct submit is not supported for source '{job.source_name}'.",
@@ -96,7 +100,7 @@ class ApplyService:
             await self.session.flush()
             raise ApplyError(str(exc), code="apply_failed") from exc
 
-        application.status = "submitted"
+        application.status = final_status
         application.external_id = result.get("external_id")
         application.response_payload = result
         application.error = None
@@ -110,6 +114,7 @@ class ApplyService:
             "status": application.status,
             "external_id": application.external_id,
             "detail": result.get("detail"),
+            "apply_url": result.get("apply_url") or job.url,
             "result": result,
         }
 
@@ -123,11 +128,16 @@ class ApplyService:
         milestone_percentage: int,
     ) -> dict[str, Any]:
         if bid_amount is None or bid_amount <= 0:
-            raise ApplyError("bid_amount is required for Freelancer bids.", code="bid_amount_required")
+            raise ApplyError(
+                "bid_amount is required for Freelancer bids.",
+                code="bid_amount_required",
+            )
         try:
             project_id = int(job.source_id)
         except (TypeError, ValueError) as exc:
-            raise ApplyError("Invalid Freelancer project id.", code="invalid_project_id") from exc
+            raise ApplyError(
+                "Invalid Freelancer project id.", code="invalid_project_id"
+            ) from exc
 
         bid = await freelancer_api.place_bid(
             project_id=project_id,
@@ -143,24 +153,24 @@ class ApplyService:
             "payload": bid,
         }
 
-    async def _submit_upwork(self, *, job: JobRecord, proposal: str) -> dict[str, Any]:
-        if not upwork_api.upwork_configured():
-            raise ApplyError(
-                "Upwork is not connected. Connect OAuth under Sources first.",
-                code="upwork_not_configured",
-            )
-        # Official proposal mutations vary by account permissions; keep an explicit gate.
-        raise ApplyError(
-            "Upwork proposal API submit is not enabled for this account integration yet. "
-            "Form fill works; connect a proposal-capable Upwork app to finish wiring.",
-            code="upwork_submit_unavailable",
-        )
+    def _prepare_external(self, *, job: JobRecord) -> dict[str, Any]:
+        return {
+            "channel": "external",
+            "external_id": None,
+            "apply_url": job.url,
+            "detail": (
+                "Draft saved. Open the original listing to apply — "
+                "Signal Desk does not auto-submit for this source."
+            ),
+        }
 
-    async def _submit_email(self, *, job: JobRecord, user: User, proposal: str) -> dict[str, Any]:
+    async def _submit_email(
+        self, *, job: JobRecord, user: User, proposal: str
+    ) -> dict[str, Any]:
         to_address = extract_apply_email(job)
         if not to_address:
             raise ApplyError(
-                "No apply email found on this listing. This public board has no bid API.",
+                "No apply email found on this listing. Open the listing to apply manually.",
                 code="email_not_found",
             )
 
@@ -190,7 +200,9 @@ class ApplyService:
                 smtp.login(username, password)
                 smtp.send_message(message)
         except Exception as exc:
-            raise ApplyError(f"SMTP send failed: {exc}", code="email_send_failed") from exc
+            raise ApplyError(
+                f"SMTP send failed: {exc}", code="email_send_failed"
+            ) from exc
 
         return {
             "channel": "email",

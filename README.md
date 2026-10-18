@@ -1,122 +1,71 @@
-# Freelance Intelligence / Signal Desk
+# Signal Desk — Freelance Discovery Desk
 
-Live job intelligence: scrape public remote-job APIs, store and dedupe listings, score matches against your preferences, and fire multi-channel alerts.
+Find real freelance and contract opportunities outside crowded marketplace bid wars. Set **Hunt Rules**, background **hunters** fill a shared pool, ranked **Leads** and an email **digest** send you to the original listing. No fake jobs. No auto-apply.
+
+## Product (V1)
+
+| Surface | Role |
+|---------|------|
+| **Hunt Rules** (`/preferences`) | Keywords, exclude, budget, location, freelance focus, digest schedule |
+| **Leads** (`/leads`) | Ranked fits with why/risks; primary CTA = **Open original**; Save / Skip |
+| **Desk** (`/`) | Overview + refresh inventory |
+| **Digest** | Email on your show clock (days/time/timezone), not tied 1:1 to scrape time |
+
+**Two clocks**
+
+- **Hunt clock** — system schedule (`SCRAPE_INTERVAL_MINUTES` / Celery beat) fills the job pool
+- **Show clock** — your digest days/time/timezone + live Leads
 
 ## What works now
 
-- **API** (`fastapi/`) — FastAPI app with Postgres by default (SQLite still supported via `DATABASE_URL`)
-- **Live public boards** — RemoteOK, Remotive, Arbeitnow, We Work Remotely, Himalayas, Jobicy
-- **Official marketplace APIs** — Upwork (GraphQL + OAuth) and Freelancer.com
-- **Optional community connectors** — PeoplePerHour and Guru through Apify actors
-- **SerpAPI discovery (Pro)** — Google Search freelance leads, Google Jobs, company careers pages, Maps outreach
-- **Enrichment / apply drafts** — multi-provider LLM fallback: Groq → NVIDIA → Gemini → OpenAI → Anthropic (heuristic/template if none configured)
-- **Ingestion** — persist jobs, skip duplicates, same-source fuzzy merges
-- **Matching** — keyword / budget / enrichment-aware scoring
-- **Lead findings** — decision digest with signals, risks, and draft/watch/skip actions
-- **Freelance focus** — source-aware boost for marketplace/contract leads; downrank full-time noise
-- **Durable alerts** — authenticated notification history + deliveries stored in DB
-- **Scheduler** — `SCRAPE_INTERVAL_MINUTES` in-process, or `workers/run_scrape.py --interval-minutes N`
-- **UI** (`frontend/`) — Signal Desk with auth, preferences, jobs, matches, alerts
+- **API** (`fastapi/`) — FastAPI + Postgres by default (SQLite via `DATABASE_URL` still supported)
+- **V1 hunter spine (default)** — `serpapi_freelance`, `serpapi_jobs`, `serpapi_companies` when `SERPAPI_API_KEY` is set
+- **Post-V1 volume (opt-in)** — `reddit_hiring` (official Reddit API, `[Hiring]` only)
+- **Optional free boards** — RemoteOK, Arbeitnow, Himalayas, Jobicy (not the product identity)
+- **Matching + freelance focus** — contract/freelance boost; downrank full-time / W2 noise
+- **Lead findings** — score, signals, risks; Save/Skip persisted per user
+- **Email digest** — Celery `process_lead_digests` every 15 minutes checks show-clock windows
+- **Auth** — register, verify, password reset, optional 2FA
+- **UI** — Desk / Leads / Hunt Rules / Account (Sources page exists but is off main nav)
 
-### Connect Upwork
-
-1. Create an app at [Upwork Developer](https://www.upwork.com/developer/)
-2. Set redirect URI to `http://127.0.0.1:8000/integrations/upwork/callback`
-3. Put `UPWORK_CLIENT_ID` / `UPWORK_CLIENT_SECRET` in `fastapi/.env`
-4. Visit http://127.0.0.1:8000/integrations/upwork/authorize and approve
-5. Scrape: `POST /jobs/scrape` with `{"sources":["upwork"],"limit":20}`
-
-Or set `UPWORK_ACCESS_TOKEN` (+ optional `UPWORK_REFRESH_TOKEN`) directly.
-
-### Connect Freelancer.com
-
-1. Create an API app / OAuth token in the Freelancer developer portal
-2. Set `FREELANCER_OAUTH_TOKEN` in `fastapi/.env`
-3. Scrape: `POST /jobs/scrape` with `{"sources":["freelancer"],"limit":20}`
-
-Check connection status: `GET /integrations/status`
-
-### Connect PeoplePerHour and Guru
-
-Neither platform currently exposes a stable, supported public job-search API.
-These connectors therefore use clearly labeled Apify community actors:
-
-1. Set `APIFY_TOKEN` in `fastapi/.env`
-2. Optionally override `PEOPLEPERHOUR_ACTOR_ID` or `GURU_ACTOR_ID`
-3. Scrape with `{"sources":["peopleperhour","guru"],"limit":20}`
-
-Actor usage may be billed by Apify. Fiverr and Contra are intentionally not
-presented as job sources: Fiverr exposes seller services rather than client job
-postings, and Contra has no public opportunities feed.
-
-### Connect SerpAPI discovery (freelance + jobs)
-
-1. Create a key at [SerpAPI](https://serpapi.com/)
-2. Set `SERPAPI_API_KEY` in `fastapi/.env`
-3. Optionally tune `SERPAPI_FREELANCE_QUERY` / `SERPAPI_JOBS_QUERY`
-4. Activate Pro, then scrape:
-   - `{"sources":["serpapi_freelance"],"limit":15}`
-   - `{"sources":["serpapi_jobs"],"limit":15}`
-   - `{"sources":["serpapi_companies"],"limit":15}`
-   - `{"sources":["serpapi_maps"],"limit":15}`
-
-Optional Maps location bias: set `SERPAPI_MAPS_LL` like `@37.77,-122.42,14z`.
-Company discovery searches a curated company allowlist (plus low-traffic ATS tenants) via
-batched `site:` queries. High-traffic boards (LinkedIn, Dice, Greenhouse, Workable, etc.)
-are filtered out. It does not crawl HTML or extract contact info off-platform.
+Marketplaces (Upwork, Freelancer, etc.) remain in code for experiments but are **off the default schedule** and not the V1 story. Browser Playwright sources stay experimental.
 
 ## Quick start
-
-Clone the repo, then copy env templates — never commit real `.env` files (they are gitignored).
 
 ```bash
 git clone <your-repo-url> freelance_automation
 cd freelance_automation
 ```
 
-### The Easy Way: Docker (Full Stack)
-
-The simplest way to run the entire project (Frontend, API, DB, and Redis) is using Docker Compose from the root directory.
+### Docker (full stack)
 
 ```bash
-# 1. Setup API env variables
 cd fastapi
 copy .env.example .env
-
-# 2. Go back to root and start everything
+# Set at least: SERPAPI_API_KEY, JWT secret, DATABASE_URL (compose provides DB)
 cd ..
 docker compose up --build
 ```
 
-- **Frontend:** http://localhost:3000
-- **API Docs:** http://localhost:8000/docs
+- Frontend: http://localhost:3000  
+- API docs: http://localhost:8000/docs  
 
-### The Manual Way: Local Development
+### Local development
 
-If you prefer to run the components separately for development:
-
-#### 1. API
+**API**
 
 ```bash
 cd fastapi
 python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-# source .venv/bin/activate
-
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate    # macOS / Linux
 pip install -r requirements.txt
 copy .env.example .env
-
-# Start Postgres & Redis (required)
-docker compose up -d db redis
+docker compose up -d db redis   # from repo root or fastapi/ as documented
 uvicorn app.main:app --reload --port 8000
 ```
 
-Open http://127.0.0.1:8000/docs
-
-#### 2. Frontend
+**Frontend**
 
 ```bash
 cd frontend
@@ -124,92 +73,127 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 — use **Pull live jobs** on the desk.
+Open http://localhost:3000 → sign up → verify email → **Hunt Rules** → refresh inventory → **Leads**.
 
-### Seeding jobs
+### Seed / hunt inventory
 
-Seed jobs via API:
+Default sources come from `SCRAPE_SOURCES` (V1 spine). Authenticated scrape:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/jobs/scrape -H "Content-Type: application/json" -H "Authorization: Bearer YOUR_JWT" -d "{\"sources\":[\"remoteok\",\"arbeitnow\",\"himalayas\",\"jobicy\"],\"limit\":40}"
+curl -X POST http://127.0.0.1:8000/api/v1/jobs/scrape ^
+  -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer YOUR_JWT" ^
+  -d "{\"limit\":20,\"notify_matches\":false,\"background\":false}"
 ```
 
-Or from the repo root:
+Or:
 
 ```bash
 python workers/run_scrape.py --api http://127.0.0.1:8000 --token YOUR_JWT
 ```
 
-The worker and manual scrape endpoint require an authenticated user token. Sign
-in through the UI, then pass the JWT with `--token` or `SIGNAL_DESK_TOKEN`.
+Live smoke (register → Hunt Rules → findings):
+
+```bash
+set API_URL=http://127.0.0.1:8000/api/v1
+python scripts/live_test.py
+```
+
+## Connect hunters
+
+### SerpAPI (V1 spine — required for default hunt)
+
+1. Create a key at [SerpAPI](https://serpapi.com/)
+2. Set in `fastapi/.env`:
+   ```env
+   SERPAPI_API_KEY=...
+   SCRAPE_SOURCES=serpapi_freelance,serpapi_jobs,serpapi_companies
+   ```
+3. Optional: tune `SERPAPI_FREELANCE_QUERY`, `SERPAPI_JOBS_QUERY`, `SERPAPI_COMPANIES_QUERY`
+4. Company/ATS path uses batched `site:` queries (Greenhouse/Lever/Ashby-style hosts included for discovery; high-traffic aggregators like LinkedIn/Indeed are filtered out)
+
+Scrape one mode:
+
+```json
+{"sources":["serpapi_freelance"],"limit":15}
+```
+
+### Reddit hiring (W5 volume — opt-in)
+
+1. Open [Reddit apps](https://www.reddit.com/prefs/apps) → **create another app**
+2. Choose **script** (personal/server use; needs a secret)
+3. **redirect uri:** `http://127.0.0.1:8000/` (required by the form)
+4. Copy **client id** (under the app name) and **secret**
+5. Set in `fastapi/.env`:
+   ```env
+   REDDIT_CLIENT_ID=...
+   REDDIT_CLIENT_SECRET=...
+   REDDIT_USER_AGENT=signaldesk:discovery:v1 (by /u/YOUR_REDDIT_USERNAME)
+   REDDIT_SUBREDDITS=forhire,hiring
+   SCRAPE_SOURCES=serpapi_freelance,serpapi_jobs,serpapi_companies,reddit_hiring
+   ```
+6. Restart/reload the API, then scrape. Only posts with `[Hiring]` are ingested; `[For Hire]` is skipped.
+
+Do **not** use “installed app” (no secret). “Web app” is unnecessary for this read-only hunter.
+
+### Marketplace connectors (optional / off by default)
+
+Upwork and Freelancer adapters still exist for licensed/experimental use. They are **not** in `V1_DEFAULT_HUNTERS`. See `GET /integrations/status` and older Upwork/Freelancer env vars in `.env.example` if you enable them deliberately.
 
 ## Main endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/jobs` | List stored jobs |
-| POST | `/jobs/scrape` | Fetch selected sources and ingest (auth required) |
-| GET | `/integrations/status` | Source availability and credential status |
-| POST | `/jobs/ingest` | Ingest a single job payload (auth required) |
-| POST | `/jobs/detect-duplicate` | Compare against DB jobs (auth required) |
-| GET | `/preferences/demo-matches?keywords=python,react` | Rank matches (no auth) |
-| GET | `/preferences/demo-findings?keywords=python,react` | Lead findings digest (no auth; `freelance_focus=true` by default) |
-| POST | `/auth/register` | Create user + default preferences |
+| POST | `/jobs/scrape` | Run hunters / ingest (auth; verified email) |
+| GET | `/integrations/status` | Credential / source availability |
+| GET/PUT | `/preferences/me` | Hunt Rules CRUD (digest schedule, freelance_focus, …) |
+| GET | `/preferences/findings` | Auth’d leads (`freelance_focus`, Save/Skip filtering) |
+| PUT | `/preferences/leads/{job_id}/action` | `save` / `skip` / `clear` |
+| GET | `/preferences/demo-findings` | Demo leads (no auth) |
+| POST | `/auth/register` | Create user |
 | POST | `/auth/login` | JWT login |
-| GET/PUT | `/preferences/me` | Auth’d preference CRUD |
-| GET | `/preferences/matches` | Auth’d matches |
-| GET | `/preferences/findings` | Auth’d lead findings (`freelance_focus` supported) |
-| POST | `/notifications/send` | Send an authenticated user alert |
+| POST | `/notifications/send` | Send alert (auth) |
 
+## Commercial plans (direction)
+
+| Plan | Includes |
+|------|----------|
+| Free | Hunt Rules, V1 SerpAPI spine when keyed, ranked Leads, email digest, Save/Skip |
+| Pro | Higher hunt density / digest caps, optional Maps + multi-channel alerts; not marketplace bid bots |
+
+Configure Stripe with `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, and `STRIPE_WEBHOOK_SECRET` when charging. Local/dev: **Activate Pro (dev)** on `/pricing` if Stripe is unset.
 
 ## Production launch
 
 ```bash
 copy .env.production.example .env
-# Replace all required values and use public HTTPS origins/URLs.
+# JWT, DB, Redis, SERPAPI_API_KEY, SMTP, optional Reddit/Stripe/Sentry
 docker compose -f compose.production.yml up -d --build
 ```
 
-### Commercial plans
+Set GitHub secret `UPTIME_URL` for the uptime workflow. Verify `/health/live` and `/health/ready`.
 
-| Plan | Includes |
-|------|----------|
-| Free | RemoteOK + Arbeitnow + Himalayas + Jobicy (attributed excerpts), lead scoring, email alerts, proposal draft starter |
-| Pro ($19/mo) | Upwork + Freelancer APIs, SerpAPI discovery (freelance + jobs + companies + Maps), multi-channel alerts, higher scrape limit, proposal drafts |
-
-Remotive, We Work Remotely, PeoplePerHour, and Guru remain registered for demos but are **blocked from commercial scrapes** until written licensing/permission exists.
-
-Configure Stripe with `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, and `STRIPE_WEBHOOK_SECRET`.
-Webhook endpoint: `POST /billing/webhook`. In local/dev without Stripe, use **Activate Pro (dev)** on `/pricing` or Preferences.
-
-Per-user alert destinations live under Preferences (`alert_email`, Slack/Telegram/Discord/WhatsApp).
-Listings are returned as **excerpts with source attribution** and original apply links — not full republished boards.
-
-The production stack runs database migrations before API startup, uses
-non-root application containers, persists Postgres and Redis data, and fails
-fast when the JWT secret or CORS configuration is unsafe. Put ports 3000 and
-8000 behind a TLS reverse proxy or managed load balancer. Verify
-`/health/live` and `/health/ready` after deployment.
+Listings are returned as **excerpts + attribution + original URL** — not full republished boards.
 
 ## Layout
 
 ```
 freelance_automation/
-  backend/          # domain-driven service layer and orchestrator
-  fastapi/          # product API
+  backend/          # application services (matching, digests, scrape, …)
+  fastapi/          # product API + hunters under app/integrations
   frontend/         # Next.js Signal Desk UI
-  scrapers/         # Playwright framework + HTTP source adapters
-  workers/          # scrape CLI
-  ai/               # LLM analysis providers (optional enrichment)
-  database/         # expanded schema design notes
-  ARCHITECTURE.md   # long-term module vision
+  scrapers/         # Playwright / HTTP adapters (experimental browsers)
+  workers/          # Celery tasks + scrape CLI + digest beat
+  database/         # models + Alembic migrations
+  scripts/          # live_test.py, uptime_check.py
+  ARCHITECTURE.md   # module vision
 ```
 
 ## Notes
 
-- Default DB is **Postgres** (`postgresql+asyncpg://postgres:postgres@localhost:5432/freelance`). Run `docker compose up -d db` from `fastapi/`. For local SQLite instead, set `DATABASE_URL=sqlite+aiosqlite:///./freelance.db`.
-- LLM apply/enrichment tries providers in order **Groq → NVIDIA → Gemini → OpenAI → Anthropic**; only keys you set are used.
-- Upwork/LinkedIn need authenticated browser scrapers; the Playwright framework in `scrapers/core` is ready for those next.
-- Unconfigured notification channels return a failed delivery with
-  `provider_not_configured`; configure at least one provider before enabling alerts.
-- Keep secrets local: `fastapi/.env`, `frontend/.env.local`, `*.db`, `.venv/`, and `node_modules/` stay out of git. Commit only `*.example` env templates.
+- Default DB is **Postgres**. Schema patches / migrations add Hunt Rules + `user_lead_actions` columns/tables.
+- Default `SCRAPE_NOTIFY_MATCHES=false` — digests own the show clock; scrape-time pings are skipped when `digest_mode` is on.
+- Soft-launch gate unit tests: `fastapi/tests/test_v1_soft_launch_gates.py`
+- Without `EMAIL_SMTP_*`, auth/digest mail is logged only in dev.
+- Keep secrets local: never commit `fastapi/.env` or `frontend/.env.local`.

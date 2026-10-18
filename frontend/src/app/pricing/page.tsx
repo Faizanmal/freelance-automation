@@ -15,6 +15,7 @@ export default function PricingPage() {
   const router = useRouter();
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [stripeEnabled, setStripeEnabled] = useState(false);
+  const [devActivateAllowed, setDevActivateAllowed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -24,6 +25,7 @@ export default function PricingPage() {
         const data = await listBillingPlans();
         setPlans(data.plans);
         setStripeEnabled(data.stripe_enabled);
+        setDevActivateAllowed(Boolean(data.dev_activate_allowed));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load plans");
       }
@@ -41,6 +43,10 @@ export default function PricingPage() {
         if (stripeEnabled) {
           const checkout = await startCheckout();
           window.location.href = checkout.url;
+          return;
+        }
+        if (!devActivateAllowed) {
+          setError("Live billing is not configured yet. Set Stripe keys to enable upgrades.");
           return;
         }
         await activateDevPro();
@@ -62,7 +68,7 @@ export default function PricingPage() {
           Signal Desk plans
         </h1>
         <p className="mt-4 max-w-xl text-lg text-[var(--fog)]">
-          Start free on attributed remote boards. Upgrade for marketplace APIs, multi-channel alerts, and proposal drafts.
+          Start free with Hunt Rules, ranked leads, and an email digest. Pro raises hunt density and digest caps — not marketplace bid bots.
         </p>
       </section>
 
@@ -81,14 +87,24 @@ export default function PricingPage() {
               ))}
             </ul>
             {plan.id === "pro" ? (
-              <button
-                type="button"
-                onClick={upgrade}
-                disabled={pending}
-                className="mt-8 rounded-full bg-[var(--signal)] px-5 py-2.5 font-semibold text-[var(--ink)] disabled:opacity-60"
-              >
-                {pending ? "Working…" : stripeEnabled ? "Upgrade with Stripe" : "Activate Pro (dev)"}
-              </button>
+              stripeEnabled || devActivateAllowed ? (
+                <button
+                  type="button"
+                  onClick={upgrade}
+                  disabled={pending}
+                  className="mt-8 rounded-full bg-[var(--signal)] px-5 py-2.5 font-semibold text-[var(--ink)] disabled:opacity-60"
+                >
+                  {pending
+                    ? "Working…"
+                    : stripeEnabled
+                      ? "Upgrade with Stripe"
+                      : "Activate Pro (dev)"}
+                </button>
+              ) : (
+                <p className="mt-8 text-sm text-[var(--mute)]">
+                  Billing is not configured in this environment. Contact support to upgrade.
+                </p>
+              )
             ) : (
               <Link
                 href="/auth"
@@ -102,7 +118,7 @@ export default function PricingPage() {
       </section>
 
       {error ? <p className="text-sm text-[var(--ember)]">{error}</p> : null}
-      {!stripeEnabled ? (
+      {!stripeEnabled && devActivateAllowed ? (
         <p className="text-sm text-[var(--mute)]">
           Stripe keys are optional in development. Set `STRIPE_SECRET_KEY` and `STRIPE_PRICE_PRO` for live checkout.
         </p>

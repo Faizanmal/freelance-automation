@@ -9,7 +9,9 @@ from ai.schemas.analysis import JobAnalysis
 
 
 class OllamaProvider(AIProvider):
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "gpt-4o") -> None:
+    def __init__(
+        self, base_url: str = "http://localhost:11434", model: str = "gpt-4o"
+    ) -> None:
         self.base_url = base_url
         self.model = model
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from hashlib import sha1
 from typing import Any
@@ -13,7 +13,7 @@ class JobSource:
     source_name: str
     source_id: str
     url: str
-    captured_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    captured_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(slots=True)
@@ -66,24 +66,40 @@ class SimpleEmbeddingProvider:
         return [value / norm for value in vector]
 
     def _tokenize(self, value: str) -> set[str]:
-        return {token for token in value.lower().replace("&", " ").replace("-", " ").split() if token}
+        return {
+            token
+            for token in value.lower().replace("&", " ").replace("-", " ").split()
+            if token
+        }
 
 
 class DuplicateDetectionService:
     """Duplicate engine with URL, lexical, budget, company, time, and embedding signals."""
 
-    def __init__(self, duplicate_threshold: float = 0.78, embedding_provider: SimpleEmbeddingProvider | None = None) -> None:
+    def __init__(
+        self,
+        duplicate_threshold: float = 0.78,
+        embedding_provider: SimpleEmbeddingProvider | None = None,
+    ) -> None:
         self.duplicate_threshold = duplicate_threshold
         self.embedding_provider = embedding_provider or SimpleEmbeddingProvider()
 
-    def detect_duplicate(self, canonical: JobCandidate, incoming: JobCandidate) -> DuplicateDecision:
+    def detect_duplicate(
+        self, canonical: JobCandidate, incoming: JobCandidate
+    ) -> DuplicateDecision:
         reasons: list[str] = []
 
-        if self._normalize_url(canonical.url) and self._normalize_url(canonical.url) == self._normalize_url(incoming.url):
-            return DuplicateDecision(is_duplicate=True, confidence=0.99, reasons=["same_url"])
+        if self._normalize_url(canonical.url) and self._normalize_url(
+            canonical.url
+        ) == self._normalize_url(incoming.url):
+            return DuplicateDecision(
+                is_duplicate=True, confidence=0.99, reasons=["same_url"]
+            )
 
         title_score = self._similarity(canonical.title, incoming.title)
-        description_score = self._similarity(canonical.description, incoming.description)
+        description_score = self._similarity(
+            canonical.description, incoming.description
+        )
         budget_score = self._budget_similarity(canonical, incoming)
         company_score = self._company_similarity(canonical.company, incoming.company)
         time_score = self._time_similarity(canonical.posted_at, incoming.posted_at)
@@ -111,14 +127,35 @@ class DuplicateDetectionService:
                 reasons.append("company_similarity")
             if time_score >= 0.6:
                 reasons.append("time_similarity")
-            return DuplicateDecision(is_duplicate=True, confidence=round(min(total, 0.99), 4), reasons=reasons)
+            return DuplicateDecision(
+                is_duplicate=True,
+                confidence=round(min(total, 0.99), 4),
+                reasons=reasons,
+            )
 
-        return DuplicateDecision(is_duplicate=False, confidence=round(total, 4), reasons=["insufficient_signal"])
+        return DuplicateDecision(
+            is_duplicate=False,
+            confidence=round(total, 4),
+            reasons=["insufficient_signal"],
+        )
 
-    def merge_duplicate(self, canonical: JobCandidate, incoming: JobCandidate, decision: DuplicateDecision) -> MergedJob:
+    def merge_duplicate(
+        self,
+        canonical: JobCandidate,
+        incoming: JobCandidate,
+        decision: DuplicateDecision,
+    ) -> MergedJob:
         history = [
-            JobSource(source_name=canonical.source_name, source_id=canonical.source_id, url=canonical.url),
-            JobSource(source_name=incoming.source_name, source_id=incoming.source_id, url=incoming.url),
+            JobSource(
+                source_name=canonical.source_name,
+                source_id=canonical.source_id,
+                url=canonical.url,
+            ),
+            JobSource(
+                source_name=incoming.source_name,
+                source_id=incoming.source_id,
+                url=incoming.url,
+            ),
         ]
 
         merged = MergedJob(
@@ -145,15 +182,33 @@ class DuplicateDetectionService:
             return 0.0
         return round(SequenceMatcher(None, left_text, right_text).ratio(), 4)
 
-    def _budget_similarity(self, canonical: JobCandidate, incoming: JobCandidate) -> float:
+    def _budget_similarity(
+        self, canonical: JobCandidate, incoming: JobCandidate
+    ) -> float:
         if canonical.budget_min is None or incoming.budget_min is None:
             return 0.5
         if canonical.budget_max is None or incoming.budget_max is None:
             return 0.5
-        overlap = self._range_overlap(canonical.budget_min, canonical.budget_max, incoming.budget_min, incoming.budget_max)
+        overlap = self._range_overlap(
+            canonical.budget_min,
+            canonical.budget_max,
+            incoming.budget_min,
+            incoming.budget_max,
+        )
         if overlap <= 0:
             return 0.0
-        return round(min(1.0, overlap / max(abs(canonical.budget_max - canonical.budget_min), abs(incoming.budget_max - incoming.budget_min), 1)), 4)
+        return round(
+            min(
+                1.0,
+                overlap
+                / max(
+                    abs(canonical.budget_max - canonical.budget_min),
+                    abs(incoming.budget_max - incoming.budget_min),
+                    1,
+                ),
+            ),
+            4,
+        )
 
     def _company_similarity(self, left: str | None, right: str | None) -> float:
         if not left or not right:
@@ -162,7 +217,9 @@ class DuplicateDetectionService:
         right_tokens = self._tokenize(right)
         if not left_tokens or not right_tokens:
             return 0.0
-        overlap = len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens))
+        overlap = len(left_tokens & right_tokens) / min(
+            len(left_tokens), len(right_tokens)
+        )
         return round(overlap, 4)
 
     def _time_similarity(self, left: str | None, right: str | None) -> float:
@@ -183,10 +240,12 @@ class DuplicateDetectionService:
     def _parse_datetime(self, value: str) -> datetime:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
 
-    def _embedding_proxy(self, canonical: JobCandidate, incoming: JobCandidate) -> float:
+    def _embedding_proxy(
+        self, canonical: JobCandidate, incoming: JobCandidate
+    ) -> float:
         left_text = " ".join(filter(None, [canonical.title, canonical.description]))
         right_text = " ".join(filter(None, [incoming.title, incoming.description]))
         if not left_text or not right_text:
@@ -202,9 +261,15 @@ class DuplicateDetectionService:
         return value.strip().lower().rstrip("/")
 
     def _tokenize(self, value: str) -> set[str]:
-        return {token for token in value.lower().replace("&", " ").replace("-", " ").split() if token}
+        return {
+            token
+            for token in value.lower().replace("&", " ").replace("-", " ").split()
+            if token
+        }
 
-    def _range_overlap(self, a_min: float, a_max: float, b_min: float, b_max: float) -> float:
+    def _range_overlap(
+        self, a_min: float, a_max: float, b_min: float, b_max: float
+    ) -> float:
         return max(0.0, min(a_max, b_max) - max(a_min, b_min))
 
     def _pick_best(self, left: str, right: str) -> str:

@@ -25,14 +25,28 @@ class NotificationServiceTests(unittest.TestCase):
 
         self.assertEqual(len(results), 2)
         self.assertTrue(all(not result.delivered for result in results))
-        self.assertTrue(all(result.error == "provider_not_configured" for result in results))
+        self.assertTrue(
+            all(result.error == "provider_not_configured" for result in results)
+        )
 
     def test_digest_mode_builds_summary(self) -> None:
         service = NotificationService()
-        digest = service.build_digest([
-            NotificationPayload(user_id="user-1", title="Job 1", body="First item", channels=[NotificationChannel.EMAIL]),
-            NotificationPayload(user_id="user-1", title="Job 2", body="Second item", channels=[NotificationChannel.EMAIL]),
-        ])
+        digest = service.build_digest(
+            [
+                NotificationPayload(
+                    user_id="user-1",
+                    title="Job 1",
+                    body="First item",
+                    channels=[NotificationChannel.EMAIL],
+                ),
+                NotificationPayload(
+                    user_id="user-1",
+                    title="Job 2",
+                    body="Second item",
+                    channels=[NotificationChannel.EMAIL],
+                ),
+            ]
+        )
 
         self.assertTrue(digest.digest)
         self.assertIn("Daily digest", digest.title)

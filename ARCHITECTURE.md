@@ -1,16 +1,29 @@
-# Freelance Intelligence Platform Architecture
+# Signal Desk Architecture
 
 ## 1. Vision
-This platform continuously monitors many freelance and job sources, normalizes opportunities, ranks them against user preferences, and delivers matched alerts through multiple channels.
+
+**V1 Discovery Desk:** find real freelance/contract opportunities outside crowded marketplaces, rank them against **Hunt Rules**, and send users to the **original listing** via Leads + email digest. No fake inventory. No auto-apply.
+
+Product loop:
+
+```
+Hunt Rules → hunters (API / SerpAPI / Reddit) → ingest + dedupe → match
+         → Leads (live) + digest (show clock) → Open original
+```
+
+Two clocks: **hunt** (system fills the shared pool) and **show** (per-user digest schedule).
 
 Key qualities:
-- Modular design
+- Modular hunters (`fastapi/app/ingestion/sources.py` + `app/integrations/`)
 - Easy to add new sources independently
 - Clean architecture with strong separation of concerns
 - Repository pattern for persistence
 - Service layer for business logic
 - Dependency injection for replaceable implementations
 - Fully typed contracts and explicit interfaces
+
+**V1 default hunters:** `serpapi_freelance`, `serpapi_jobs`, `serpapi_companies`.  
+**Post-V1 opt-in:** `reddit_hiring` (`POST_V1_HUNTERS`). Marketplaces stay registered but off the default schedule.
 
 ## 2. Top-level modules
 
@@ -106,10 +119,10 @@ freelance_automation/
 - Depend on abstractions from `database`, `ai`, and `notifications` via interfaces.
 
 ### `frontend`
-- Present dashboards for job matches, preference settings, and pipeline health.
-- Allow users to define preferences, sources, budgets, timeline, and role weighting.
-- Display alerts, matched opportunities, and historical feedback.
-- Call backend APIs and render status of scrapers, notifications, and AI scoring.
+- Present Desk, Leads, Hunt Rules, and account surfaces (Sources demoted from primary nav).
+- Allow users to define Hunt Rules (keywords, budget, location, freelance focus, digest show clock).
+- Primary lead CTA is Open original; Save/Skip persist via API.
+- Call backend APIs for findings, scrape, billing, and health/status.
 
 ### `scrapers`
 - Implement every source connector independently in `sources/<source-name>/`.
@@ -126,12 +139,10 @@ freelance_automation/
 - Use `database`, `ai`, `notifications`, and `scrapers` through contracts.
 
 ### `database`
-- Currently holds schema design notes (`schema.sql` and `README.md`).
-- Note: Actual SQLAlchemy models and Alembic migrations reside in `fastapi/app/models` and `fastapi/migrations`.
-- Provide repository implementations for read/write operations (currently in `backend/infrastructure/repositories`).
-- Implement the Repository Pattern to hide storage details from application code.
-- Support transaction boundaries and optimistic updates.
-- Expose typed repository interfaces for `backend` and `workers`.
+- SQLAlchemy models live in `database/models/` (jobs, users, applications, notifications, roadmap, etc.).
+- Alembic config/migrations live in `database/` (`alembic.ini`, `migrations/`).
+- Repository implementations live in `backend/infrastructure/repositories/`.
+- The FastAPI app (`fastapi/`) is the HTTP surface; workers reuse the same models/session layer.
 
 ### `notifications`
 - Implement channel adapters for email, SMS, push, Slack, etc.
@@ -225,44 +236,45 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  subgraph Source Layer
-    A1[Job Sources / Marketplaces]
+  subgraph HuntLayer [Hunt layer]
+    A1[SerpAPI spine]
+    A2[Reddit Hiring opt-in]
+    A3[Optional boards]
   end
 
-  subgraph Ingestion Layer
-    B1[Scraper Source Adapters]
-    B2[Normalization + Deduplication]
-    B3[Job Queue / Event Bus]
+  subgraph IngestionLayer [Ingestion]
+    B1[Source adapters]
+    B2[Normalize + dedupe]
   end
 
-  subgraph Core Layer
-    C1[Database Repositories]
-    C2[AI Ranking + Preference Engine]
-    C3[Match Service]
-    C4[Notification Service]
+  subgraph CoreLayer [Core]
+    C1[Job DB]
+    C2[Match + freelance focus]
+    C3[Lead findings]
+    C4[Digest show clock]
   end
 
-  subgraph Interface Layer
-    D1[Backend API]
-    D2[Frontend Dashboard]
+  subgraph InterfaceLayer [Interface]
+    D1[API]
+    D2[Leads + Hunt Rules UI]
   end
 
-  A1 --> B1 --> B2 --> B3
-  B3 --> C1
-  C1 --> C2 --> C3 --> C4
+  A1 --> B1
+  A2 --> B1
+  A3 --> B1
+  B1 --> B2 --> C1
+  C1 --> C2 --> C3
+  C3 --> D1 --> D2
+  C2 --> C4
   C4 --> D1
-  D1 --> D2
-  D2 --> C1
-  C2 --> C1
 ```
 
 ### Data flow summary
-1. Scrapers poll external sources and emit normalized `JobOpportunity` objects.
-2. Workers queue and persist incoming opportunities.
-3. The AI layer scores and ranks opportunities against user preferences.
-4. Matches are recorded and notification events are generated.
-5. `backend` APIs serve match results and health status to the `frontend`.
-6. User feedback flows back into preference and ranking models.
+1. Hunters fetch public listings (SerpAPI spine by default; Reddit when keyed + opted in).
+2. Ingest normalizes, dedupes, and stores jobs with original URLs.
+3. Matching + freelance focus ranks against Hunt Rules; Save/Skip filters findings.
+4. Live Leads serve on demand; digests fire on each user’s show clock.
+5. Frontend primary path: Open original (pitch on the source site).
 
 ## 8. Core interfaces
 
@@ -325,14 +337,21 @@ A new source is added by:
 
 This keeps each source isolated and the rest of the system unchanged.
 
-## 10. Existing workspace alignment
+## 10. Existing workspace alignment (current)
 
-- `backend/` remains the domain-driven service layer and API host.
-- `frontend/` stays as the user-facing Next.js app.
-- `fastapi/` can later host a lightweight microservice or API gateway if desired, while `backend/` remains the core orchestrator.
-- New modules are added and integrated without changing the existing app boundaries.
+- `fastapi/` — product HTTP API (routes under `/` and `/api/v1`)
+- `backend/` — application services (scrape, match, apply, billing, notifications)
+- `frontend/` — Next.js Signal Desk UI
+- `scrapers/` — source adapters (HTTP boards + experimental Playwright)
+- `workers/` — Celery app (`worker` + `beat`) for background scrape/drip/notify
+- `database/` — models + Alembic migrations
+- `ai/` — optional LLM providers for enrichment/drafts
+- `config/` — shared settings
+
+Matching used by the live product is `MatchingService` (`backend/application/services/matching.py`).
+`DomainJobMatchService.batch_match` is available for DI callers when job/preference loaders are injected.
 
 ---
 
 ## 11. Recommended next step
-Create typed module interface definitions and a dependency-injection registry before implementing any concrete adapter.
+Keep commercial source allowlists (`COMMERCIAL_*` / `RESTRICTED_*`) as the single source of truth for docs and billing features.

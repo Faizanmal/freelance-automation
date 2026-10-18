@@ -21,23 +21,25 @@ from backend.infrastructure.repositories.job_repository import DomainJobReposito
 class EnvConfigProvider:
     def get(self, key: str, default: Any = None) -> Any:
         import os
+
         return os.getenv(key, default)
 
+
 container = DIContainer()
+
 
 def setup_container() -> DIContainer:
     """Wire up the core dependencies."""
     container.register_singleton(IConfigProvider, EnvConfigProvider())
-    
+
     # Repositories (usually transient or dependent on request-scoped session)
     # Here we define a factory that requires an AsyncSession to be injected or provided.
     container.register_factory(
-        IJobRepository, 
-        lambda c: DomainJobRepository(c.resolve(AsyncSession))
+        IJobRepository, lambda c: DomainJobRepository(c.resolve(AsyncSession))
     )
-    
+
     # Application Services
     container.register_singleton(IJobMatchService, DomainJobMatchService())
     container.register_singleton(IJobEnrichmentService, DomainJobEnrichmentService())
-    
+
     return container

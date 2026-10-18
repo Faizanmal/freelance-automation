@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from app.ingestion.sources import PUBLIC_SOURCES, SOURCE_REGISTRY
+from app.ingestion.sources import SOURCE_REGISTRY, V1_DEFAULT_HUNTERS
 from app.integrations.apify_marketplaces import (
     SourceNotConfiguredError as ApifyNotConfigured,
 )
 from app.integrations.freelancer import (
     SourceNotConfiguredError as FreelancerNotConfigured,
+)
+from app.integrations.reddit_hiring import (
+    SourceNotConfiguredError as RedditNotConfigured,
 )
 from app.integrations.serpapi_discovery import (
     SourceNotConfiguredError as SerpApiNotConfigured,
@@ -26,6 +29,7 @@ from backend.application.services.persistent_notifications import (
     PersistentNotificationService,
 )
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
+from config.settings import get_settings
 from database.models.preference import UserPreferences
 from database.models.user import User
 
@@ -43,8 +47,11 @@ class ScrapeService:
         notify_matches: bool = False,
         query: str | None = None,
     ) -> dict[str, object]:
-        # Default to public boards; marketplaces are opt-in via request or SCRAPE_SOURCES.
-        selected = sources or list(PUBLIC_SOURCES)
+        # Default to V1 hunter spine (settings SCRAPE_SOURCES / V1_DEFAULT_HUNTERS).
+        # Marketplaces stay opt-in and out of the default schedule.
+        selected = (
+            sources or get_settings().scrape_source_list or list(V1_DEFAULT_HUNTERS)
+        )
         summary: dict[str, object] = {
             "sources": {},
             "total_fetched": 0,
@@ -73,14 +80,25 @@ class ScrapeService:
                 FreelancerNotConfigured,
                 ApifyNotConfigured,
                 SerpApiNotConfigured,
+                RedditNotConfigured,
             ) as exc:
-                summary["sources"][source_name] = {"error": "not_configured", "detail": str(exc), "fetched": 0}
+                summary["sources"][source_name] = {
+                    "error": "not_configured",
+                    "detail": str(exc),
+                    "fetched": 0,
+                }
                 continue
-            except Exception as exc:  # noqa: BLE001
+            except (RuntimeError, ValueError, OSError, TimeoutError) as exc:
                 summary["sources"][source_name] = {"error": str(exc), "fetched": 0}
                 continue
 
-            counts = {"fetched": len(candidates), "ingested": 0, "merged": 0, "linked": 0, "skipped": 0}
+            counts = {
+                "fetched": len(candidates),
+                "ingested": 0,
+                "merged": 0,
+                "linked": 0,
+                "skipped": 0,
+            }
             for candidate in candidates:
                 result = await self.ingestion.ingest(
                     candidate,
@@ -118,16 +136,23 @@ class ScrapeService:
         if not jobs:
             return 0
 
-        users_result = await self.session.execute(select(User).where(User.is_active.is_(True), User.is_verified.is_(True)))
+        users_result = await self.session.execute(
+            select(User).where(User.is_active.is_(True), User.is_verified.is_(True))
+        )
         users = list(users_result.scalars().all())
         matcher = MatchingService()
         notifier = PersistentNotificationService(self.session)
         sent = 0
 
         for user in users:
-            prefs_result = await self.session.execute(select(UserPreferences).where(UserPreferences.user_id == user.id))
+            prefs_result = await self.session.execute(
+                select(UserPreferences).where(UserPreferences.user_id == user.id)
+            )
             prefs = prefs_result.scalar_one_or_none()
             if prefs is None:
+                continue
+            # Show clock owns digests; skip per-scrape pings when digest mode is on.
+            if bool(getattr(prefs, "digest_mode", True)):
                 continue
             matches = matcher.rank_jobs(jobs, prefs)
             for match in matches[:5]:
@@ -145,9 +170,16 @@ class ScrapeService:
                         title=f"Match: {match.job.title}",
                         body=match.job.analysis_summary or match.job.description[:400],
                         channels=channels,
-                        priority=NotificationPriority.HIGH if match.score >= 0.6 else NotificationPriority.NORMAL,
+                        priority=(
+                            NotificationPriority.HIGH
+                            if match.score >= 0.6
+                            else NotificationPriority.NORMAL
+                        ),
                         ai_summary=match.job.analysis_summary,
-                        metadata={"match_score": match.score, "matched_keywords": match.matched_keywords},
+                        metadata={
+                            "match_score": match.score,
+                            "matched_keywords": match.matched_keywords,
+                        },
                         destinations=destinations_from_preferences(prefs)
                         | {"email": prefs.alert_email or user.email},
                     ),

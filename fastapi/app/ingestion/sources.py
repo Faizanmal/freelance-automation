@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from xml.etree import ElementTree
 
@@ -15,9 +15,13 @@ class RemoteOKSource:
     name = "remoteok"
     url = "https://remoteok.com/api"
 
-    async def fetch(self, *, limit: int = 50, tags: list[str] | None = None) -> list[JobCandidate]:
+    async def fetch(
+        self, *, limit: int = 50, tags: list[str] | None = None
+    ) -> list[JobCandidate]:
         headers = {"User-Agent": "FreelanceIntelligence/0.2 (+local)"}
-        async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0, headers=headers, follow_redirects=True
+        ) as client:
             response = await client.get(self.url)
             response.raise_for_status()
             payload = response.json()
@@ -34,7 +38,7 @@ class RemoteOKSource:
             posted_at = None
             epoch = row.get("epoch") or row.get("date")
             if isinstance(epoch, (int, float)):
-                posted_at = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+                posted_at = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
             elif isinstance(epoch, str) and epoch:
                 posted_at = epoch
 
@@ -43,13 +47,21 @@ class RemoteOKSource:
                     source_name=self.name,
                     source_id=str(row["id"]),
                     title=str(row.get("position") or "Untitled"),
-                    description=str(row.get("description") or row.get("position") or ""),
-                    url=str(row.get("url") or f"https://remoteok.com/remote-jobs/{row['id']}"),
+                    description=str(
+                        row.get("description") or row.get("position") or ""
+                    ),
+                    url=str(
+                        row.get("url")
+                        or f"https://remoteok.com/remote-jobs/{row['id']}"
+                    ),
                     company=row.get("company"),
                     budget_min=_to_float(row.get("salary_min")),
                     budget_max=_to_float(row.get("salary_max")),
                     posted_at=posted_at,
-                    metadata={"location": row.get("location") or "Remote", "tags": job_tags},
+                    metadata={
+                        "location": row.get("location") or "Remote",
+                        "tags": job_tags,
+                    },
                 )
             )
             if len(jobs) >= limit:
@@ -63,12 +75,16 @@ class RemotiveSource:
     name = "remotive"
     url = "https://remotive.com/api/remote-jobs"
 
-    async def fetch(self, *, limit: int = 50, category: str | None = None) -> list[JobCandidate]:
+    async def fetch(
+        self, *, limit: int = 50, category: str | None = None
+    ) -> list[JobCandidate]:
         params: dict[str, Any] = {"limit": limit}
         if category:
             params["category"] = category
         headers = {"User-Agent": "FreelanceIntelligence/0.2 (+local)"}
-        async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0, headers=headers, follow_redirects=True
+        ) as client:
             response = await client.get(self.url, params=params)
             response.raise_for_status()
             payload = response.json()
@@ -107,7 +123,9 @@ class ArbeitnowSource:
 
     async def fetch(self, *, limit: int = 50) -> list[JobCandidate]:
         headers = {"User-Agent": "FreelanceIntelligence/0.2 (+local)"}
-        async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0, headers=headers, follow_redirects=True
+        ) as client:
             response = await client.get(self.url)
             response.raise_for_status()
             payload = response.json()
@@ -119,7 +137,7 @@ class ArbeitnowSource:
             posted_at = None
             created = row.get("created_at")
             if isinstance(created, (int, float)):
-                posted_at = datetime.fromtimestamp(created, tz=timezone.utc).isoformat()
+                posted_at = datetime.fromtimestamp(created, tz=UTC).isoformat()
             elif isinstance(created, str) and created:
                 posted_at = created
 
@@ -221,10 +239,16 @@ class HimalayasSource:
                 if not rows:
                     break
                 for row in rows:
-                    guid = row.get("guid") or row.get("applicationLink") or row.get("title")
+                    guid = (
+                        row.get("guid")
+                        or row.get("applicationLink")
+                        or row.get("title")
+                    )
                     location = row.get("locationRestrictions") or []
                     if isinstance(location, list):
-                        location_label = ", ".join(str(item) for item in location) or "Remote"
+                        location_label = (
+                            ", ".join(str(item) for item in location) or "Remote"
+                        )
                     else:
                         location_label = str(location) or "Remote"
                     tags = [
@@ -232,26 +256,33 @@ class HimalayasSource:
                         for tag in (
                             *(row.get("categories") or []),
                             *(row.get("parentCategories") or []),
-                            *((row.get("seniority") or []) if isinstance(row.get("seniority"), list) else []),
+                            *(
+                                (row.get("seniority") or [])
+                                if isinstance(row.get("seniority"), list)
+                                else []
+                            ),
                             row.get("employmentType"),
                         )
                         if tag
                     ]
                     posted_at = row.get("pubDate")
                     if isinstance(posted_at, (int, float)):
-                        posted_at = datetime.fromtimestamp(posted_at, tz=timezone.utc).isoformat()
+                        posted_at = datetime.fromtimestamp(
+                            posted_at, tz=UTC
+                        ).isoformat()
                     jobs.append(
                         JobCandidate(
                             source_name=self.name,
                             source_id=str(guid),
                             title=str(row.get("title") or "Untitled"),
                             description=str(
-                                row.get("description") or row.get("excerpt") or row.get("title") or ""
+                                row.get("description")
+                                or row.get("excerpt")
+                                or row.get("title")
+                                or ""
                             ),
                             url=str(
-                                row.get("applicationLink")
-                                or row.get("guid")
-                                or ""
+                                row.get("applicationLink") or row.get("guid") or ""
                             ),
                             company=row.get("companyName"),
                             budget_min=_to_float(row.get("minSalary")),
@@ -279,7 +310,9 @@ class JobicySource:
     name = "jobicy"
     url = "https://jobicy.com/api/v2/remote-jobs"
 
-    async def fetch(self, *, limit: int = 50, tag: str | None = None) -> list[JobCandidate]:
+    async def fetch(
+        self, *, limit: int = 50, tag: str | None = None
+    ) -> list[JobCandidate]:
         params: dict[str, Any] = {"count": min(max(limit, 1), 100)}
         if tag:
             params["tag"] = tag
@@ -307,7 +340,9 @@ class JobicySource:
             jobs.append(
                 JobCandidate(
                     source_name=self.name,
-                    source_id=str(row.get("id") or row.get("jobSlug") or row.get("url")),
+                    source_id=str(
+                        row.get("id") or row.get("jobSlug") or row.get("url")
+                    ),
                     title=str(row.get("jobTitle") or "Untitled"),
                     description=str(
                         row.get("jobDescription")
@@ -338,7 +373,9 @@ class UpworkSource:
 
     name = "upwork"
 
-    async def fetch(self, *, limit: int = 50, query: str | None = None) -> list[JobCandidate]:
+    async def fetch(
+        self, *, limit: int = 50, query: str | None = None
+    ) -> list[JobCandidate]:
         from app.integrations import upwork as upwork_api
         from config.settings import get_settings
 
@@ -356,7 +393,10 @@ class UpworkSource:
                 budget_min=row.get("budget_min"),
                 budget_max=row.get("budget_max"),
                 posted_at=row.get("posted_at"),
-                metadata={"location": row.get("location") or "Remote", "tags": row.get("tags") or []},
+                metadata={
+                    "location": row.get("location") or "Remote",
+                    "tags": row.get("tags") or [],
+                },
             )
             for row in rows
         ]
@@ -367,7 +407,9 @@ class FreelancerSource:
 
     name = "freelancer"
 
-    async def fetch(self, *, limit: int = 50, query: str | None = None) -> list[JobCandidate]:
+    async def fetch(
+        self, *, limit: int = 50, query: str | None = None
+    ) -> list[JobCandidate]:
         from app.integrations import freelancer as freelancer_api
         from config.settings import get_settings
 
@@ -385,7 +427,10 @@ class FreelancerSource:
                 budget_min=row.get("budget_min"),
                 budget_max=row.get("budget_max"),
                 posted_at=row.get("posted_at"),
-                metadata={"location": row.get("location") or "Remote", "tags": row.get("tags") or []},
+                metadata={
+                    "location": row.get("location") or "Remote",
+                    "tags": row.get("tags") or [],
+                },
             )
             for row in rows
         ]
@@ -489,6 +534,20 @@ class SerpApiMapsSource:
         return [_candidate_from_row(self.name, row) for row in rows]
 
 
+class RedditHiringSource:
+    """W5 volume hunter: Reddit official API, [Hiring] posts only."""
+
+    name = "reddit_hiring"
+
+    async def fetch(
+        self, *, limit: int = 20, query: str | None = None
+    ) -> list[JobCandidate]:
+        from app.integrations import reddit_hiring
+
+        rows = await reddit_hiring.search_hiring(limit=limit, query=query)
+        return [_candidate_from_row(self.name, row) for row in rows]
+
+
 def _candidate_from_row(source: str, row: dict[str, Any]) -> JobCandidate:
     extra = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     return JobCandidate(
@@ -542,24 +601,31 @@ def _to_float(value: Any) -> float | None:
 class LinkedInBrowserSource:
     name = "linkedin_browser"
 
-    async def fetch(self, *, limit: int = 20, query: str | None = None) -> list[JobCandidate]:
+    async def fetch(
+        self, *, limit: int = 20, query: str | None = None
+    ) -> list[JobCandidate]:
         import os
         import sys
+
         # Ensure scrapers module is accessible
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        project_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
-            
+
         from scrapers.core.browser_engine import BrowserEngine
         from scrapers.sources.linkedin_browser import LinkedInBrowserScraper
-        
+
         engine = BrowserEngine(headless=True)
         await engine.start()
-        
+
         try:
             page = await engine.new_page()
             scraper = LinkedInBrowserScraper(engine=engine, page=page)
-            raw_jobs = await scraper.fetch_jobs(limit=limit, query=query or "software engineer")
+            raw_jobs = await scraper.fetch_jobs(
+                limit=limit, query=query or "software engineer"
+            )
             candidates = []
             for raw in raw_jobs:
                 candidates.append(
@@ -573,7 +639,7 @@ class LinkedInBrowserSource:
                         budget_min=None,
                         budget_max=None,
                         posted_at=None,
-                        metadata={"location": "Remote", "tags": []}
+                        metadata={"location": "Remote", "tags": []},
                     )
                 )
             return candidates
@@ -584,24 +650,31 @@ class LinkedInBrowserSource:
 class UpworkBrowserSource:
     name = "upwork_browser"
 
-    async def fetch(self, *, limit: int = 20, query: str | None = None) -> list[JobCandidate]:
+    async def fetch(
+        self, *, limit: int = 20, query: str | None = None
+    ) -> list[JobCandidate]:
         import os
         import sys
+
         # Ensure scrapers module is accessible
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        project_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
-            
+
         from scrapers.core.browser_engine import BrowserEngine
         from scrapers.sources.upwork_browser import UpworkBrowserScraper
-        
+
         engine = BrowserEngine(headless=True)
         await engine.start()
-        
+
         try:
             page = await engine.new_page()
             scraper = UpworkBrowserScraper(engine=engine, page=page)
-            raw_jobs = await scraper.fetch_jobs(limit=limit, query=query or "python developer")
+            raw_jobs = await scraper.fetch_jobs(
+                limit=limit, query=query or "python developer"
+            )
             candidates = []
             for raw in raw_jobs:
                 candidates.append(
@@ -615,7 +688,7 @@ class UpworkBrowserSource:
                         budget_min=None,
                         budget_max=None,
                         posted_at=None,
-                        metadata={"location": "Remote", "tags": []}
+                        metadata={"location": "Remote", "tags": []},
                     )
                 )
             return candidates
@@ -638,6 +711,7 @@ SOURCE_REGISTRY = {
     SerpApiJobsSource.name: SerpApiJobsSource,
     SerpApiCompaniesSource.name: SerpApiCompaniesSource,
     SerpApiMapsSource.name: SerpApiMapsSource,
+    RedditHiringSource.name: RedditHiringSource,
     LinkedInBrowserSource.name: LinkedInBrowserSource,
     UpworkBrowserSource.name: UpworkBrowserSource,
 }
@@ -658,17 +732,39 @@ DISCOVERY_SOURCES = (
     "serpapi_maps",
 )
 
+# V1 Discovery Desk spine — scheduled by default when SerpAPI is keyed.
+# Marketplaces stay registered but are never in this allowlist.
+V1_DEFAULT_HUNTERS = (
+    "serpapi_freelance",
+    "serpapi_jobs",
+    "serpapi_companies",
+)
+
+# Post-V1 volume pack — opt-in via SCRAPE_SOURCES after soft-launch gates.
+POST_V1_HUNTERS = ("reddit_hiring",)
+
 # Commercial product allowlists. Remotive and We Work Remotely stay registered for
 # local demos but are excluded from paid plans until written commercial permission exists.
-# Himalayas and Jobicy publish free public APIs intended for job-board integrations.
-# SerpAPI discovery is Pro-only because each search consumes paid API credits.
-COMMERCIAL_FREE_SOURCES = ("remoteok", "arbeitnow", "himalayas", "jobicy")
+# V1 Free includes the SerpAPI hunter spine; optional remote boards remain available.
+# Marketplace adapters stay Pro-gated and off the default hunt schedule.
+COMMERCIAL_FREE_SOURCES = (
+    V1_DEFAULT_HUNTERS
+    + (
+        "remoteok",
+        "arbeitnow",
+        "himalayas",
+        "jobicy",
+    )
+    + POST_V1_HUNTERS
+)
+# Browser/Playwright sources stay registered for local experiments but are not
+# sold as Pro until a dedicated worker image + session auth path ships.
 COMMERCIAL_PRO_SOURCES = COMMERCIAL_FREE_SOURCES + (
     "upwork",
     "freelancer",
-    "linkedin_browser",
-    "upwork_browser",
-) + DISCOVERY_SOURCES
+    "serpapi_maps",
+)
+EXPERIMENTAL_BROWSER_SOURCES = ("linkedin_browser", "upwork_browser")
 RESTRICTED_SOURCES = ("remotive", "weworkremotely", "peopleperhour", "guru")
 
 SOURCE_ATTRIBUTION = {
@@ -686,6 +782,7 @@ SOURCE_ATTRIBUTION = {
     "serpapi_jobs": "Google Jobs (via SerpAPI)",
     "serpapi_companies": "Company careers (via SerpAPI)",
     "serpapi_maps": "Google Maps (via SerpAPI)",
+    "reddit_hiring": "Reddit hiring threads",
     "linkedin_browser": "LinkedIn (Playwright)",
     "upwork_browser": "Upwork (Playwright)",
 }

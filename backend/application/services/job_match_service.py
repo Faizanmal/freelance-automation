@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from backend.domain.interfaces import IJobMatchService
 from backend.domain.models import (
@@ -27,35 +28,64 @@ WORD_BOUNDARY_TEMPLATE = r"(?<![a-z0-9]){keyword}(?![a-z0-9])"
 
 
 class DomainJobMatchService(IJobMatchService):
-    """Score jobs against user preferences."""
+    """Score jobs against user preferences.
 
-    async def match(self, job: JobOpportunity, preferences: UserPreferences) -> MatchResult | None:
-        keywords = [k.strip().lower() for k in (preferences.keywords or []) if k and k.strip()]
-        sources = [s.strip().lower() for s in (preferences.preferred_sources or []) if s and s.strip()]
+    Optional repository callables unlock ``batch_match``:
+    ``get_jobs(ids) -> list[JobOpportunity]`` and
+    ``get_preferences(user_id) -> UserPreferences | None``.
+    """
+
+    def __init__(
+        self,
+        *,
+        get_jobs: Any | None = None,
+        get_preferences: Any | None = None,
+    ) -> None:
+        self._get_jobs = get_jobs
+        self._get_preferences = get_preferences
+
+    async def match(
+        self, job: JobOpportunity, preferences: UserPreferences
+    ) -> MatchResult | None:
+        keywords = [
+            k.strip().lower() for k in (preferences.keywords or []) if k and k.strip()
+        ]
+        sources = [
+            s.strip().lower()
+            for s in (preferences.preferred_sources or [])
+            if s and s.strip()
+        ]
 
         if sources and job.source.lower() not in sources:
             return None
 
-        # Build haystack from JobOpportunity
         tags = " ".join([str(t) for t in job.metadata.get("tags") or []])
-        skills = " ".join([str(s) for s in (job.metadata.get("enrichment") or {}).get("skills", [])])
+        skills = " ".join(
+            [str(s) for s in (job.metadata.get("enrichment") or {}).get("skills", [])]
+        )
         analysis = str(job.metadata.get("analysis_summary") or "")
         seniority = str(job.metadata.get("seniority") or "")
 
-        haystack = " ".join([
-            job.title or "",
-            job.description or "",
-            job.company or "",
-            job.location or "",
-            tags,
-            skills,
-            analysis,
-            seniority
-        ]).lower()
+        haystack = " ".join(
+            [
+                job.title or "",
+                job.description or "",
+                job.company or "",
+                job.location or "",
+                tags,
+                skills,
+                analysis,
+                seniority,
+            ]
+        ).lower()
 
         min_budget = preferences.min_budget
         job_max = job.metadata.get("budget_max")
-        if min_budget is not None and job_max is not None and float(job_max) < min_budget:
+        if (
+            min_budget is not None
+            and job_max is not None
+            and float(job_max) < min_budget
+        ):
             return None
 
         red_flags = self._detect_red_flags(haystack)
@@ -78,7 +108,12 @@ class DomainJobMatchService(IJobMatchService):
         client_quality = self._client_quality_score(job)
         red_flag_penalty = min(0.35, 0.12 * len(red_flags))
 
-        score = (0.62 * keyword_score) + (0.20 * freshness) + (0.18 * client_quality) - red_flag_penalty
+        score = (
+            (0.62 * keyword_score)
+            + (0.20 * freshness)
+            + (0.18 * client_quality)
+            - red_flag_penalty
+        )
         score = max(0.0, min(1.0, score))
 
         if freshness >= 0.75:
@@ -95,27 +130,33 @@ class DomainJobMatchService(IJobMatchService):
         score_result = ScoreResult(
             score=round(score, 3),
             reasoning="; ".join(reasons),
-            matched_keywords=matched
+            matched_keywords=matched,
         )
 
         return MatchResult(
             job=job,
             score_result=score_result,
-            matched_at=datetime.now(timezone.utc)
+            matched_at=datetime.now(UTC),
         )
 
     async def batch_match(self, job_ids: list[str], user_id: str) -> list[MatchResult]:
-        # Typically we would fetch the jobs and preferences from repositories here.
-        # This implementation requires DI of repositories, which can be done via __init__.
-        # For simplicity in this adaptation, we leave it returning empty or NotImplemented.
-        raise NotImplementedError("Batch match needs repository injections")
+        if not self._get_jobs or not self._get_preferences:
+            return []
+        preferences = await self._get_preferences(user_id)
+        if preferences is None:
+            return []
+        jobs = await self._get_jobs(job_ids)
+        matches: list[MatchResult] = []
+        for job in jobs:
+            result = await self.match(job, preferences)
+            if result is not None:
+                matches.append(result)
+        matches.sort(key=lambda item: item.score_result.score, reverse=True)
+        return matches
 
     def _contains_keyword(self, haystack: str, keyword: str) -> bool:
         if not keyword:
             return False
-        if " " in keyword or len(keyword) <= 2:
-            pattern = WORD_BOUNDARY_TEMPLATE.format(keyword=re.escape(keyword))
-            return re.search(pattern, haystack) is not None
         pattern = WORD_BOUNDARY_TEMPLATE.format(keyword=re.escape(keyword))
         return re.search(pattern, haystack) is not None
 
@@ -123,13 +164,18 @@ class DomainJobMatchService(IJobMatchService):
         flags: list[str] = []
         for pattern in RED_FLAG_PATTERNS:
             if re.search(pattern, haystack, flags=re.IGNORECASE):
-                flags.append(pattern.replace(r"\b", "").replace(r"\s+", " ").replace("\\", ""))
+                flags.append(
+                    pattern.replace(r"\b", "").replace(r"\s+", " ").replace("\\", "")
+                )
         return flags[:5]
 
     def _freshness_score(self, job: JobOpportunity) -> float:
         if not job.posted_at:
             return 0.45
-        age_hours = max(0.0, (datetime.now(timezone.utc) - job.posted_at.astimezone(timezone.utc)).total_seconds() / 3600)
+        age_hours = max(
+            0.0,
+            (datetime.now(UTC) - job.posted_at.astimezone(UTC)).total_seconds() / 3600,
+        )
         if age_hours <= 6:
             return 1.0
         if age_hours <= 24:
@@ -144,7 +190,7 @@ class DomainJobMatchService(IJobMatchService):
         score = 0.4
         if job.company:
             score += 0.15
-        
+
         budget_min = job.metadata.get("budget_min")
         budget_max = job.metadata.get("budget_max")
         if budget_min or budget_max:
@@ -154,11 +200,14 @@ class DomainJobMatchService(IJobMatchService):
                 score += 0.1
             if top >= 5000:
                 score += 0.05
-        
+
         seniority = str(job.metadata.get("seniority") or "")
-        if seniority and any(token in seniority.lower() for token in ("senior", "lead", "principal", "staff")):
+        if seniority and any(
+            token in seniority.lower()
+            for token in ("senior", "lead", "principal", "staff")
+        ):
             score += 0.05
-        
+
         enrichment = job.metadata.get("enrichment") or {}
         if enrichment.get("skills"):
             score += 0.05

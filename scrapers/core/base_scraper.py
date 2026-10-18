@@ -80,7 +80,7 @@ class BaseScraper(IScraper, ABC):
             try:
                 cookies = json.loads(text)
                 await self.context.add_cookies(cookies)
-            except Exception as exc:  # noqa: BLE001
+            except (TypeError, ValueError, json.JSONDecodeError, OSError) as exc:
                 logger.warning("Failed to load cookies: %s", exc)
 
     async def save_cookies(self) -> None:
@@ -121,7 +121,9 @@ class BaseScraper(IScraper, ABC):
                 await self.save(normalized)
         except SelectorFallbackError as exc:
             logger.warning("Selector fallback triggered: %s", exc)
-            await self._recover_with_browser_use(exc.field_name, exc.current_selector, exc.candidates, query, **kwargs)
+            await self._recover_with_browser_use(
+                exc.field_name, exc.current_selector, exc.candidates, query, **kwargs
+            )
         finally:
             await self.close_browser()
 
@@ -141,7 +143,9 @@ class BaseScraper(IScraper, ABC):
             selector_store=self.selector_store,
             fallback_selectors=self.fallback_selectors,
         )
-        next_selector = await browser_use.verify_and_recover(field_name, current_selector, candidates)
+        next_selector = await browser_use.verify_and_recover(
+            field_name, current_selector, candidates
+        )
         if not next_selector:
             raise RuntimeError(f"Unable to recover selector for {field_name}")
 

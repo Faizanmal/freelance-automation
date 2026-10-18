@@ -13,9 +13,16 @@ from app.ingestion.sources import (
     RESTRICTED_SOURCES,
     SOURCE_REGISTRY,
 )
-from app.integrations import apify_marketplaces, serpapi_discovery
-from app.integrations import freelancer as freelancer_api
-from app.integrations import upwork as upwork_api
+from app.integrations import (
+    apify_marketplaces,
+    serpapi_discovery,
+)
+from app.integrations import (
+    freelancer as freelancer_api,
+)
+from app.integrations import (
+    upwork as upwork_api,
+)
 from fastapi.responses import RedirectResponse
 
 from config.settings import get_settings
@@ -39,6 +46,14 @@ async def integrations_status() -> dict[str, object]:
             "restricted": (
                 "Remotive, We Work Remotely, PeoplePerHour, and Guru stay registered for demos "
                 "but are blocked from commercial scrapes until licensed."
+            ),
+            "browser": (
+                "linkedin_browser and upwork_browser need Playwright + authenticated sessions "
+                "and are experimental — not included in Pro commercial scrapes."
+            ),
+            "apply": (
+                "Freelancer supports Confirm→API bid. Upwork and most public boards are "
+                "draft + open-listing (external_apply) unless a mailto is present."
             ),
             "discovery": (
                 "SerpAPI discovery covers freelance search, Google Jobs, curated company career "
@@ -123,7 +138,9 @@ async def upwork_callback(
     except upwork_api.SourceNotConfiguredError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Token exchange failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Token exchange failed: {exc}"
+        ) from exc
 
     return {
         "status": "connected",

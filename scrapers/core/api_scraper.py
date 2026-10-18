@@ -6,6 +6,7 @@ from scrapers.core.interfaces import IScraper
 
 logger = logging.getLogger(__name__)
 
+
 class BaseApiScraper(IScraper, ABC):
     """Base scraper for API-only sources (no browser dependencies)."""
 

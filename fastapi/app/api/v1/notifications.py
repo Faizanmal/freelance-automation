@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from app.api.dependencies import get_current_user
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
@@ -33,7 +35,9 @@ legacy_service = NotificationService()
 class NotificationRequest(BaseModel):
     title: str
     body: str
-    channels: list[NotificationChannel] = Field(default_factory=lambda: [NotificationChannel.EMAIL])
+    channels: list[NotificationChannel] = Field(
+        default_factory=lambda: [NotificationChannel.EMAIL]
+    )
     priority: NotificationPriority = NotificationPriority.NORMAL
     digest: bool = False
     quiet_hours_start: str | None = None
@@ -48,7 +52,9 @@ class DigestRequest(BaseModel):
 
 
 async def _load_destinations(session: AsyncSession, user: User) -> dict[str, str]:
-    result = await session.execute(select(UserPreferences).where(UserPreferences.user_id == user.id))
+    result = await session.execute(
+        select(UserPreferences).where(UserPreferences.user_id == user.id)
+    )
     prefs = result.scalar_one_or_none()
     if prefs is None:
         return {"email": user.email}
@@ -61,17 +67,27 @@ async def _load_destinations(session: AsyncSession, user: User) -> dict[str, str
 @router.post("/send")
 async def send_notification(
     payload: NotificationRequest,
-    session: AsyncSession = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, object]:
     quiet_start = None
     quiet_end = None
     if payload.quiet_hours_start:
-        quiet_start = __import__("datetime").datetime.strptime(payload.quiet_hours_start, "%H:%M").time()
+        quiet_start = (
+            __import__("datetime")
+            .datetime.strptime(payload.quiet_hours_start, "%H:%M")
+            .time()
+        )
     if payload.quiet_hours_end:
-        quiet_end = __import__("datetime").datetime.strptime(payload.quiet_hours_end, "%H:%M").time()
+        quiet_end = (
+            __import__("datetime")
+            .datetime.strptime(payload.quiet_hours_end, "%H:%M")
+            .time()
+        )
 
-    channel_names = filter_channels_for_user(current_user, [channel.value for channel in payload.channels])
+    channel_names = filter_channels_for_user(
+        current_user, [channel.value for channel in payload.channels]
+    )
     if not channel_names:
         raise HTTPException(status_code=400, detail="No allowed channels for your plan")
     if not is_pro(current_user) and set(channel_names) - {"email"}:
@@ -88,7 +104,8 @@ async def send_notification(
         digest=payload.digest,
         quiet_hours_start=quiet_start,
         quiet_hours_end=quiet_end,
-        ai_summary=payload.ai_summary or legacy_service.build_ai_summary(payload.title, payload.body),
+        ai_summary=payload.ai_summary
+        or legacy_service.build_ai_summary(payload.title, payload.body),
         actions=payload.actions,
         destinations=destinations,
     )
@@ -100,8 +117,8 @@ async def send_notification(
 @router.post("/digest")
 async def send_digest(
     payload: DigestRequest,
-    session: AsyncSession = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, object]:
     if not payload.items:
         raise HTTPException(status_code=400, detail="At least one item is required")
@@ -129,9 +146,9 @@ async def send_digest(
 
 @router.get("/history")
 async def notification_history(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(50, ge=1, le=200),
-    session: AsyncSession = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, object]:
     user_id = str(current_user.id)
     result = await session.execute(
@@ -144,7 +161,9 @@ async def notification_history(
     items = []
     for record in records:
         deliveries = await session.execute(
-            select(NotificationDelivery).where(NotificationDelivery.notification_id == record.id)
+            select(NotificationDelivery).where(
+                NotificationDelivery.notification_id == record.id
+            )
         )
         items.append(
             {
@@ -158,7 +177,9 @@ async def notification_history(
                 "status": record.status,
                 "job_id": record.job_id,
                 "ai_summary": record.ai_summary,
-                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "created_at": (
+                    record.created_at.isoformat() if record.created_at else None
+                ),
                 "deliveries": [
                     {
                         "channel": delivery.channel,
@@ -174,5 +195,7 @@ async def notification_history(
 
 
 @router.get("/retry-queue")
-async def retry_queue(_current_user: User = Depends(get_current_user)) -> dict[str, object]:  # noqa: B008
+async def retry_queue(
+    _current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, object]:
     return {"items": [entry.__dict__ for entry in legacy_service.get_retry_queue()]}

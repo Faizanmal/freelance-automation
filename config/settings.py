@@ -8,9 +8,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env",
+        # Repo-root .env, then fastapi/.env (the file local uvicorn actually uses).
+        # Later files override earlier ones. Real environment variables still win.
+        env_file=(BASE_DIR / ".env", BASE_DIR / "fastapi" / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -31,15 +34,20 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str = Field("dev-secret-change-me", alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
-    access_token_expire_minutes: int = Field(60 * 24, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    access_token_expire_minutes: int = Field(
+        60 * 24, alias="ACCESS_TOKEN_EXPIRE_MINUTES"
+    )
 
-    cors_origins: str = Field("http://localhost:3000,http://127.0.0.1:3000", alias="CORS_ORIGINS")
+    cors_origins: str = Field(
+        "http://localhost:3000,http://127.0.0.1:3000", alias="CORS_ORIGINS"
+    )
     scrape_on_startup: bool = Field(False, alias="SCRAPE_ON_STARTUP")
     scrape_interval_minutes: int = Field(0, alias="SCRAPE_INTERVAL_MINUTES")
     scrape_limit: int = Field(30, alias="SCRAPE_LIMIT")
-    scrape_notify_matches: bool = Field(True, alias="SCRAPE_NOTIFY_MATCHES")
+    scrape_notify_matches: bool = Field(False, alias="SCRAPE_NOTIFY_MATCHES")
     scrape_sources: str = Field(
-        "remoteok,arbeitnow,himalayas,jobicy", alias="SCRAPE_SOURCES"
+        "serpapi_freelance,serpapi_jobs,serpapi_companies",
+        alias="SCRAPE_SOURCES",
     )
 
     # LLM providers (fallback order: groq > nvidia > gemini > openai > anthropic)
@@ -63,7 +71,9 @@ class Settings(BaseSettings):
     )
     upwork_access_token: str | None = Field(None, alias="UPWORK_ACCESS_TOKEN")
     upwork_refresh_token: str | None = Field(None, alias="UPWORK_REFRESH_TOKEN")
-    upwork_search_query: str = Field("python OR fastapi OR react", alias="UPWORK_SEARCH_QUERY")
+    upwork_search_query: str = Field(
+        "python OR fastapi OR react", alias="UPWORK_SEARCH_QUERY"
+    )
 
     # Freelancer.com official API
     freelancer_oauth_token: str | None = Field(None, alias="FREELANCER_OAUTH_TOKEN")
@@ -117,6 +127,19 @@ class Settings(BaseSettings):
     serpapi_gl: str = Field("us", alias="SERPAPI_GL")
     serpapi_hl: str = Field("en", alias="SERPAPI_HL")
 
+    # Reddit hiring hunter (W5 volume — official API; [Hiring] only)
+    reddit_client_id: str | None = Field(None, alias="REDDIT_CLIENT_ID")
+    reddit_client_secret: str | None = Field(None, alias="REDDIT_CLIENT_SECRET")
+    reddit_user_agent: str = Field(
+        "signaldesk:discovery:v1 (by /u/signaldesk)",
+        alias="REDDIT_USER_AGENT",
+    )
+    reddit_subreddits: str = Field(
+        "forhire,hiring",
+        alias="REDDIT_SUBREDDITS",
+        description="Comma-separated subreddits; only [Hiring] posts are ingested.",
+    )
+
     # Email delivery
     email_smtp_host: str | None = Field(None, alias="EMAIL_SMTP_HOST")
     email_smtp_port: int = Field(587, alias="EMAIL_SMTP_PORT")
@@ -138,20 +161,65 @@ class Settings(BaseSettings):
     )
     public_app_url: str = Field("http://localhost:3000", alias="PUBLIC_APP_URL")
 
+    @model_validator(mode="before")
+    @classmethod
+    def load_aws_secrets(cls, data: dict) -> dict:
+        arn = data.get("AWS_SECRETS_MANAGER_ARN") or __import__("os").getenv(
+            "AWS_SECRETS_MANAGER_ARN"
+        )
+        if arn:
+            try:
+                import json
+
+                import boto3
+
+                client = boto3.client(
+                    "secretsmanager",
+                    region_name=__import__("os").getenv("AWS_REGION", "us-east-1"),
+                )
+                response = client.get_secret_value(SecretId=arn)
+                if "SecretString" in response:
+                    secrets = json.loads(response["SecretString"])
+                    for k, v in secrets.items():
+                        if k not in data:
+                            data[k] = v
+            except (KeyError, json.JSONDecodeError) as e:
+                import logging
+
+                logging.getLogger(__name__).warning("Failed to load AWS secrets: %s", e)
+        return data
+
     @model_validator(mode="after")
     def validate_production_settings(self) -> Settings:
         if self.environment.lower() != "production":
             return self
 
-        if self.jwt_secret_key == "dev-secret-change-me" or len(self.jwt_secret_key) < 32:
-            raise ValueError("JWT_SECRET_KEY must be a random value of at least 32 characters in production")
+        if (
+            self.jwt_secret_key == "dev-secret-change-me"
+            or len(self.jwt_secret_key) < 32
+        ):
+            raise ValueError(
+                "JWT_SECRET_KEY must be a random value of at least 32 characters in production"
+            )
         if not self.cors_origin_list or "*" in self.cors_origin_list:
-            raise ValueError("CORS_ORIGINS must list explicit frontend origins in production")
+            raise ValueError(
+                "CORS_ORIGINS must list explicit frontend origins in production"
+            )
+        if (
+            self.stripe_secret_key
+            and self.stripe_price_pro
+            and not self.stripe_webhook_secret
+        ):
+            raise ValueError(
+                "STRIPE_WEBHOOK_SECRET is required when Stripe is enabled in production"
+            )
         return self
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return [
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
+        ]
 
     @property
     def scrape_source_list(self) -> list[str]:

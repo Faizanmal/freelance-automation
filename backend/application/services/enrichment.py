@@ -93,28 +93,60 @@ class EnrichmentService:
             try:
                 return await self._enrich_llm(candidate)
             except Exception:
-                logger.warning("LLM enrichment failed for %s, falling back to heuristic", candidate.title, exc_info=True)
+                logger.warning(
+                    "LLM enrichment failed for %s, falling back to heuristic",
+                    candidate.title,
+                    exc_info=True,
+                )
         else:
-            logger.info("No LLM configured. Using heuristic enrichment for %s", candidate.title)
+            logger.info(
+                "No LLM configured. Using heuristic enrichment for %s", candidate.title
+            )
         return self._enrich_heuristic(candidate)
 
     def _enrich_heuristic(self, candidate: JobCandidate) -> JobEnrichment:
         text = f"{candidate.title}\n{candidate.description}\n{' '.join((candidate.metadata or {}).get('tags') or [])}".lower()
         text = re.sub(r"<[^>]+>", " ", text)
         skills = sorted({skill for skill in SKILL_LEXICON if skill in text})
-        tags = [str(tag).lower() for tag in ((candidate.metadata or {}).get("tags") or [])]
+        tags = [
+            str(tag).lower() for tag in ((candidate.metadata or {}).get("tags") or [])
+        ]
         for tag in tags:
             if tag and tag not in skills:
                 skills.append(tag)
 
         seniority = None
-        for level in ("intern", "junior", "mid", "senior", "lead", "principal", "staff"):
+        for level in (
+            "intern",
+            "junior",
+            "mid",
+            "senior",
+            "lead",
+            "principal",
+            "staff",
+        ):
             if re.search(rf"\b{level}\b", text):
                 seniority = level
                 break
 
-        project_type = "contract" if "contract" in text or "freelance" in text else "full-time" if "full-time" in text or "full time" in text else "remote-role"
-        difficulty = "high" if seniority in {"senior", "lead", "principal", "staff"} else "medium" if seniority == "mid" else "low" if seniority in {"junior", "intern"} else "medium"
+        project_type = (
+            "contract"
+            if "contract" in text or "freelance" in text
+            else (
+                "full-time"
+                if "full-time" in text or "full time" in text
+                else "remote-role"
+            )
+        )
+        difficulty = (
+            "high"
+            if seniority in {"senior", "lead", "principal", "staff"}
+            else (
+                "medium"
+                if seniority == "mid"
+                else "low" if seniority in {"junior", "intern"} else "medium"
+            )
+        )
         summary = f"{candidate.title} at {candidate.company or 'Unknown'} — skills: {', '.join(skills[:8]) or 'general'}."
         return JobEnrichment(
             skills=skills[:20],

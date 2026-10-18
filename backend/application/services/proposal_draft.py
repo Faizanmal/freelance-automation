@@ -28,21 +28,41 @@ PUBLIC_EMAIL_APPLY = {
 
 
 def submit_mode_for_source(source_name: str) -> str:
+    """Source-level default without inspecting listing content."""
     name = (source_name or "").lower()
     if name in MARKETPLACE_API_BID:
         return "api_bid"
     if name in MARKETPLACE_API_PROPOSAL:
-        return "api_proposal"
+        # Upwork search works; proposal API submit is not enabled yet.
+        return "external_apply"
     if name in PUBLIC_EMAIL_APPLY:
-        return "email_apply"
+        # Prefer open-listing unless a concrete mailto/email is found on the job.
+        return "external_apply"
+    return "unsupported"
+
+
+def submit_mode_for_job(job: JobRecord) -> str:
+    name = (job.source_name or "").lower()
+    if name in MARKETPLACE_API_BID:
+        return "api_bid"
+    if name in MARKETPLACE_API_PROPOSAL:
+        return "external_apply"
+    if name in PUBLIC_EMAIL_APPLY:
+        if extract_apply_email(job):
+            return "email_apply"
+        return "external_apply"
     return "unsupported"
 
 
 class ProposalDraftService:
     """Generate editable apply form fields. Never auto-submits."""
 
-    async def draft(self, *, user: User, preferences: UserPreferences, job: JobRecord) -> dict[str, object]:
-        template_fields = self._template_form_fields(user=user, preferences=preferences, job=job)
+    async def draft(
+        self, *, user: User, preferences: UserPreferences, job: JobRecord
+    ) -> dict[str, object]:
+        template_fields = self._template_form_fields(
+            user=user, preferences=preferences, job=job
+        )
         provider = "template"
         form_fields = template_fields
 
@@ -103,7 +123,9 @@ class ProposalDraftService:
         )
 
         bid_amount = self._suggest_bid_amount(job, preferences)
-        delivery_days = 7 if (job.budget_max or 0) and (job.budget_max or 0) < 1000 else 14
+        delivery_days = (
+            7 if (job.budget_max or 0) and (job.budget_max or 0) < 1000 else 14
+        )
         milestone = (
             "Milestone 1: discovery + written plan (30%). "
             "Milestone 2: core delivery (50%). "
@@ -120,7 +142,8 @@ class ProposalDraftService:
             "source_name": job.source_name,
             "source_id": job.source_id,
             "project_url": job.url,
-            "submit_mode": submit_mode_for_source(job.source_name),
+            "submit_mode": submit_mode_for_job(job),
+            "apply_url": job.url,
         }
 
     async def _maybe_llm_form_fields(
@@ -159,10 +182,12 @@ class ProposalDraftService:
             )
             parsed = json.loads(result.content)
             return self._merge_llm_fields(fallback, parsed), result.provider
-        except Exception:  # noqa: BLE001
+        except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return None, "template"
 
-    def _merge_llm_fields(self, fallback: dict[str, Any], parsed: dict[str, Any]) -> dict[str, Any]:
+    def _merge_llm_fields(
+        self, fallback: dict[str, Any], parsed: dict[str, Any]
+    ) -> dict[str, Any]:
         merged = dict(fallback)
         proposal = parsed.get("proposal") or parsed.get("draft")
         if isinstance(proposal, str) and proposal.strip():
@@ -175,7 +200,10 @@ class ProposalDraftService:
             days = self._to_int(parsed.get("delivery_days"))
             if days and days > 0:
                 merged["delivery_days"] = days
-        if isinstance(parsed.get("milestone_plan"), str) and parsed["milestone_plan"].strip():
+        if (
+            isinstance(parsed.get("milestone_plan"), str)
+            and parsed["milestone_plan"].strip()
+        ):
             merged["milestone_plan"] = parsed["milestone_plan"].strip()
         if "milestone_percentage" in parsed:
             pct = self._to_int(parsed.get("milestone_percentage"))
@@ -183,7 +211,9 @@ class ProposalDraftService:
                 merged["milestone_percentage"] = pct
         return merged
 
-    def _suggest_bid_amount(self, job: JobRecord, preferences: UserPreferences) -> float | None:
+    def _suggest_bid_amount(
+        self, job: JobRecord, preferences: UserPreferences
+    ) -> float | None:
         if job.budget_min is not None and job.budget_max is not None:
             return round((float(job.budget_min) + float(job.budget_max)) / 2, 2)
         if job.budget_max is not None:
@@ -191,7 +221,9 @@ class ProposalDraftService:
         if job.budget_min is not None:
             return float(job.budget_min)
         if preferences.min_budget is not None and preferences.max_budget is not None:
-            return round((float(preferences.min_budget) + float(preferences.max_budget)) / 2, 2)
+            return round(
+                (float(preferences.min_budget) + float(preferences.max_budget)) / 2, 2
+            )
         if preferences.max_budget is not None:
             return float(preferences.max_budget)
         return None

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.repositories.user_repository import IUserRepository
-from database.models.user import User
 from database.models.notification import NotificationRecord
+from database.models.user import User
 
 
 class SQLAlchemyUserRepository(IUserRepository):
@@ -32,6 +32,8 @@ class SQLAlchemyUserRepository(IUserRepository):
         return user
 
     async def delete(self, user: User) -> None:
-        await self.session.execute(delete(NotificationRecord).where(NotificationRecord.user_id == user.id))
+        await self.session.execute(
+            delete(NotificationRecord).where(NotificationRecord.user_id == user.id)
+        )
         await self.session.delete(user)
         await self.session.commit()

@@ -55,13 +55,24 @@ async def chat_completion(
             )
             if content and content.strip():
                 logger.info("LLM success via %s (%s)", name, config["model"])
-                return LLMResult(content=content.strip(), provider=name, model=config["model"])
+                return LLMResult(
+                    content=content.strip(), provider=name, model=config["model"]
+                )
             errors.append(f"{name}: empty_response")
-        except Exception as exc:  # noqa: BLE001
+        except (
+            httpx.HTTPError,
+            TimeoutError,
+            ValueError,
+            RuntimeError,
+            OSError,
+        ) as exc:
             logger.warning("LLM provider %s failed: %s", name, exc)
             errors.append(f"{name}: {exc}")
 
-    raise LLMError("All LLM providers failed or unconfigured: " + "; ".join(errors or ["none configured"]))
+    raise LLMError(
+        "All LLM providers failed or unconfigured: "
+        + "; ".join(errors or ["none configured"])
+    )
 
 
 def any_llm_configured() -> bool:
@@ -178,12 +189,17 @@ async def _call_openai_compatible(
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
-        payload["messages"][0]["content"] = system + " Respond with a single JSON object only."
+        payload["messages"][0]["content"] = (
+            system + " Respond with a single JSON object only."
+        )
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(
             f"{base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
             json=payload,
         )
         # Some OpenAI-compatible APIs reject response_format; retry without it.
@@ -191,7 +207,10 @@ async def _call_openai_compatible(
             payload.pop("response_format", None)
             response = await client.post(
                 f"{base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
                 json=payload,
             )
         response.raise_for_status()

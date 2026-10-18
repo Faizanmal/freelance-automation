@@ -12,11 +12,15 @@ import sys
 import httpx
 
 
-async def cycle(api: str, sources: list[str], limit: int, notify: bool, token: str | None) -> dict:
+async def cycle(
+    api: str, sources: list[str], limit: int, notify: bool, token: str | None
+) -> dict:
     payload = {"sources": sources, "limit": limit, "notify_matches": notify}
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(f"{api.rstrip('/')}/jobs/scrape", json=payload, headers=headers)
+        response = await client.post(
+            f"{api.rstrip('/')}/jobs/scrape", json=payload, headers=headers
+        )
         response.raise_for_status()
         return response.json()
 
@@ -28,7 +32,7 @@ async def main() -> int:
     parser.add_argument(
         "--sources",
         nargs="+",
-        default=["remoteok", "arbeitnow", "himalayas", "jobicy"],
+        default=["serpapi_freelance", "serpapi_jobs", "serpapi_companies"],
     )
     parser.add_argument("--interval-minutes", type=int, default=0, help="0 = run once")
     parser.add_argument("--notify", action="store_true")
@@ -43,7 +47,9 @@ async def main() -> int:
         parser.error("--token or SIGNAL_DESK_TOKEN is required")
 
     while True:
-        result = await cycle(args.api, args.sources, args.limit, args.notify, args.token)
+        result = await cycle(
+            args.api, args.sources, args.limit, args.notify, args.token
+        )
         print(json.dumps(result, indent=2))
         if args.interval_minutes <= 0:
             return 0

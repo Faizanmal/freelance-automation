@@ -17,11 +17,13 @@ class ArbeitnowScraper(BaseApiScraper):
 
     async def search(self, query: str = "", **kwargs: Any) -> None:
         headers = {"User-Agent": "FreelanceIntelligence/0.2"}
-        async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0, headers=headers, follow_redirects=True
+        ) as client:
             response = await client.get(self.api_url)
             response.raise_for_status()
             data = response.json().get("data") or []
-            
+
             if query:
                 filtered = []
                 for r in data:
@@ -34,7 +36,7 @@ class ArbeitnowScraper(BaseApiScraper):
             self.payload = data
 
     async def extract_jobs(self) -> list[dict[str, Any]]:
-        return self.payload[:self.limit]
+        return self.payload[: self.limit]
 
     async def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         slug = raw_job.get("slug") or raw_job.get("url") or raw_job.get("title")
