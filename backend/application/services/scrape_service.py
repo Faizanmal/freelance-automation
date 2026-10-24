@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 from app.ingestion.sources import SOURCE_REGISTRY, V1_DEFAULT_HUNTERS
 from app.integrations.apify_marketplaces import (
     SourceNotConfiguredError as ApifyNotConfigured,
@@ -88,8 +89,21 @@ class ScrapeService:
                     "fetched": 0,
                 }
                 continue
-            except (RuntimeError, ValueError, OSError, TimeoutError) as exc:
+            except (
+                httpx.HTTPError,
+                RuntimeError,
+                ValueError,
+                OSError,
+                TimeoutError,
+            ) as exc:
                 summary["sources"][source_name] = {"error": str(exc), "fetched": 0}
+                continue
+            except Exception as exc:
+                # Keep other hunters running if one source blows up unexpectedly.
+                summary["sources"][source_name] = {
+                    "error": f"{exc.__class__.__name__}: {exc}",
+                    "fetched": 0,
+                }
                 continue
 
             counts = {

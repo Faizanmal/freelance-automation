@@ -231,6 +231,10 @@ async def search_discovery(
 
     if mode == "freelance":
         search_query = (query or settings.serpapi_freelance_query).strip()
+        if not search_query:
+            raise SourceNotConfiguredError(
+                "SerpAPI freelance query is empty. Set SERPAPI_FREELANCE_QUERY."
+            )
         return await _search_google_organic(
             api_key=api_key,
             query=search_query,
@@ -261,6 +265,10 @@ async def search_discovery(
 
     if mode == "maps":
         search_query = (query or settings.serpapi_maps_query).strip()
+        if not search_query:
+            raise SourceNotConfiguredError(
+                "SerpAPI maps query is empty. Set SERPAPI_MAPS_QUERY."
+            )
         return await _search_google_maps(
             api_key=api_key,
             query=search_query,
@@ -270,6 +278,10 @@ async def search_discovery(
         )
 
     search_query = (query or settings.serpapi_jobs_query).strip()
+    if not search_query:
+        raise SourceNotConfiguredError(
+            "SerpAPI jobs query is empty. Set SERPAPI_JOBS_QUERY."
+        )
     return await _search_google_jobs(
         api_key=api_key,
         query=search_query,

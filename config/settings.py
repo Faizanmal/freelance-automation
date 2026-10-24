@@ -3,8 +3,18 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_SERPAPI_FREELANCE_QUERY = (
+    '("looking for" OR hiring OR need) (freelancer OR contractor) '
+    "(python OR fastapi OR react) -course -tutorial"
+)
+_DEFAULT_SERPAPI_JOBS_QUERY = "python OR fastapi OR react remote developer"
+_DEFAULT_SERPAPI_COMPANIES_QUERY = (
+    '(careers OR "we\'re hiring" OR "open roles" OR jobs) (python OR fastapi OR react)'
+)
+_DEFAULT_SERPAPI_MAPS_QUERY = "software agencies OR startups hiring developers"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -98,16 +108,16 @@ class Settings(BaseSettings):
     # SerpAPI discovery (Google organic + Jobs + Maps + company careers) — Pro, billed by SerpAPI
     serpapi_api_key: str | None = Field(None, alias="SERPAPI_API_KEY")
     serpapi_freelance_query: str = Field(
-        '("looking for" OR hiring OR need) (freelancer OR contractor) (python OR fastapi OR react) -course -tutorial',
+        _DEFAULT_SERPAPI_FREELANCE_QUERY,
         alias="SERPAPI_FREELANCE_QUERY",
     )
     serpapi_jobs_query: str = Field(
-        "python OR fastapi OR react remote developer",
+        _DEFAULT_SERPAPI_JOBS_QUERY,
         alias="SERPAPI_JOBS_QUERY",
     )
     # Keyword prefix only; site: batches come from serpapi_company_sites / built-in allowlist.
     serpapi_companies_query: str = Field(
-        '(careers OR "we\'re hiring" OR "open roles" OR jobs) (python OR fastapi OR react)',
+        _DEFAULT_SERPAPI_COMPANIES_QUERY,
         alias="SERPAPI_COMPANIES_QUERY",
     )
     serpapi_company_sites: str = Field(
@@ -119,7 +129,7 @@ class Settings(BaseSettings):
         ),
     )
     serpapi_maps_query: str = Field(
-        "software agencies OR startups hiring developers",
+        _DEFAULT_SERPAPI_MAPS_QUERY,
         alias="SERPAPI_MAPS_QUERY",
     )
     serpapi_maps_ll: str = Field("", alias="SERPAPI_MAPS_LL")
@@ -160,6 +170,26 @@ class Settings(BaseSettings):
         alias="STRIPE_CANCEL_URL",
     )
     public_app_url: str = Field("http://localhost:3000", alias="PUBLIC_APP_URL")
+
+    @field_validator(
+        "serpapi_freelance_query",
+        "serpapi_jobs_query",
+        "serpapi_companies_query",
+        "serpapi_maps_query",
+        mode="before",
+    )
+    @classmethod
+    def _serpapi_query_nonempty(cls, value: object, info) -> object:
+        """Compose often injects SERPAPI_*_QUERY= as empty; keep code defaults."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        defaults = {
+            "serpapi_freelance_query": _DEFAULT_SERPAPI_FREELANCE_QUERY,
+            "serpapi_jobs_query": _DEFAULT_SERPAPI_JOBS_QUERY,
+            "serpapi_companies_query": _DEFAULT_SERPAPI_COMPANIES_QUERY,
+            "serpapi_maps_query": _DEFAULT_SERPAPI_MAPS_QUERY,
+        }
+        return defaults.get(info.field_name, value)
 
     @model_validator(mode="before")
     @classmethod

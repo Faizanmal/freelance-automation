@@ -21,9 +21,8 @@ x-api-environment: &api-environment
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
-  SERPAPI_FREELANCE_QUERY: ${SERPAPI_FREELANCE_QUERY:-}
-  SERPAPI_JOBS_QUERY: ${SERPAPI_JOBS_QUERY:-}
-  SERPAPI_MAPS_LL: ${SERPAPI_MAPS_LL:-}
+  # Do not pass empty SERPAPI_*_QUERY here — blank env overrides code defaults
+  # and SerpAPI returns 400 (q=). Set real queries in .env if you need overrides.
   UPWORK_CLIENT_ID: ${UPWORK_CLIENT_ID:-}
   UPWORK_CLIENT_SECRET: ${UPWORK_CLIENT_SECRET:-}
   UPWORK_REDIRECT_URI: ${UPWORK_REDIRECT_URI:-}
