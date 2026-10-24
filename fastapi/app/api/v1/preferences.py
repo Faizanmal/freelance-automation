@@ -294,15 +294,10 @@ async def demo_findings(
         notification_channels=[],
         match_threshold=0.2,
     )
-    payload = LeadFindingsService().build(
+    # Empty inventory is a normal state — return an empty digest, not a 404.
+    return LeadFindingsService().build(
         jobs, prefs, limit=limit, freelance_focus=freelance_focus
     )
-    if not payload["items"] and not jobs:
-        raise HTTPException(
-            status_code=404,
-            detail="No jobs in the database yet. Call POST /jobs/scrape first.",
-        )
-    return payload
 
 
 @router.get("/demo-matches")
@@ -337,10 +332,5 @@ async def demo_matches(
                 "client_quality_score": match.client_quality_score,
                 "red_flags": match.red_flags or [],
             }
-        )
-    if not items and not jobs:
-        raise HTTPException(
-            status_code=404,
-            detail="No jobs in the database yet. Call POST /jobs/scrape first.",
         )
     return {"total": len(items), "keywords": prefs.keywords, "items": items}

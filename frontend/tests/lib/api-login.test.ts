@@ -34,3 +34,25 @@ test("login maps network failure to a reachable-API message", async () => {
     "Can't reach the API. Check that the backend is running.",
   );
 });
+
+test("request maps network failure to a friendly message", async () => {
+  fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+  const { request } = await import("@/lib/api");
+  await expect(request("/auth/register", { method: "POST", body: "{}" })).rejects.toThrow(
+    "Can't reach the API. Check your connection and try again.",
+  );
+});
+
+test("request surfaces backend detail strings", async () => {
+  fetchMock.mockResolvedValue({
+    ok: false,
+    status: 409,
+    text: async () => JSON.stringify({ detail: "Email already registered" }),
+  });
+
+  const { request } = await import("@/lib/api");
+  await expect(request("/auth/register", { method: "POST", body: "{}" })).rejects.toThrow(
+    "Email already registered",
+  );
+});

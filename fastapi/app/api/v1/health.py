@@ -10,6 +10,13 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/health", tags=["health"])
 
 
+@router.get("")
+@router.get("/")
+async def health() -> dict[str, str]:
+    """Simple liveness alias at /health (and /api/v1/health)."""
+    return {"status": "ok"}
+
+
 @router.get("/ready")
 async def readiness() -> dict[str, object]:
     settings = get_settings()

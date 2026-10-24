@@ -1,5 +1,5 @@
 # OPTIONAL — not the locked path.
-# Locked deploy is one VM + Vercel (docs/deploy.md + compose.production.yml).
+# Locked deploy is one VM + Vercel (docs/deploy.md + compose.yml).
 # This file only if you later split the API onto Cloud Run.
 #
 #   gcloud builds submit --config cloudbuild.yaml \

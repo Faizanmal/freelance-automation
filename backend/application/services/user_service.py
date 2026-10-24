@@ -2,12 +2,20 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from passlib.context import CryptContext
-
+import bcrypt
 from backend.domain.repositories.user_repository import IUserRepository
 from database.models.user import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt rejects secrets longer than 72 bytes; passlib+bcrypt>=4.1 also breaks
+# on backend detection. Hash with bcrypt directly.
+_BCRYPT_MAX_BYTES = 72
+
+
+def _password_bytes(password: str) -> bytes:
+    raw = password.encode("utf-8")
+    if len(raw) > _BCRYPT_MAX_BYTES:
+        return raw[:_BCRYPT_MAX_BYTES]
+    return raw
 
 
 class UserService:
@@ -36,11 +44,16 @@ class UserService:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        return pwd_context.hash(password)
+        return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
 
     @staticmethod
     def verify_password(password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(password, hashed_password)
+        try:
+            return bcrypt.checkpw(
+                _password_bytes(password), hashed_password.encode("utf-8")
+            )
+        except (ValueError, TypeError):
+            return False
 
     async def update_password(self, email: str, new_password: str) -> bool:
         user = await self.user_repository.get_by_email(email)

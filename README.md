@@ -44,7 +44,7 @@ cd fastapi
 copy .env.example .env
 # Set at least: SERPAPI_API_KEY, JWT secret, DATABASE_URL (compose provides DB)
 cd ..
-docker compose up --build
+docker compose -f compose.dev.yml up --build
 ```
 
 - Frontend: http://localhost:3000  
@@ -61,7 +61,7 @@ python -m venv .venv
 # source .venv/bin/activate    # macOS / Linux
 pip install -r requirements.txt
 copy .env.example .env
-docker compose up -d db redis   # from repo root or fastapi/ as documented
+docker compose -f compose.dev.yml up -d db redis   # from repo root
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -172,7 +172,7 @@ Configure Stripe with `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, and `STRIPE_WEBHO
 # on the VM (e2-medium recommended)
 copy .env.production.example .env
 # POSTGRES_PASSWORD, JWT, PUBLIC_DOMAIN, CORS_ORIGINS (Vercel URL), SERPAPI, SMTP
-docker compose -f compose.production.yml up -d --build
+docker compose up -d --build
 ```
 
 Vercel: Root Directory `frontend`, `NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api/v1`.
@@ -193,7 +193,8 @@ freelance_automation/
   database/         # models + Alembic migrations
   scripts/          # live_test.py, uptime_check.py
   docs/deploy.md    # locked: single VM backend + Vercel
-  compose.production.yml
+  compose.yml       # production default (plain `docker compose`)
+  compose.dev.yml   # local full stack
   Caddyfile.api     # API-only edge (default)
   ARCHITECTURE.md   # module vision
 ```

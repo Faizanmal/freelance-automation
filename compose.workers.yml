@@ -1,5 +1,5 @@
 # OPTIONAL — not the locked path.
-# Locked deploy runs worker+beat via compose.production.yml on one VM.
+# Locked deploy runs worker+beat via compose.yml on one VM.
 #
 # On the VM:
 #   export IMAGE=us-central1-docker.pkg.dev/PROJECT/signaldesk/signaldesk-api:latest

@@ -87,7 +87,7 @@ Compose sets `DATABASE_URL` and `REDIS_URL` to the local `db` / `redis` services
 Default compose uses **API-only Caddy** and does **not** start the Next.js container:
 
 ```bash
-docker compose -f compose.production.yml up -d --build
+docker compose up -d --build
 ```
 
 Services: `caddy`, `db`, `redis`, `api`, `worker`, `beat`, `db-backup`, `adminer` (localhost only).
@@ -96,14 +96,14 @@ Check:
 
 ```bash
 curl -sS https://api.yourdomain.com/api/v1/health/ready
-docker compose -f compose.production.yml ps
-docker compose -f compose.production.yml logs -f worker beat
+docker compose ps
+docker compose logs -f worker beat
 ```
 
 Optional: same-host UI (not the locked path):
 
 ```bash
-CADDYFILE=./Caddyfile docker compose -f compose.production.yml --profile frontend up -d --build
+CADDYFILE=./Caddyfile docker compose --profile frontend up -d --build
 ```
 
 ---
@@ -114,7 +114,7 @@ CADDYFILE=./Caddyfile docker compose -f compose.production.yml --profile fronten
 2. Env: `NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api/v1`
 3. Deploy → ensure VM `CORS_ORIGINS` / `PUBLIC_APP_URL` match the Vercel origin
 4. Restart API if you changed CORS:  
-   `docker compose -f compose.production.yml up -d api`
+   `docker compose up -d api`
 
 ---
 

@@ -4,20 +4,26 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { getToken, subscribeAuth } from "@/lib/api";
 
 export function OnboardingWizard() {
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState(0);
+  const [hasToken, setHasToken] = useState(() => Boolean(getToken()));
   const router = useRouter();
+  const pathname = usePathname();
+  const onAuthPage = Boolean(pathname?.startsWith("/auth"));
+
+  useEffect(() => subscribeAuth(() => setHasToken(Boolean(getToken()))), []);
 
   useEffect(() => {
+    if (onAuthPage || !hasToken) return;
     const hasSeenOnboarding = localStorage.getItem("signaldesk_onboarded");
-    if (!hasSeenOnboarding) {
-      const timer = setTimeout(() => setIsOpen(true), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, []);
+    if (hasSeenOnboarding) return;
+    const timer = setTimeout(() => setIsOpen(true), 1500);
+    return () => clearTimeout(timer);
+  }, [pathname, onAuthPage, hasToken]);
 
   const completeOnboarding = () => {
     localStorage.setItem("signaldesk_onboarded", "true");
@@ -54,7 +60,7 @@ export function OnboardingWizard() {
     },
   ];
 
-  if (!isOpen) return null;
+  if (!isOpen || onAuthPage || !hasToken) return null;
 
   const current = steps[step];
 

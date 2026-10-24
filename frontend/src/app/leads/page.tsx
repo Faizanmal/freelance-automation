@@ -63,7 +63,23 @@ function LeadsPageInner() {
           : await getDemoFindings(value, 10, focus);
         setData(response);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load leads");
+        const message = err instanceof Error ? err.message : "Failed to load leads";
+        // Treat empty inventory as an empty state, not a hard error.
+        if (/no jobs in the database/i.test(message) || /call post \/jobs\/scrape/i.test(message)) {
+          setError(null);
+          setData({
+            generated_at: new Date().toISOString(),
+            total_scanned: 0,
+            total_matched: 0,
+            total_findings: 0,
+            freelance_focus: focus,
+            action_counts: { draft_bid: 0, watch: 0, skip: 0 },
+            keywords: value.split(",").map((part) => part.trim()).filter(Boolean),
+            items: [],
+          });
+          return;
+        }
+        setError(message);
         setData(null);
       }
     });
@@ -416,12 +432,14 @@ function LeadsPageInner() {
         {!pending && data && visibleItems.length === 0 && !error ? (
           <div className="rounded-2xl border border-white/10 bg-black/20 p-8 text-center">
             <h3 className="text-xl text-[var(--paper)]" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-              No leads in this view
+              {data.total_scanned === 0 ? "No opportunities yet" : "No leads in this view"}
             </h3>
             <p className="mt-3 text-sm text-[var(--mute)]">
-              {sourceFilter !== "all"
-                ? "Try another hunter filter, or clear the source filter."
-                : "Widen Hunt Rules keywords, or turn off Freelance focus."}
+              {data.total_scanned === 0
+                ? "Hunters are still filling the pool. Check back soon, or set Hunt Rules so new matches reach you."
+                : sourceFilter !== "all"
+                  ? "Try another hunter filter, or clear the source filter."
+                  : "Widen Hunt Rules keywords, or turn off Freelance focus."}
             </p>
             <div className="mt-5 flex flex-wrap justify-center gap-4 text-sm">
               <Link href="/preferences?tab=matching" className="text-[var(--signal)] hover:underline">

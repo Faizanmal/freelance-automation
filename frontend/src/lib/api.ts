@@ -131,6 +131,27 @@ export function getAuthServerSnapshot() {
   return false;
 }
 
+function formatApiDetail(detail: unknown): string | null {
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (detail && typeof detail === "object" && detail !== null && "message" in detail) {
+    const message = (detail as { message: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item) {
+          return String((item as { msg: unknown }).msg);
+        }
+        return null;
+      })
+      .filter((part): part is string => Boolean(part));
+    if (parts.length) return parts.join("; ");
+  }
+  return null;
+}
+
 export async function request<T>(path: string, init?: RequestInit & { auth?: boolean }): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -140,11 +161,16 @@ export async function request<T>(path: string, init?: RequestInit & { auth?: boo
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error("Can't reach the API. Check your connection and try again.");
+  }
   if (response.status === 204 || response.status === 205) {
     return undefined as T;
   }
@@ -152,10 +178,8 @@ export async function request<T>(path: string, init?: RequestInit & { auth?: boo
     const raw = await response.text();
     try {
       const parsed = JSON.parse(raw) as { detail?: unknown };
-      if (parsed.detail && typeof parsed.detail === "object" && parsed.detail !== null && "message" in parsed.detail) {
-        throw new Error(String((parsed.detail as { message: string }).message));
-      }
-      if (typeof parsed.detail === "string") throw new Error(parsed.detail);
+      const message = formatApiDetail(parsed.detail);
+      if (message) throw new Error(message);
     } catch (err) {
       if (err instanceof SyntaxError) {
         // fall through to raw text

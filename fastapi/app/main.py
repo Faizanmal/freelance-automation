@@ -65,7 +65,8 @@ async def _run_scrape_cycle(reason: str) -> None:
                 notify_matches=settings.scrape_notify_matches,
             )
             logger.info("Scrape (%s): %s", reason, summary)
-    except (RuntimeError, OSError, TimeoutError, ValueError):
+    except Exception:
+        # Keep the scheduler alive even if a cycle raises unexpectedly.
         logger.exception("Scrape cycle failed (%s)", reason)
 
 
@@ -80,6 +81,10 @@ async def _scheduler_loop(stop_event: asyncio.Event) -> None:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
         except TimeoutError:
             continue
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Scrape scheduler wait failed; continuing")
 
 
 @asynccontextmanager
@@ -128,14 +133,27 @@ def create_app() -> FastAPI:
     if not origins:
         origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    def _cors_headers(request) -> dict[str, str]:
+        """Ensure error responses still carry CORS when middleware is bypassed."""
+        origin = request.headers.get("origin")
+        if not origin:
+            return {}
+        if origin not in origins and "*" not in origins:
+            return {}
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+        return headers
 
+    def _json_error(request, content: dict, status_code: int) -> JSONResponse:
+        return JSONResponse(
+            content, status_code=status_code, headers=_cors_headers(request)
+        )
+
+    # Security headers first (inner); CORS added last so it wraps all responses
+    # including exception-handler JSON and BaseHTTPMiddleware edge cases.
     @app.middleware("http")
     async def add_security_headers(request, call_next):
         response = await call_next(request)
@@ -149,6 +167,14 @@ def create_app() -> FastAPI:
             "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self'"
         )
         return response
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
@@ -182,7 +208,7 @@ def create_app() -> FastAPI:
             "name": settings.app_name,
             "version": settings.version,
             "docs": "/docs",
-            "health": "/health/live",
+            "health": "/health",
             "jobs": "/jobs",
             "scrape": "POST /jobs/scrape",
             "sources": settings.scrape_source_list,
@@ -192,22 +218,22 @@ def create_app() -> FastAPI:
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request, exc):
         logger.warning("HTTP exception: %s", exc.detail)
-        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        return _json_error(request, {"detail": exc.detail}, exc.status_code)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc):
         logger.warning("Validation error: %s", exc.errors())
-        return JSONResponse({"detail": exc.errors()}, status_code=422)
+        return _json_error(request, {"detail": exc.errors()}, 422)
 
     @app.exception_handler(AppException)
     async def app_exception_handler(request, exc):
         logger.error("App exception: %s", exc.message)
-        return JSONResponse({"detail": exc.message}, status_code=exc.status_code)
+        return _json_error(request, {"detail": exc.message}, exc.status_code)
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(request, exc):
         logger.exception("Unhandled exception")
-        return JSONResponse({"detail": "Internal server error"}, status_code=500)
+        return _json_error(request, {"detail": "Internal server error"}, 500)
 
     return app
 

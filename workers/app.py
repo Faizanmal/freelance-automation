@@ -25,6 +25,15 @@ celery_app.conf.update(
 from celery.schedules import crontab
 
 celery_app.conf.beat_schedule = {
+    "scrape-v1-hunters-every-30m": {
+        "task": "tasks.scrape_jobs",
+        "schedule": 1800.0,  # every 30 minutes — fill shared job inventory
+        "kwargs": {
+            "sources": ["serpapi_freelance", "serpapi_jobs", "serpapi_companies"],
+            "limit": 20,
+            "notify_matches": False,
+        },
+    },
     "run-drip-campaign-daily": {
         "task": "tasks.process_drip_campaign",
         "schedule": crontab(hour=14, minute=0),  # Run daily at 14:00 UTC

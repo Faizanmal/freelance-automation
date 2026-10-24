@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
-import { getNotificationHistory, sendNotification } from "@/lib/api";
+import { getNotificationHistory, getToken, sendNotification } from "@/lib/api";
 
 const channelOptions = ["telegram", "whatsapp", "discord", "email", "slack"] as const;
 const priorityOptions = ["low", "normal", "high", "urgent"] as const;
@@ -36,18 +37,21 @@ export default function NotificationsPage() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [authed] = useState(() => Boolean(getToken()));
 
   useEffect(() => {
+    if (!authed) return;
     startTransition(async () => {
       try {
         const data = await getNotificationHistory();
         setHistory(data.items as HistoryItem[]);
+        setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Sign in to view alerts");
         setHistory([]);
       }
     });
-  }, []);
+  }, [authed]);
 
   const toggleChannel = (channel: string) => {
     setChannels((current) =>
@@ -56,6 +60,10 @@ export default function NotificationsPage() {
   };
 
   const send = () => {
+    if (!getToken()) {
+      setError("Sign in to send alerts.");
+      return;
+    }
     startTransition(async () => {
       try {
         setError(null);
@@ -86,6 +94,35 @@ export default function NotificationsPage() {
       }
     });
   };
+
+  if (!authed) {
+    return (
+      <main className="flex flex-1 flex-col gap-8">
+        <section>
+          <h1 className="text-4xl md:text-5xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+            Alerts
+          </h1>
+          <p className="mt-2 max-w-2xl text-[var(--fog)]">
+            Multi-channel alerts and delivery history are available after you sign in.
+          </p>
+        </section>
+        <section className="rounded-2xl border border-white/10 bg-black/20 p-8 text-center">
+          <h2 className="text-xl text-[var(--paper)]" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+            Sign in to manage alerts
+          </h2>
+          <p className="mt-3 text-sm text-[var(--mute)]">
+            Create an account or sign in to compose alerts and view delivery history.
+          </p>
+          <Link
+            href="/auth"
+            className="mt-6 inline-flex rounded-full bg-[var(--signal)] px-5 py-2.5 font-semibold text-[var(--ink)]"
+          >
+            Sign in
+          </Link>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="flex flex-1 flex-col gap-8">

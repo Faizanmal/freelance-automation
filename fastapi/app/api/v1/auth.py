@@ -29,6 +29,7 @@ from app.schemas.user import (
     VerifyEmailRequest,
 )
 from fastapi.security import HTTPAuthorizationCredentials, OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.email_service import EmailService
@@ -100,29 +101,45 @@ async def register(
         )
 
     service = UserService(repository)
-    user = await service.create_user(
-        email=user_create.email,
-        password=user_create.password,
-        full_name=user_create.full_name,
-    )
-    prefs = UserPreferences(
-        user_id=user.id,
-        keywords=["python", "fastapi", "react", "typescript"],
-        exclude_keywords=[],
-        sources=[],
-        notification_channels=["email"],
-        match_threshold=0.35,
-        digest_mode=False,
-        alert_email=user.email,
-    )
-    session.add(prefs)
-    await session.commit()
-    await session.refresh(user)
+    try:
+        user = await service.create_user(
+            email=user_create.email,
+            password=user_create.password,
+            full_name=user_create.full_name,
+        )
+        prefs = UserPreferences(
+            user_id=user.id,
+            keywords=["python", "fastapi", "react", "typescript"],
+            exclude_keywords=[],
+            sources=[],
+            notification_channels=["email"],
+            match_threshold=0.35,
+            digest_mode=False,
+            alert_email=user.email,
+        )
+        session.add(prefs)
+        await session.commit()
+        await session.refresh(user)
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+        ) from None
 
     settings = get_settings()
     verification_token = create_email_verification_token(user.email)
-    verify_sent = EmailService.send_verification_email(user.email, verification_token)
-    EmailService.send_welcome_email(user.email, user.full_name)
+    # Email failures must never fail signup.
+    verify_sent = False
+    try:
+        verify_sent = EmailService.send_verification_email(
+            user.email, verification_token
+        )
+    except Exception:
+        logger.exception("Verification email raised for %s", user.email)
+    try:
+        EmailService.send_welcome_email(user.email, user.full_name)
+    except Exception:
+        logger.exception("Welcome email raised for %s", user.email)
 
     auto_verified = False
     verify_url: str | None = None
@@ -141,7 +158,9 @@ async def register(
             "Verification email not delivered for %s — configure EMAIL_SMTP_*",
             user.email,
         )
-        verify_url = f"{settings.public_app_url.rstrip('/')}/auth/verify?token={verification_token}"
+        verify_url = (
+            f"{settings.public_app_url.rstrip('/')}/auth/verify?token={verification_token}"
+        )
 
     read = UserRead.model_validate(user)
     if auto_verified:
