@@ -13,5 +13,6 @@ def celery_workers_online(timeout: float = 0.75) -> bool:
             return False
         ping = inspector.ping()
         return bool(ping)
-    except (ImportError, RuntimeError, OSError, TimeoutError, ValueError):
+    except Exception:
+        # Fail closed for any broker/inspect failure (timeouts, connection errors, etc.).
         return False

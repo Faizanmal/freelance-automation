@@ -1,0 +1,61 @@
+# OPTIONAL — not the locked path.
+# Locked deploy is one VM + Vercel (docs/deploy.md + compose.production.yml).
+# This file only if you later split the API onto Cloud Run.
+#
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions=_REGION=us-central1,_REPOSITORY=signaldesk,_SERVICE_PREFIX=signaldesk
+
+substitutions:
+  _REGION: us-central1
+  _REPOSITORY: signaldesk
+  _SERVICE_PREFIX: signaldesk
+  _IMAGE: signaldesk-api
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$BUILD_ID
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:latest
+      - -f
+      - fastapi/Dockerfile
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy-api
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_PREFIX}-api
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$BUILD_ID
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+      - --cpu=1
+      - --memory=1Gi
+      - --min-instances=0
+      - --max-instances=4
+      - --timeout=300
+      - --set-env-vars=SERVICE_ROLE=api,APP_ENV=production,REDIS_OPTIONAL=false,PYTHONPATH=/app/fastapi:/app
+      - --command=/app/docker/cloud-run-entrypoint.sh
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$BUILD_ID
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:latest
+
+timeout: 1800s

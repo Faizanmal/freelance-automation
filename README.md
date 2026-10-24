@@ -166,13 +166,18 @@ Configure Stripe with `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, and `STRIPE_WEBHO
 
 ## Production launch
 
+**Locked:** **Vercel** (frontend) + **one GCP VM** (API + worker + beat + Postgres + Redis + Caddy) — see **[docs/deploy.md](docs/deploy.md)**.
+
 ```bash
+# on the VM (e2-medium recommended)
 copy .env.production.example .env
-# JWT, DB, Redis, SERPAPI_API_KEY, SMTP, optional Reddit/Stripe/Sentry
+# POSTGRES_PASSWORD, JWT, PUBLIC_DOMAIN, CORS_ORIGINS (Vercel URL), SERPAPI, SMTP
 docker compose -f compose.production.yml up -d --build
 ```
 
-Set GitHub secret `UPTIME_URL` for the uptime workflow. Verify `/health/live` and `/health/ready`.
+Vercel: Root Directory `frontend`, `NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api/v1`.
+
+Set GitHub secret `UPTIME_URL` for the uptime workflow. Verify `/api/v1/health/live` and `/ready`.
 
 Listings are returned as **excerpts + attribution + original URL** — not full republished boards.
 
@@ -182,11 +187,14 @@ Listings are returned as **excerpts + attribution + original URL** — not full 
 freelance_automation/
   backend/          # application services (matching, digests, scrape, …)
   fastapi/          # product API + hunters under app/integrations
-  frontend/         # Next.js Signal Desk UI
+  frontend/         # Next.js Signal Desk UI (deploy on Vercel)
   scrapers/         # Playwright / HTTP adapters (experimental browsers)
   workers/          # Celery tasks + scrape CLI + digest beat
   database/         # models + Alembic migrations
   scripts/          # live_test.py, uptime_check.py
+  docs/deploy.md    # locked: single VM backend + Vercel
+  compose.production.yml
+  Caddyfile.api     # API-only edge (default)
   ARCHITECTURE.md   # module vision
 ```
 

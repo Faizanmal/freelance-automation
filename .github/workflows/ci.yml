@@ -24,7 +24,9 @@ jobs:
       - run: python -m pytest tests -q
       - run: |
           if [ -d "../workers/tests" ]; then
-            python -m pytest ../workers/tests -q
+            # Repo root must be on PYTHONPATH so `import workers` resolves
+            # (fastapi/pytest.ini pythonpath is not applied to ../workers/tests).
+            PYTHONPATH="..${PYTHONPATH:+:$PYTHONPATH}" python -m pytest ../workers/tests -q
           fi
 
   frontend:

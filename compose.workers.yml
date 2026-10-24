@@ -1,0 +1,32 @@
+# OPTIONAL — not the locked path.
+# Locked deploy runs worker+beat via compose.production.yml on one VM.
+#
+# On the VM:
+#   export IMAGE=us-central1-docker.pkg.dev/PROJECT/signaldesk/signaldesk-api:latest
+#   cp .env.production.example .env   # fill DATABASE_URL, REDIS_URL, JWT, SerpAPI, …
+#   docker compose -f compose.workers.yml up -d
+
+services:
+  worker:
+    image: ${IMAGE:?Set IMAGE to your Artifact Registry API image}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_ROLE: worker
+      APP_ENV: production
+      REDIS_OPTIONAL: "false"
+      PYTHONPATH: /app/fastapi:/app
+    command: ["/app/docker/cloud-run-entrypoint.sh"]
+
+  beat:
+    image: ${IMAGE:?Set IMAGE to your Artifact Registry API image}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_ROLE: beat
+      APP_ENV: production
+      REDIS_OPTIONAL: "false"
+      PYTHONPATH: /app/fastapi:/app
+    command: ["/app/docker/cloud-run-entrypoint.sh"]
+    depends_on:
+      - worker

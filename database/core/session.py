@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from config.settings import get_settings
+from database.core.db_url import prepare_async_database_url
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -20,13 +21,9 @@ def get_engine() -> AsyncEngine:
     global _engine, _session_factory
     if _engine is None:
         settings = get_settings()
-        connect_args = (
-            {"check_same_thread": False}
-            if settings.database_url.startswith("sqlite")
-            else {}
-        )
+        url, connect_args = prepare_async_database_url(settings.database_url)
         _engine = create_async_engine(
-            settings.database_url,
+            url,
             echo=False,
             future=True,
             connect_args=connect_args,

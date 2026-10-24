@@ -1,3 +1,7 @@
+# Locked deploy: one VM runs API + worker + beat + Postgres + Redis + Caddy.
+# Frontend stays on Vercel (default). Optional same-host UI: --profile frontend
+# See docs/deploy.md
+
 x-api-environment: &api-environment
   APP_ENV: production
   DATABASE_URL: postgresql+asyncpg://freelance:${POSTGRES_PASSWORD}@db:5432/freelance
@@ -58,12 +62,12 @@ services:
     environment:
       - DOMAIN=${PUBLIC_DOMAIN:-localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      # Default: API-only (Vercel frontend). Bundled UI: CADDYFILE=./Caddyfile --profile frontend
+      - ${CADDYFILE:-./Caddyfile.api}:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - api
-      - frontend
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -199,6 +203,7 @@ services:
         condition: service_started
 
   frontend:
+    profiles: ["frontend"]
     build:
       context: ./frontend
       args:

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from database.core.base import Base
+from database.core.db_url import prepare_async_database_url
 from database.models import (  # noqa: F401
     JobRecord,
     JobSource,
@@ -27,13 +28,12 @@ fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
-config.set_main_option(
-    "sqlalchemy.url",
-    os.environ.get(
-        "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/freelance",
-    ),
+_raw_url = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/freelance",
 )
+_db_url, _db_connect_args = prepare_async_database_url(_raw_url)
+config.set_main_option("sqlalchemy.url", _db_url)
 
 
 def run_migrations_offline() -> None:
@@ -57,6 +57,7 @@ async def run_async_migrations() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
         future=True,
+        connect_args=_db_connect_args,
     )
 
     async with connectable.connect() as connection:

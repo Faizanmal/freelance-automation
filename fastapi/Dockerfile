@@ -21,12 +21,15 @@ COPY database ./database
 COPY notifications ./notifications
 COPY scrapers ./scrapers
 COPY workers ./workers
+COPY docker ./docker
 
-RUN addgroup --system app \
+RUN chmod +x /app/docker/cloud-run-entrypoint.sh \
+    && addgroup --system app \
     && adduser --system --ingroup app app \
     && chown -R app:app /app
 USER app
 
-EXPOSE 8000
+ENV SERVICE_ROLE=api
+EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+CMD ["/app/docker/cloud-run-entrypoint.sh"]
