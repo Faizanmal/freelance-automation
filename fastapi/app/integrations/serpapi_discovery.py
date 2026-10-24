@@ -123,6 +123,16 @@ def _stable_id(url: str, title: str) -> str:
     return digest
 
 
+def _fit_source_id(raw: str, *, url: str = "", title: str = "") -> str:
+    """jobs.source_id is VARCHAR(512); Google job_id tokens often exceed that."""
+    value = (raw or "").strip()
+    if not value:
+        return _stable_id(url, title)
+    if len(value) <= 512:
+        return value
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def _hostname(url: str) -> str | None:
     try:
         host = urlparse(url).hostname or ""
@@ -529,7 +539,11 @@ async def _search_google_jobs(
 
         rows.append(
             {
-                "source_id": str(item.get("job_id") or _stable_id(link, title)),
+                "source_id": _fit_source_id(
+                    str(item.get("job_id") or ""),
+                    url=link,
+                    title=title,
+                ),
                 "title": title,
                 "description": description[:4000],
                 "url": link,

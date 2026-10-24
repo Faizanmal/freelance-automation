@@ -27,7 +27,7 @@ class JobRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    source_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     canonical_id: Mapped[str] = mapped_column(
         String(64), nullable=False, unique=True, index=True
     )
@@ -68,7 +68,7 @@ class JobSource(Base):
         Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     source_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    source_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     captured_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

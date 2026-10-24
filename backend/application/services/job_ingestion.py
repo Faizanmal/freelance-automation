@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from uuid import uuid4
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.duplicate_detection import (
@@ -12,6 +13,15 @@ from backend.application.services.duplicate_detection import (
 from backend.application.services.enrichment import EnrichmentService, JobEnrichment
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.models.job import JobRecord, JobSource
+
+_SOURCE_ID_MAX = 512
+
+
+def _fit_source_id(value: str) -> str:
+    raw = (value or "").strip()
+    if len(raw) <= _SOURCE_ID_MAX:
+        return raw
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 class JobIngestionService:
@@ -55,6 +65,8 @@ class JobIngestionService:
         location: str | None = None,
         tags: list | None = None,
     ) -> dict[str, object]:
+        # Google Jobs / board tokens can exceed jobs.source_id VARCHAR(512).
+        candidate.source_id = _fit_source_id(candidate.source_id)
         existing = await self.repository.get_by_source(
             candidate.source_name, candidate.source_id
         )
@@ -157,6 +169,13 @@ class JobIngestionService:
                     "job_id": by_url.id,
                 }
             raise
+        except (DBAPIError, SQLAlchemyError) as exc:
+            await self.session.rollback()
+            return {
+                "action": "skipped",
+                "reason": f"db_error:{exc.__class__.__name__}",
+                "detail": str(exc.orig if isinstance(exc, DBAPIError) else exc)[:300],
+            }
         return {
             "action": "ingested",
             "confidence": 0.0,

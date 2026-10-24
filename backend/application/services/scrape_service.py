@@ -114,11 +114,22 @@ class ScrapeService:
                 "skipped": 0,
             }
             for candidate in candidates:
-                result = await self.ingestion.ingest(
-                    candidate,
-                    location=(candidate.metadata or {}).get("location"),
-                    tags=(candidate.metadata or {}).get("tags"),
-                )
+                try:
+                    result = await self.ingestion.ingest(
+                        candidate,
+                        location=(candidate.metadata or {}).get("location"),
+                        tags=(candidate.metadata or {}).get("tags"),
+                    )
+                except Exception as exc:
+                    counts["skipped"] = int(counts.get("skipped", 0)) + 1
+                    summary["total_skipped"] = int(summary["total_skipped"]) + 1
+                    summary["total_fetched"] = int(summary["total_fetched"]) + 1
+                    counts.setdefault("errors", [])
+                    if isinstance(counts["errors"], list) and len(counts["errors"]) < 5:
+                        counts["errors"].append(
+                            f"{exc.__class__.__name__}: {str(exc)[:160]}"
+                        )
+                    continue
                 action = str(result.get("action"))
                 if action in counts:
                     counts[action] += 1
