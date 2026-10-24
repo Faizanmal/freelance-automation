@@ -2,7 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
-  output: "standalone",
+  // Next 16.3 + Vercel adapter skips next-server.js.nft.json; standalone still
+  // reads it → ENOENT. Keep standalone for Docker; omit on Vercel (VERCEL=1).
+  // https://github.com/vercel/next.js/issues/96646
+  output: process.env.VERCEL ? undefined : "standalone",
   images: {
     formats: ["image/avif", "image/webp"],
     minimumCacheTTL: 31536000,
