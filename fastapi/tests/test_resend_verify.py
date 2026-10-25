@@ -30,8 +30,9 @@ class ResendVerifyTests(unittest.IsolatedAsyncioTestCase):
             public_app_url="http://localhost:3000",
         )
 
+        rate_check = AsyncMock()
         with (
-            patch("app.api.v1.auth.auth_rate_limiter.check", new=AsyncMock()),
+            patch("app.api.v1.auth.auth_rate_limiter.check", new=rate_check),
             patch("app.api.v1.auth.client_ip", return_value="127.0.0.1"),
             patch("app.api.v1.auth.SQLAlchemyUserRepository", return_value=repo),
             patch(
@@ -48,6 +49,9 @@ class ResendVerifyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result["auto_verified"])
         self.assertTrue(user.is_verified)
+        self.assertEqual(rate_check.await_count, 2)
+        self.assertEqual(rate_check.await_args_list[0].kwargs["limit"], 3)
+        self.assertEqual(rate_check.await_args_list[0].kwargs["window_seconds"], 900)
 
     async def test_resend_is_generic_in_production_even_when_smtp_missing(self) -> None:
         user = SimpleNamespace(
@@ -114,6 +118,48 @@ class ResendVerifyTests(unittest.IsolatedAsyncioTestCase):
             "If that email is registered and unverified, we have sent a new verification link.",
         )
         self.assertNotIn("verify_url", result)
+
+    async def test_resend_with_smtp_never_leaks_verify_url(self) -> None:
+        user = SimpleNamespace(
+            email="live@example.com",
+            is_active=True,
+            is_verified=False,
+        )
+        repo = MagicMock()
+        repo.get_by_email = AsyncMock(return_value=user)
+        settings = SimpleNamespace(
+            is_production=True,
+            debug=False,
+            allow_dev_auth_helpers=False,
+            email_smtp_host="smtp.example.com",
+            public_app_url="https://app.example.com",
+        )
+        background_tasks = MagicMock()
+
+        with (
+            patch("app.api.v1.auth.auth_rate_limiter.check", new=AsyncMock()),
+            patch("app.api.v1.auth.client_ip", return_value="127.0.0.1"),
+            patch("app.api.v1.auth.SQLAlchemyUserRepository", return_value=repo),
+            patch(
+                "app.api.v1.auth.create_email_verification_token",
+                return_value="secret-tok",
+            ),
+            patch("app.api.v1.auth.get_settings", return_value=settings),
+        ):
+            result = await resend_verification(
+                request=MagicMock(),
+                payload=ResendVerificationRequest(email="live@example.com"),
+                session=AsyncMock(),
+                background_tasks=background_tasks,
+            )
+
+        self.assertEqual(
+            result["detail"],
+            "If that email is registered and unverified, we have sent a new verification link.",
+        )
+        self.assertNotIn("verify_url", result)
+        self.assertNotIn("token", result)
+        background_tasks.add_task.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import bcrypt
+
 from backend.domain.repositories.user_repository import IUserRepository
 from database.models.user import User
 
@@ -44,7 +45,9 @@ class UserService:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
+        return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode(
+            "utf-8"
+        )
 
     @staticmethod
     def verify_password(password: str, hashed_password: str) -> bool:

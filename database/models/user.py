@@ -55,4 +55,11 @@ class User(Base):
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    lead_actions = relationship(
+        "UserLeadAction",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

@@ -91,7 +91,7 @@ function PreferencesPageInner() {
       : verifyParam === "smtp" || (needsVerify && verifyParam !== "needed")
         ? null
         : verifyParam === "needed"
-          ? "Check your inbox to verify email — hunts and digests stay locked until then."
+          ? "Check your inbox to verify email — digests and automated hunts stay locked until then. You can still browse leads, save, and draft bids."
           : null;
 
   useEffect(() => {
@@ -239,12 +239,12 @@ function PreferencesPageInner() {
       {needsVerify ? (
         <Card className="border-[var(--ember)]/30 p-6 md:p-8">
           <h2 className="mb-2 text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-            Verify your email to unlock hunts
+            Verify your email
           </h2>
           <p className="mb-4 text-sm text-[var(--mute)]">
             {verifyParam === "smtp"
-              ? "We could not deliver the verification email from this server. Resend after mail is configured, or use local-dev verify when DEBUG is enabled."
-              : "Hunts and digests stay locked until your email is verified. Check your inbox, or resend a fresh link."}
+              ? "We couldn't send the verification email. Please try again later."
+              : "Digests and automated hunts stay locked until your email is verified. You can still browse leads, save, and draft bids. Check your inbox, or resend a fresh link."}
           </p>
           <div className="flex flex-wrap gap-3">
             <Button
@@ -291,7 +291,7 @@ function PreferencesPageInner() {
                       setError(
                         err instanceof Error
                           ? err.message
-                          : "Dev verify is only available when DEBUG is enabled",
+                          : "Local verify is not available on this server",
                       );
                     }
                   })

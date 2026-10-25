@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Fraunces, Manrope } from "next/font/google";
+import localFont from "next/font/local";
 import Link from "next/link";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CookieConsent, Analytics, ClientErrorReporter } from "@/components/cookie-consent";
@@ -7,16 +7,20 @@ import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
-const display = Fraunces({
+// Self-hosted: next/font/google intermittently fails CI when Google returns
+// extensionless /l/font?kit=… URLs (vercel/next.js#99114).
+const display = localFont({
+  src: "./fonts/Fraunces-latin.woff2",
   variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: "500 700",
+  display: "swap",
 });
 
-const body = Manrope({
+const body = localFont({
+  src: "./fonts/Manrope-latin.woff2",
   variable: "--font-body",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
 });
 
 export const metadata: Metadata = {

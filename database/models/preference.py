@@ -62,4 +62,8 @@ class UserPreferences(Base):
         onupdate=text("CURRENT_TIMESTAMP"),
     )
 
-    user = relationship("User", back_populates="preferences")
+    user = relationship(
+        "User",
+        back_populates="preferences",
+        passive_deletes=True,
+    )

@@ -42,8 +42,8 @@ function VerifyEmailContent() {
       {missingToken ? (
         <div className="space-y-3">
           <p className="text-[var(--fog)]">
-            Open the link from your verification email, or request a new one below. Hunts stay locked until
-            your email is verified.
+            Open the link from your verification email, or request a new one below. Digests and automated
+            hunts stay locked until your email is verified; you can still browse leads meanwhile.
           </p>
           <input
             type="email"

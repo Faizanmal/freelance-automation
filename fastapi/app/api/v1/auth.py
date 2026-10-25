@@ -39,7 +39,15 @@ from config.settings import get_settings
 from database.core.session import get_db
 from database.models.preference import UserPreferences
 from database.models.user import User
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Form,
+    HTTPException,
+    Request,
+    status,
+)
 
 logger = get_logger(__name__)
 
@@ -173,9 +181,7 @@ async def register(
         await session.refresh(user)
         auto_verified = True
         logger.info("Auto-verified %s (DEBUG, SMTP not configured)", user.email)
-        verify_url = (
-            f"{settings.public_app_url.rstrip('/')}/auth/verify?token={verification_token}"
-        )
+        verify_url = f"{settings.public_app_url.rstrip('/')}/auth/verify?token={verification_token}"
 
     read = UserRead.model_validate(user)
     if auto_verified:
@@ -288,13 +294,26 @@ async def resend_verification(
     session: Annotated[AsyncSession, Depends(get_db)],
     background_tasks: BackgroundTasks,
 ) -> dict[str, object]:
+    # 3 per 15 minutes per IP and per email; same generic body either way.
+    _resend_detail = "Please wait a few minutes before requesting another email"
+    email_key = payload.email.strip().lower()
     await auth_rate_limiter.check(
-        f"resend:{client_ip(request)}", limit=3, window_seconds=3600
+        f"resend:ip:{client_ip(request)}",
+        limit=3,
+        window_seconds=900,
+        detail=_resend_detail,
+    )
+    await auth_rate_limiter.check(
+        f"resend:email:{email_key}",
+        limit=3,
+        window_seconds=900,
+        detail=_resend_detail,
     )
     repository = SQLAlchemyUserRepository(session)
     user = await repository.get_by_email(payload.email)
     settings = get_settings()
 
+    # Always the same public shape unless DEBUG helpers are explicitly enabled.
     response: dict[str, object] = {"detail": _GENERIC_RESEND_DETAIL}
 
     if user and user.is_active and not user.is_verified:

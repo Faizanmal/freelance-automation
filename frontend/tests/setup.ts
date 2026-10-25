@@ -19,18 +19,17 @@ Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 })
 
-vi.mock('next/font/google', () => ({
-  Fraunces: () => ({
-    style: { fontFamily: 'mocked' },
-    className: 'mocked',
-    variable: '--font-display',
-  }),
-  Manrope: () => ({
-    style: { fontFamily: 'mocked' },
-    className: 'mocked',
-    variable: '--font-body',
-  }),
-}))
+vi.mock('next/font/local', () => {
+  const vars = ['--font-display', '--font-body']
+  let i = 0
+  return {
+    default: () => ({
+      style: { fontFamily: 'mocked' },
+      className: 'mocked',
+      variable: vars[i++] ?? '--font-body',
+    }),
+  }
+})
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

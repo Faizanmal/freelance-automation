@@ -39,4 +39,9 @@ class UserLeadAction(Base):
         onupdate=text("CURRENT_TIMESTAMP"),
     )
 
-    user = relationship("User", backref="lead_actions")
+    # passive_deletes: rely on FK ON DELETE CASCADE instead of ORM nulling user_id
+    user = relationship(
+        "User",
+        back_populates="lead_actions",
+        passive_deletes=True,
+    )
