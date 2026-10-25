@@ -30,7 +30,7 @@ class EmailService:
 
         try:
             with smtplib.SMTP(
-                settings.email_smtp_host, settings.email_smtp_port
+                settings.email_smtp_host, settings.email_smtp_port, timeout=8
             ) as server:
                 server.starttls()
                 if settings.email_username and settings.email_password:

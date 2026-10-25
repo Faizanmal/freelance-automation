@@ -14,6 +14,7 @@ import {
   me,
   openBillingPortal,
   resendVerification,
+  sendNotification,
   startCheckout,
   updatePreferences,
   type BillingStatus,
@@ -24,6 +25,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SecuritySettings } from "@/components/security-settings";
+import { AccountSettings } from "@/components/account-settings";
 
 const emptyPrefs: Preferences = {
   keywords: ["python", "fastapi", "react", "typescript"],
@@ -76,21 +78,21 @@ function PreferencesPageInner() {
   const [excludeText, setExcludeText] = useState("");
   const [channelsText, setChannelsText] = useState("email");
   const [message, setMessage] = useState<string | null>(null);
+  const [emailWarning, setEmailWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const allowDevVerify = process.env.NEXT_PUBLIC_ALLOW_DEV_VERIFY === "true";
 
   const verifyParam = searchParams.get("verify");
+  const needsVerify = Boolean(user && user.is_verified === false);
   const verifyBanner =
     verifyParam === "auto"
-      ? "Account ready — local auto-verify applied (SMTP not configured). You can hunt and open leads now."
-      : verifyParam === "smtp"
-        ? "Verification email was not delivered. Use “Verify for local dev” below, or configure EMAIL_SMTP_* and resend."
+      ? "Account ready — local auto-verify applied. You can hunt and open leads now."
+      : verifyParam === "smtp" || (needsVerify && verifyParam !== "needed")
+        ? null
         : verifyParam === "needed"
           ? "Check your inbox to verify email — hunts and digests stay locked until then."
-          : user && user.is_verified === false
-            ? "Email not verified yet. Hunts stay locked until you verify — use the controls below or open /auth/verify."
-            : null;
-  const statusMessage = message ?? verifyBanner;
+          : null;
 
   useEffect(() => {
     if (!getToken()) {
@@ -131,6 +133,7 @@ function PreferencesPageInner() {
     startTransition(async () => {
       try {
         setError(null);
+        setEmailWarning(null);
         const payload: Preferences = {
           ...prefs,
           keywords: keywordsText.split(",").map((part) => part.trim()).filter(Boolean),
@@ -144,9 +147,19 @@ function PreferencesPageInner() {
         };
         const saved = await updatePreferences(payload);
         setPrefs(saved);
-        const authMatches = await getAuthMatches();
-        setMatches(authMatches.items);
-        setMessage("Hunt Rules saved");
+        try {
+          const authMatches = await getAuthMatches();
+          setMatches(authMatches.items);
+        } catch {
+          // Matches are optional after save — do not surface as a save failure.
+        }
+        const params = new URLSearchParams(searchParams.toString());
+        if (params.has("verify")) {
+          params.delete("verify");
+          const qs = params.toString();
+          router.replace(qs ? `/preferences?${qs}` : "/preferences");
+        }
+        setMessage(tab === "alerts" ? "Digest settings saved" : "Hunt Rules saved");
         setTimeout(() => setMessage(null), 3000);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Save failed");
@@ -211,12 +224,88 @@ function PreferencesPageInner() {
         </div>
       </section>
 
-      {statusMessage ? (
+      {message || verifyBanner ? (
         <p className="rounded-xl border border-[var(--signal)]/20 bg-[var(--signal)]/10 px-4 py-3 text-sm text-[var(--signal)]">
-          {statusMessage}
+          {message ?? verifyBanner}
+        </p>
+      ) : null}
+      {emailWarning ? (
+        <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+          {emailWarning}
         </p>
       ) : null}
       {error ? <p className="text-sm text-[var(--ember)]">{error}</p> : null}
+
+      {needsVerify ? (
+        <Card className="border-[var(--ember)]/30 p-6 md:p-8">
+          <h2 className="mb-2 text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+            Verify your email to unlock hunts
+          </h2>
+          <p className="mb-4 text-sm text-[var(--mute)]">
+            {verifyParam === "smtp"
+              ? "We could not deliver the verification email from this server. Resend after mail is configured, or use local-dev verify when DEBUG is enabled."
+              : "Hunts and digests stay locked until your email is verified. Check your inbox, or resend a fresh link."}
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending || !user?.email}
+              onClick={() =>
+                startTransition(async () => {
+                  try {
+                    setError(null);
+                    setEmailWarning(null);
+                    const res = await resendVerification(user!.email);
+                    if (res.auto_verified) {
+                      setMessage(res.detail);
+                      setUser(await me());
+                    } else if (res.email_delivered === false) {
+                      setEmailWarning(
+                        "Verification email could not be delivered. Check server mail settings, then try Resend again.",
+                      );
+                      setMessage(res.detail);
+                    } else {
+                      setMessage(res.detail);
+                    }
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Resend failed");
+                  }
+                })
+              }
+            >
+              Resend verification
+            </Button>
+            {allowDevVerify ? (
+              <Button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    try {
+                      setError(null);
+                      const res = await devVerifyEmail();
+                      setMessage(res.detail);
+                      setUser(await me());
+                    } catch (err) {
+                      setError(
+                        err instanceof Error
+                          ? err.message
+                          : "Dev verify is only available when DEBUG is enabled",
+                      );
+                    }
+                  })
+                }
+              >
+                Verify for local dev
+              </Button>
+            ) : null}
+            <Link href="/auth/verify" className="self-center text-sm text-[var(--signal)] hover:underline">
+              Open verify page
+            </Link>
+          </div>
+        </Card>
+      ) : null}
 
       <nav className="flex flex-wrap gap-2 border-b border-white/10 pb-4" aria-label="Hunt Rules sections">
         {TABS.map((item) => {
@@ -469,6 +558,42 @@ function PreferencesPageInner() {
               <Button type="submit" disabled={pending}>
                 {pending ? "Saving…" : "Save digest"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    try {
+                      setError(null);
+                      setEmailWarning(null);
+                      const response = await sendNotification({
+                        title: "Signal Desk test alert",
+                        body: "This is a test from Digest settings. If you received it, outbound email is working.",
+                        channels: ["email"],
+                        priority: "normal",
+                        digest: false,
+                      });
+                      if (response.status === "failed" || response.status === "partial") {
+                        setEmailWarning(
+                          "Settings are saved separately — this test alert could not be delivered. Check EMAIL_SMTP_* on the API.",
+                        );
+                      } else {
+                        setMessage("Test alert sent");
+                        setTimeout(() => setMessage(null), 3000);
+                      }
+                    } catch (err) {
+                      setEmailWarning(
+                        err instanceof Error
+                          ? `Test alert failed: ${err.message}`
+                          : "Test alert failed — settings were not changed.",
+                      );
+                    }
+                  })
+                }
+              >
+                Send test email
+              </Button>
               <Link href="/notifications" className="self-center text-sm text-[var(--signal)] hover:underline">
                 Alert history
               </Link>
@@ -479,57 +604,6 @@ function PreferencesPageInner() {
 
       {tab === "billing" ? (
         <div className="space-y-6">
-          {user && user.is_verified === false ? (
-            <Card className="border-[var(--ember)]/30 p-8">
-              <h2 className="mb-2 text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-                Email verification
-              </h2>
-              <p className="mb-4 text-sm text-[var(--mute)]">Hunts stay locked until your email is verified.</p>
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={pending || !user.email}
-                  onClick={() =>
-                    startTransition(async () => {
-                      try {
-                        setError(null);
-                        const res = await resendVerification(user.email);
-                        setMessage(res.detail);
-                        if (res.auto_verified) setUser(await me());
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : "Resend failed");
-                      }
-                    })
-                  }
-                >
-                  Resend verification
-                </Button>
-                <Button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    startTransition(async () => {
-                      try {
-                        setError(null);
-                        const res = await devVerifyEmail();
-                        setMessage(res.detail);
-                        setUser(await me());
-                      } catch (err) {
-                        setError(
-                          err instanceof Error
-                            ? err.message
-                            : "Dev verify is only available outside production",
-                        );
-                      }
-                    })
-                  }
-                >
-                  Verify for local dev
-                </Button>
-              </div>
-            </Card>
-          ) : null}
           <Card className="p-8">
             <h2 className="mb-2 text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
               Billing
@@ -570,18 +644,21 @@ function PreferencesPageInner() {
       ) : null}
 
       {tab === "security" && user ? (
-        <SecuritySettings
-          user={user}
-          onUpdate={() =>
-            startTransition(async () => {
-              try {
-                setUser(await me());
-              } catch {
-                /* ignore */
-              }
-            })
-          }
-        />
+        <div className="space-y-6">
+          <SecuritySettings
+            user={user}
+            onUpdate={() =>
+              startTransition(async () => {
+                try {
+                  setUser(await me());
+                } catch {
+                  /* ignore */
+                }
+              })
+            }
+          />
+          <AccountSettings user={user} />
+        </div>
       ) : null}
     </main>
   );

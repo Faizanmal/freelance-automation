@@ -232,11 +232,21 @@ function LeadsPageInner() {
     <main className="flex flex-1 flex-col gap-8">
       <section>
         <h1 className="text-4xl md:text-5xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-          Leads
+          {authed ? "Leads" : "Sample leads"}
         </h1>
         <p className="mt-2 max-w-2xl text-[var(--fog)]">
-          Ranked by fit and freshness. Open the original listing to pitch — Signal Desk never auto-submits.
+          {authed
+            ? "Ranked by fit and freshness. Open the original listing to pitch — Signal Desk never auto-submits."
+            : "Preview of how ranking works. Sign in to use your Hunt Rules, Save/Skip, and digests."}
         </p>
+        {!authed ? (
+          <p className="mt-4 text-sm">
+            <Link href="/auth" className="text-[var(--signal)] hover:underline">
+              Sign in
+            </Link>{" "}
+            <span className="text-[var(--mute)]">to unlock your personal lead desk.</span>
+          </p>
+        ) : null}
       </section>
 
       <div className="flex flex-wrap items-center gap-4 border-b border-white/10 pb-6">
@@ -305,6 +315,11 @@ function LeadsPageInner() {
 
       {data ? (
         <section className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[var(--fog)]">
+          {!authed ? (
+            <p className="mb-2 text-xs font-semibold tracking-wide text-amber-200/90 uppercase">
+              Sample leads — not your Hunt Rules
+            </p>
+          ) : null}
           <p>
             <span className="text-[var(--paper)]">Scanned {data.total_scanned}</span> · matched {data.total_matched} ·
             showing {visibleItems.length}

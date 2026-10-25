@@ -22,6 +22,7 @@ services:
       - "8000:8000"
     environment:
       APP_ENV: development
+      DEBUG: "true"
       PROJECT_NAME: Freelance Intelligence API
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/freelance
       REDIS_URL: redis://redis:6379/0

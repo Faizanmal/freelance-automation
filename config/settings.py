@@ -31,6 +31,9 @@ class Settings(BaseSettings):
 
     app_name: str = Field("Freelance Intelligence API", alias="PROJECT_NAME")
     environment: str = Field("development", alias="APP_ENV")
+    # Explicit local/dev tooling flag. Must stay false in production.
+    # Gates verify_url leakage, auto-verify-without-SMTP, and /auth/dev-verify.
+    debug: bool = Field(False, alias="DEBUG")
     version: str = Field("0.5.0", alias="VERSION")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     sentry_dsn: str | None = Field(None, alias="SENTRY_DSN")
@@ -258,6 +261,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def allow_dev_auth_helpers(self) -> bool:
+        """True only when DEBUG is on and we are not in production."""
+        return bool(self.debug) and not self.is_production
 
     @property
     def stripe_enabled(self) -> bool:

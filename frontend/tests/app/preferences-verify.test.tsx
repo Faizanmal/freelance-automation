@@ -45,6 +45,10 @@ vi.mock("@/components/security-settings", () => ({
   SecuritySettings: () => <div>Security settings</div>,
 }));
 
+vi.mock("@/components/account-settings", () => ({
+  AccountSettings: () => <div>Account settings</div>,
+}));
+
 vi.mock("@/lib/api", () => ({
   getToken: vi.fn(() => "fake-token"),
   me: vi.fn(),
@@ -57,6 +61,7 @@ vi.mock("@/lib/api", () => ({
   openBillingPortal: vi.fn(),
   logout: vi.fn(),
   resendVerification: vi.fn(),
+  sendNotification: vi.fn(),
   devVerifyEmail: vi.fn(),
 }));
 

@@ -39,11 +39,29 @@ from config.settings import get_settings
 from database.core.session import get_db
 from database.models.preference import UserPreferences
 from database.models.user import User
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, status
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+_GENERIC_RESEND_DETAIL = (
+    "If that email is registered and unverified, we have sent a new verification link."
+)
+
+
+def _queue_registration_emails(
+    email: str, full_name: str | None, verification_token: str
+) -> None:
+    """Best-effort outbound mail; never raised to the request path."""
+    try:
+        EmailService.send_verification_email(email, verification_token)
+    except Exception:
+        logger.exception("Verification email raised for %s", email)
+    try:
+        EmailService.send_welcome_email(email, full_name)
+    except Exception:
+        logger.exception("Welcome email raised for %s", email)
 
 
 @router.post("/login", response_model=Token)
@@ -89,6 +107,7 @@ async def register(
     request: Request,
     user_create: UserCreate,
     session: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ) -> UserRead:
     await auth_rate_limiter.check(
         f"register:{client_ip(request)}", limit=10, window_seconds=3600
@@ -128,36 +147,32 @@ async def register(
 
     settings = get_settings()
     verification_token = create_email_verification_token(user.email)
-    # Email failures must never fail signup.
-    verify_sent = False
-    try:
-        verify_sent = EmailService.send_verification_email(
-            user.email, verification_token
+    smtp_configured = bool(settings.email_smtp_host)
+    # Never block signup on SMTP — queue outbound mail after the response.
+    if smtp_configured:
+        background_tasks.add_task(
+            _queue_registration_emails,
+            user.email,
+            user.full_name,
+            verification_token,
         )
-    except Exception:
-        logger.exception("Verification email raised for %s", user.email)
-    try:
-        EmailService.send_welcome_email(user.email, user.full_name)
-    except Exception:
-        logger.exception("Welcome email raised for %s", user.email)
+        verify_sent = True
+    else:
+        verify_sent = False
+        logger.warning(
+            "SMTP not configured; verification email not queued for %s", user.email
+        )
 
     auto_verified = False
     verify_url: str | None = None
-    # Local/dev without SMTP: auto-verify so scrape→match→apply is usable.
-    if not verify_sent and not settings.is_production:
+    # Local DEBUG only: auto-verify when SMTP is missing so hunts work offline.
+    if not verify_sent and settings.allow_dev_auth_helpers:
         user.is_verified = True
         session.add(user)
         await session.commit()
         await session.refresh(user)
         auto_verified = True
-        logger.info(
-            "Auto-verified %s in non-production (SMTP not configured)", user.email
-        )
-    elif not verify_sent:
-        logger.warning(
-            "Verification email not delivered for %s — configure EMAIL_SMTP_*",
-            user.email,
-        )
+        logger.info("Auto-verified %s (DEBUG, SMTP not configured)", user.email)
         verify_url = (
             f"{settings.public_app_url.rstrip('/')}/auth/verify?token={verification_token}"
         )
@@ -166,17 +181,18 @@ async def register(
     if auto_verified:
         detail = "Account created and auto-verified for local development (SMTP not configured)."
     elif verify_sent:
-        detail = "Account created. Check your inbox to verify email before scraping."
+        detail = "Account created. Check your inbox to verify email before hunting."
     else:
         detail = (
-            "Account created, but the verification email was not delivered. "
-            "Configure EMAIL_SMTP_* then use resend-verification."
+            "Account created. Email delivery is not configured on this server — "
+            "use Resend verification after SMTP is set up, or contact support."
         )
     return read.model_copy(
         update={
             "verification_email_sent": verify_sent,
             "auto_verified": auto_verified,
-            "verify_url": verify_url,
+            # Token/URL only when DEBUG helpers are explicitly enabled.
+            "verify_url": verify_url if settings.allow_dev_auth_helpers else None,
             "detail": detail,
         }
     )
@@ -199,18 +215,10 @@ async def forgot_password(
         sent = EmailService.send_password_reset_email(user.email, token)
         if not sent:
             logger.warning("Password reset email not delivered for %s", user.email)
-            return {
-                "detail": "Account found, but email could not be delivered. Configure EMAIL_SMTP_* and try again.",
-                "email_delivered": False,
-            }
-        return {
-            "detail": "If that email is registered, we have sent a reset link.",
-            "email_delivered": True,
-        }
 
+    # Always the same shape — do not reveal whether the account exists.
     return {
         "detail": "If that email is registered, we have sent a reset link.",
-        "email_delivered": None,
     }
 
 
@@ -278,40 +286,41 @@ async def resend_verification(
     request: Request,
     payload: ResendVerificationRequest,
     session: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ) -> dict[str, object]:
     await auth_rate_limiter.check(
         f"resend:{client_ip(request)}", limit=3, window_seconds=3600
     )
     repository = SQLAlchemyUserRepository(session)
     user = await repository.get_by_email(payload.email)
-
     settings = get_settings()
-    sent = False
+
+    response: dict[str, object] = {"detail": _GENERIC_RESEND_DETAIL}
+
     if user and user.is_active and not user.is_verified:
         token = create_email_verification_token(user.email)
-        sent = EmailService.send_verification_email(user.email, token)
-        if not sent and not settings.is_production:
+        if settings.email_smtp_host:
+            background_tasks.add_task(
+                EmailService.send_verification_email, user.email, token
+            )
+        elif settings.allow_dev_auth_helpers:
             user.is_verified = True
             session.add(user)
             await session.commit()
-            return {
+            response = {
                 "detail": "SMTP unavailable — account auto-verified for local development.",
                 "email_delivered": False,
                 "auto_verified": True,
+                "verify_url": (
+                    f"{settings.public_app_url.rstrip('/')}/auth/verify?token={token}"
+                ),
             }
-        if not sent:
-            return {
-                "detail": "Account found, but email could not be delivered. Configure EMAIL_SMTP_* and try again.",
-                "email_delivered": False,
-                "verify_url": f"{settings.public_app_url.rstrip('/')}/auth/verify?token={token}",
-            }
+        else:
+            logger.warning(
+                "Resend verification skipped for %s — SMTP not configured", user.email
+            )
 
-    return {
-        "detail": "If that email is registered and unverified, we have sent a new verification link.",
-        "email_delivered": (
-            sent if user and user.is_active and not user.is_verified else None
-        ),
-    }
+    return response
 
 
 @router.post("/dev-verify")
@@ -319,9 +328,9 @@ async def dev_verify_current_user(
     session: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """Mark the signed-in user verified when SMTP is unavailable (non-production only)."""
+    """Mark the signed-in user verified (DEBUG + non-production only)."""
     settings = get_settings()
-    if settings.is_production:
+    if not settings.allow_dev_auth_helpers:
         raise HTTPException(status_code=404, detail="Not found")
     if current_user.is_verified:
         return {"detail": "Already verified.", "is_verified": True}

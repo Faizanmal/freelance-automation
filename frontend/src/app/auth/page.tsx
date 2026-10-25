@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState, useTransition } from "react";
-import { login, register, setToken, me, type User } from "@/lib/api";
+import { getToken, login, register, setToken, me, type User } from "@/lib/api";
 import { AccountSettings } from "@/components/account-settings";
 
 export default function AuthPage() {
@@ -18,9 +18,10 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [user, setUser] = useState<User | null>(null);
-  const [loadingSession, setLoadingSession] = useState(true);
+  const [loadingSession, setLoadingSession] = useState(() => Boolean(getToken()));
 
   useEffect(() => {
+    if (!getToken()) return;
     me()
       .then((data) => setUser(data))
       .catch(() => setUser(null))

@@ -159,7 +159,10 @@ export async function request<T>(path: string, init?: RequestInit & { auth?: boo
   };
   if (init?.auth) {
     const token = getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (!token) {
+      throw new Error("Not authenticated");
+    }
+    headers.Authorization = `Bearer ${token}`;
   }
   let response: Response;
   try {
@@ -168,7 +171,8 @@ export async function request<T>(path: string, init?: RequestInit & { auth?: boo
       headers,
       cache: "no-store",
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message === "Not authenticated") throw err;
     throw new Error("Can't reach the API. Check your connection and try again.");
   }
   if (response.status === 204 || response.status === 205) {
