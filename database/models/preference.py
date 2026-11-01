@@ -30,6 +30,10 @@ class UserPreferences(Base):
     )
     keywords: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     exclude_keywords: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    skills: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    experience_level: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default="any"
+    )
     min_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     sources: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

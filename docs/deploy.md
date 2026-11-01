@@ -75,7 +75,8 @@ Required for this topology:
 | `PUBLIC_API_URL` | `https://api.yourdomain.com/api/v1` |
 | `PUBLIC_APP_URL` | `https://your-app.vercel.app` |
 | `CORS_ORIGINS` | `https://your-app.vercel.app` |
-| `SERPAPI_API_KEY` | your key |
+| `TAVILY_API_KEY` | preferred primary for freelance/jobs/companies |
+| `SERPAPI_API_KEY` | fallback (+ Google Jobs / Maps) |
 | `EMAIL_SMTP_*` / `EMAIL_FROM` | for verify / digest |
 
 Compose sets `DATABASE_URL` and `REDIS_URL` to the local `db` / `redis` services — you do **not** need Supabase/Upstash URLs.
@@ -144,6 +145,63 @@ Stripe webhook: `https://api.yourdomain.com/api/v1/billing/webhook`
 4. `docker logs` on `worker` / `beat` show Celery running  
 
 GitHub uptime: set `UPTIME_URL` to `https://api.yourdomain.com/api/v1/health/live`.
+
+---
+
+## Market entry checklist
+
+Use this when opening **public Free + Pro** after a pause or first paid launch.
+
+### 1. Unpause backend
+
+```bash
+cd signaldesk   # repo root on the VM
+docker compose up -d --build
+docker compose ps
+curl -sS https://api.yourdomain.com/api/v1/health/live
+curl -sS https://api.yourdomain.com/api/v1/health/ready
+```
+
+Confirm `api`, `worker`, `beat`, `db`, `redis`, and `caddy` are healthy.
+
+### 2. Secrets required for a usable product
+
+| Area | Vars |
+|------|------|
+| Auth / CORS | `JWT_SECRET_KEY`, `PUBLIC_*`, `CORS_ORIGINS` |
+| Hunters | `TAVILY_API_KEY` and/or `SERPAPI_API_KEY` |
+| Mail | `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_FROM` |
+| Paid Pro | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, `STRIPE_WEBHOOK_SECRET`, success/cancel URLs |
+
+Without SMTP, verify + digests fail closed in production. Without hunter keys, Leads stay empty.
+
+### 3. Stripe live
+
+1. Create Pro price in Stripe Dashboard → copy price id into `STRIPE_PRICE_PRO`
+2. Webhook endpoint: `https://api.yourdomain.com/api/v1/billing/webhook`  
+   Events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
+3. Paste signing secret into `STRIPE_WEBHOOK_SECRET`
+4. `docker compose up -d api` after env change
+5. On Vercel `/pricing`: signed-in user → **Upgrade** → Checkout completes → `/billing/me` shows Pro
+6. Confirm `dev-activate-pro` is unavailable in production (`404` / no button when Stripe is on)
+
+### 4. Product smoke (after backend is up)
+
+1. Register → verify email (real SMTP)
+2. Hunt Rules → save keywords / digest schedule (Free digest max **5**)
+3. Desk → **Refresh inventory** (counts against **3** Free manual hunts/day)
+4. Leads show ranked fits; open original URL
+5. Optional: wait for digest window or trigger digest worker path
+6. Hit Free daily hunt cap → API returns upgrade message → Pricing checkout works
+
+### 5. Public trust
+
+- Terms / Privacy pages live; support email reachable (`support@signaldesk.com` or your domain)
+- Nav/footer show Desk · Leads · Hunt Rules · Pricing · Help (not legacy Jobs/Alerts/Roadmap)
+
+### 6. Uptime
+
+Set GitHub secret `UPTIME_URL` → `https://api.yourdomain.com/api/v1/health/live` so the uptime workflow can alert if the VM sleeps again.
 
 ---
 

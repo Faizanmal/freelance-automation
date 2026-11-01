@@ -4,6 +4,7 @@ from typing import Annotated
 
 from app.api.dependencies import rate_limit_api
 from app.core.logging.logger import get_logger
+from app.core.scrape_quota import daily_scrape_quota
 from app.ingestion.sources import COMMERCIAL_FREE_SOURCES, COMMERCIAL_PRO_SOURCES
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -231,6 +232,8 @@ async def scrape_jobs(
                 "upgrade": "/pricing",
             },
         )
+    used_today = await daily_scrape_quota.check_and_consume(current_user.id, limits)
+    remaining = max(0, limits.daily_scrape_runs - used_today)
     limit = min(payload.limit, limits.scrape_limit)
 
     import os
@@ -270,6 +273,9 @@ async def scrape_jobs(
                 "message": "Scrape queued on a Celery worker.",
                 "plan": limits.name,
                 "scrape_limit": limits.scrape_limit,
+                "daily_scrape_runs": limits.daily_scrape_runs,
+                "daily_scrape_used": used_today,
+                "daily_scrape_remaining": remaining,
                 "total_fetched": 0,
                 "total_ingested": 0,
                 "total_merged": 0,
@@ -295,6 +301,9 @@ async def scrape_jobs(
         "message": "Scrape completed.",
         "plan": limits.name,
         "scrape_limit": limits.scrape_limit,
+        "daily_scrape_runs": limits.daily_scrape_runs,
+        "daily_scrape_used": used_today,
+        "daily_scrape_remaining": remaining,
         **summary,
     }
 

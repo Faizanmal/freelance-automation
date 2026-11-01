@@ -14,6 +14,7 @@ vi.mock('@/lib/api', () => ({
   subscribeAuth: () => () => {},
   getAuthSnapshot: vi.fn(() => false),
   getAuthServerSnapshot: vi.fn(() => false),
+  me: vi.fn(() => Promise.resolve({ id: '1', email: 'dev@signaldesk.com', plan: 'free' })),
 }))
 
 vi.mock('@/components/theme-provider', () => ({
@@ -43,7 +44,7 @@ test('renders layout with primary navigation', () => {
 
   const links = ['Desk', 'Pricing', 'Leads', 'Account']
   for (const link of links) {
-    expect(screen.getByText(link)).toBeInTheDocument()
+    expect(screen.getAllByText(link).length).toBeGreaterThanOrEqual(1)
   }
 
   expect(screen.queryByText('Findings')).not.toBeInTheDocument()
@@ -68,8 +69,8 @@ test('renders authenticated nav with Hunt Rules instead of Sources', async () =>
   )
 
   // Auth chrome waits until client mount to avoid hydration mismatch.
-  expect(await screen.findByText('Hunt Rules')).toBeInTheDocument()
-  expect(screen.getByText('Leads')).toBeInTheDocument()
+  expect((await screen.findAllByText('Hunt Rules')).length).toBeGreaterThanOrEqual(1)
+  expect(screen.getAllByText('Leads').length).toBeGreaterThanOrEqual(1)
   expect(screen.queryByText('Sources')).not.toBeInTheDocument()
   expect(screen.queryByText('Pricing')).not.toBeInTheDocument()
 }, 10000)

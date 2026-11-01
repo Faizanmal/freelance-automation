@@ -14,8 +14,12 @@ from database.models.user import User
 PLAN_FREE = "free"
 PLAN_PRO = "pro"
 
-FREE_SCRAPE_LIMIT = 25
+FREE_SCRAPE_LIMIT = 15
 PRO_SCRAPE_LIMIT = 100
+FREE_MAX_DIGEST = 5
+PRO_MAX_DIGEST = 25
+FREE_DAILY_SCRAPE_RUNS = 3
+PRO_DAILY_SCRAPE_RUNS = 50
 FREE_CHANNELS = {"email"}
 PRO_CHANNELS = {"email", "slack", "telegram", "discord", "whatsapp"}
 
@@ -24,6 +28,8 @@ PRO_CHANNELS = {"email", "slack", "telegram", "discord", "whatsapp"}
 class PlanLimits:
     name: str
     scrape_limit: int
+    max_digest: int
+    daily_scrape_runs: int
     allowed_sources: tuple[str, ...]
     allowed_channels: frozenset[str]
     marketplace: bool
@@ -35,34 +41,38 @@ PLANS: dict[str, PlanLimits] = {
     PLAN_FREE: PlanLimits(
         name=PLAN_FREE,
         scrape_limit=FREE_SCRAPE_LIMIT,
+        max_digest=FREE_MAX_DIGEST,
+        daily_scrape_runs=FREE_DAILY_SCRAPE_RUNS,
         allowed_sources=COMMERCIAL_FREE_SOURCES,
         allowed_channels=frozenset(FREE_CHANNELS),
         marketplace=False,
         price_label="$0",
         features=(
-            "RemoteOK, Arbeitnow, Himalayas, Jobicy (attributed)",
-            "Lead scoring: fit, freshness, red flags",
-            "Lead findings digest (draft / watch / skip)",
-            "Email alerts",
-            f"Up to {FREE_SCRAPE_LIMIT} jobs per scrape",
+            "Hunt Rules, ranked Leads, Save/Skip",
+            "V1 hunters (SerpAPI/Tavily spine) + free boards",
+            f"Email digest up to {FREE_MAX_DIGEST} leads",
+            f"Up to {FREE_SCRAPE_LIMIT} jobs per manual hunt",
+            f"{FREE_DAILY_SCRAPE_RUNS} manual hunts per day",
             "Proposal draft starter",
         ),
     ),
     PLAN_PRO: PlanLimits(
         name=PLAN_PRO,
         scrape_limit=PRO_SCRAPE_LIMIT,
+        max_digest=PRO_MAX_DIGEST,
+        daily_scrape_runs=PRO_DAILY_SCRAPE_RUNS,
         allowed_sources=COMMERCIAL_PRO_SOURCES,
         allowed_channels=frozenset(PRO_CHANNELS),
         marketplace=True,
         price_label="$19/mo",
         features=(
             "Everything in Free",
-            "Upwork + Freelancer official APIs",
-            "SerpAPI discovery (freelance, jobs, company careers, Maps)",
-            "Slack, Telegram, Discord, WhatsApp",
-            f"Up to {PRO_SCRAPE_LIMIT} jobs per scrape",
-            "Higher-priority match alerts",
-            "Proposal drafts for every high-fit lead",
+            f"Higher hunt density — up to {PRO_SCRAPE_LIMIT} jobs per hunt",
+            f"Email digest up to {PRO_MAX_DIGEST} leads",
+            f"{PRO_DAILY_SCRAPE_RUNS} manual hunts per day",
+            "Google Maps / local discovery (serpapi_maps)",
+            "Slack, Telegram, Discord, WhatsApp alerts",
+            "Optional marketplace APIs when you enable them",
         ),
     ),
 }
@@ -83,6 +93,13 @@ def is_pro(user: User) -> bool:
 
 def limits_for_user(user: User) -> PlanLimits:
     return PLANS[PLAN_PRO if is_pro(user) else PLAN_FREE]
+
+
+def clamp_digest_limit(user: User, requested: int | None) -> int:
+    """Clamp max_per_digest to the user's plan ceiling."""
+    plan = limits_for_user(user)
+    value = int(requested if requested is not None else plan.max_digest)
+    return max(1, min(value, plan.max_digest))
 
 
 def filter_sources_for_user(user: User, sources: list[str]) -> list[str]:

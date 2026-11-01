@@ -6,7 +6,7 @@ Find real freelance and contract opportunities outside crowded marketplace bid w
 
 | Surface | Role |
 |---------|------|
-| **Hunt Rules** (`/preferences`) | Keywords, exclude, budget, location, freelance focus, digest schedule |
+| **Hunt Rules** (`/preferences`) | Skills, experience level, extra requirements, exclude, budget, location, freelance focus, digest schedule |
 | **Leads** (`/leads`) | Ranked fits with why/risks; primary CTA = **Open original**; Save / Skip |
 | **Desk** (`/`) | Overview + refresh inventory |
 | **Digest** | Email on your show clock (days/time/timezone), not tied 1:1 to scrape time |
@@ -19,7 +19,7 @@ Find real freelance and contract opportunities outside crowded marketplace bid w
 ## What works now
 
 - **API** (`fastapi/`) — FastAPI + Postgres by default (SQLite via `DATABASE_URL` still supported)
-- **V1 hunter spine (default)** — `serpapi_freelance`, `serpapi_jobs`, `serpapi_companies` when `SERPAPI_API_KEY` is set
+- **V1 hunter spine (default)** — `serpapi_freelance`, `serpapi_jobs`, `serpapi_companies` when `TAVILY_API_KEY` and/or `SERPAPI_API_KEY` is set (Tavily first, SerpAPI fallback)
 - **Post-V1 volume (opt-in)** — `reddit_hiring` (official Reddit API, `[Hiring]` only)
 - **Optional free boards** — RemoteOK, Arbeitnow, Himalayas, Jobicy (not the product identity)
 - **Matching + freelance focus** — contract/freelance boost; downrank full-time / W2 noise
@@ -42,7 +42,7 @@ cd freelance_automation
 ```bash
 cd fastapi
 copy .env.example .env
-# Set at least: SERPAPI_API_KEY, JWT secret, DATABASE_URL (compose provides DB)
+# Set at least: TAVILY_API_KEY (preferred) and/or SERPAPI_API_KEY, JWT secret, DATABASE_URL
 cd ..
 docker compose -f compose.dev.yml up --build
 ```
@@ -99,18 +99,34 @@ set API_URL=http://127.0.0.1:8000/api/v1
 python scripts/live_test.py
 ```
 
+Discovery provider smoke (no API server; needs `TAVILY_API_KEY` and/or `SERPAPI_API_KEY`):
+
+```bash
+set PYTHONPATH=.
+python scripts/tavily_smoke.py
+python scripts/tavily_smoke.py --mode freelance --limit 5
+```
+
 ## Connect hunters
 
-### SerpAPI (V1 spine — required for default hunt)
+### Tavily + SerpAPI (V1 spine)
 
-1. Create a key at [SerpAPI](https://serpapi.com/)
-2. Set in `fastapi/.env`:
-   ```env
-   SERPAPI_API_KEY=...
-   SCRAPE_SOURCES=serpapi_freelance,serpapi_jobs,serpapi_companies
-   ```
-3. Optional: tune `SERPAPI_FREELANCE_QUERY`, `SERPAPI_JOBS_QUERY`, `SERPAPI_COMPANIES_QUERY`
-4. Company/ATS path uses batched `site:` queries (Greenhouse/Lever/Ashby-style hosts included for discovery; high-traffic aggregators like LinkedIn/Indeed are filtered out)
+Default hunt sources stay `serpapi_freelance`, `serpapi_jobs`, `serpapi_companies`. Internally:
+
+1. **Tavily first** (when `TAVILY_API_KEY` is set) — https://tavily.com/
+2. **SerpAPI fallback** if Tavily is missing, errors, or returns no rows — https://serpapi.com/
+3. **Maps** (`serpapi_maps`) stays SerpAPI-only
+
+```env
+TAVILY_API_KEY=tvly-...
+TAVILY_SEARCH_DEPTH=basic
+SERPAPI_API_KEY=...   # fallback + Google Jobs / Maps
+SCRAPE_SOURCES=serpapi_freelance,serpapi_jobs,serpapi_companies
+```
+
+Optional: tune `SERPAPI_FREELANCE_QUERY`, `SERPAPI_JOBS_QUERY`, `SERPAPI_COMPANIES_QUERY` (shared by both providers). Company/ATS path uses domain batches (Greenhouse/Lever/Ashby-style hosts; LinkedIn/Indeed filtered on companies mode).
+
+`GET /integrations/status` reports both `tavily` and `serpapi` (including primary/fallback readiness).
 
 Scrape one mode:
 
@@ -155,14 +171,14 @@ Upwork and Freelancer adapters still exist for licensed/experimental use. They a
 | POST | `/auth/login` | JWT login |
 | POST | `/notifications/send` | Send alert (auth) |
 
-## Commercial plans (direction)
+## Commercial plans (market entry)
 
 | Plan | Includes |
 |------|----------|
-| Free | Hunt Rules, V1 SerpAPI spine when keyed, ranked Leads, email digest, Save/Skip |
-| Pro | Higher hunt density / digest caps, optional Maps + multi-channel alerts; not marketplace bid bots |
+| Free | Hunt Rules, V1 SerpAPI/Tavily spine + boards, ranked Leads, Save/Skip, email digest (max **5**), **15** jobs/hunt, **3** manual hunts/day |
+| Pro ($19/mo) | Higher density (**100**/hunt, **50** manual hunts/day), digest max **25**, `serpapi_maps`, Slack/Telegram/Discord/WhatsApp; marketplace APIs optional — **not** bid bots |
 
-Configure Stripe with `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, and `STRIPE_WEBHOOK_SECRET` when charging. Local/dev: **Activate Pro (dev)** on `/pricing` if Stripe is unset.
+Limits are enforced in API (digest clamp + daily manual scrape quota). Configure Stripe with `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, and `STRIPE_WEBHOOK_SECRET` for paid checkout. Local/dev: **Activate Pro (dev)** on `/pricing` if Stripe is unset.
 
 ## Production launch
 
@@ -171,7 +187,8 @@ Configure Stripe with `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, and `STRIPE_WEBHO
 ```bash
 # on the VM (e2-medium recommended)
 copy .env.production.example .env
-# POSTGRES_PASSWORD, JWT, PUBLIC_DOMAIN, CORS_ORIGINS (Vercel URL), SERPAPI, SMTP
+# POSTGRES_PASSWORD, JWT, PUBLIC_DOMAIN, CORS_ORIGINS (Vercel URL),
+# TAVILY_API_KEY (preferred) and/or SERPAPI_API_KEY, SMTP
 docker compose up -d --build
 ```
 
@@ -191,7 +208,7 @@ freelance_automation/
   scrapers/         # Playwright / HTTP adapters (experimental browsers)
   workers/          # Celery tasks + scrape CLI + digest beat
   database/         # models + Alembic migrations
-  scripts/          # live_test.py, uptime_check.py
+  scripts/          # live_test.py, tavily_smoke.py, uptime_check.py
   docs/deploy.md    # locked: single VM backend + Vercel
   compose.yml       # production default (plain `docker compose`)
   compose.dev.yml   # local full stack
@@ -199,10 +216,15 @@ freelance_automation/
   ARCHITECTURE.md   # module vision
 ```
 
+## Smarter backend
+
+Phased plan (shared pool): enrichment → skill-aware hunts → Save/Skip feedback. See **[docs/smarter-backend.md](docs/smarter-backend.md)**.
+
 ## Notes
 
 - Default DB is **Postgres**. Schema patches / migrations add Hunt Rules + `user_lead_actions` columns/tables.
 - Default `SCRAPE_NOTIFY_MATCHES=false` — digests own the show clock; scrape-time pings are skipped when `digest_mode` is on.
 - Soft-launch gate unit tests: `fastapi/tests/test_v1_soft_launch_gates.py`
+- Local `DEBUG=true` (see `fastapi/.env.example`): auto-verify without SMTP and `POST /auth/dev-verify`. Keep `DEBUG` off in production.
 - Without `EMAIL_SMTP_*`, auth/digest mail is logged only in dev.
 - Keep secrets local: never commit `fastapi/.env` or `frontend/.env.local`.

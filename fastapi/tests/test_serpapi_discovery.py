@@ -3,10 +3,18 @@ from unittest.mock import AsyncMock, patch
 
 from app.integrations import serpapi_discovery
 
+_DISABLE_TAVILY = patch(
+    "app.integrations.tavily_discovery.tavily_configured",
+    return_value=False,
+)
+
 
 class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_not_configured_raises(self) -> None:
-        with patch("app.integrations.serpapi_discovery.get_settings") as settings:
+        with (
+            _DISABLE_TAVILY,
+            patch("app.integrations.serpapi_discovery.get_settings") as settings,
+        ):
             settings.return_value.serpapi_api_key = None
             with self.assertRaises(serpapi_discovery.SourceNotConfiguredError):
                 await serpapi_discovery.search_discovery(mode="freelance", limit=5)
@@ -30,6 +38,7 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             ]
         }
         with (
+            _DISABLE_TAVILY,
             patch("app.integrations.serpapi_discovery.get_settings") as settings,
             patch(
                 "app.integrations.serpapi_discovery._get_json",
@@ -68,6 +77,7 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             ]
         }
         with (
+            _DISABLE_TAVILY,
             patch("app.integrations.serpapi_discovery.get_settings") as settings,
             patch(
                 "app.integrations.serpapi_discovery._get_json",
@@ -119,6 +129,7 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             ]
         }
         with (
+            _DISABLE_TAVILY,
             patch("app.integrations.serpapi_discovery.get_settings") as settings,
             patch(
                 "app.integrations.serpapi_discovery._get_json",
@@ -169,6 +180,7 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         with (
+            _DISABLE_TAVILY,
             patch("app.integrations.serpapi_discovery.get_settings") as settings,
             patch("app.integrations.serpapi_discovery._get_json", new=get_json),
             patch(

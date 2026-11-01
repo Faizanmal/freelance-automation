@@ -732,7 +732,8 @@ DISCOVERY_SOURCES = (
     "serpapi_maps",
 )
 
-# V1 Discovery Desk spine — scheduled by default when SerpAPI is keyed.
+# V1 Discovery Desk spine — scheduled by default when Tavily and/or SerpAPI is keyed.
+# Tavily is tried first for freelance/jobs/companies; SerpAPI is the fallback.
 # Marketplaces stay registered but are never in this allowlist.
 V1_DEFAULT_HUNTERS = (
     "serpapi_freelance",
@@ -778,9 +779,9 @@ SOURCE_ATTRIBUTION = {
     "freelancer": "Freelancer.com",
     "peopleperhour": "PeoplePerHour",
     "guru": "Guru",
-    "serpapi_freelance": "Google Search (via SerpAPI)",
-    "serpapi_jobs": "Google Jobs (via SerpAPI)",
-    "serpapi_companies": "Company careers (via SerpAPI)",
+    "serpapi_freelance": "Web discovery (Tavily → SerpAPI)",
+    "serpapi_jobs": "Jobs discovery (Tavily → SerpAPI Google Jobs)",
+    "serpapi_companies": "Company careers (Tavily → SerpAPI)",
     "serpapi_maps": "Google Maps (via SerpAPI)",
     "reddit_hiring": "Reddit hiring threads",
     "linkedin_browser": "LinkedIn (Playwright)",

@@ -8,8 +8,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.application.services.billing import destinations_from_preferences
+from backend.application.services.billing import (
+    clamp_digest_limit,
+    destinations_from_preferences,
+)
 from backend.application.services.lead_findings import LeadFindingsService
+from backend.application.services.match_feedback import MatchFeedbackService
 from backend.application.services.notification_service import (
     NotificationChannel,
     NotificationPayload,
@@ -153,7 +157,8 @@ class DigestService:
             ]
 
         focus = bool(getattr(prefs, "freelance_focus", True))
-        limit = int(getattr(prefs, "max_per_digest", None) or 10)
+        limit = clamp_digest_limit(user, getattr(prefs, "max_per_digest", None))
+        skill_weights = await MatchFeedbackService(self.session).skill_weights(user.id)
         findings = LeadFindingsService().build(
             jobs,
             prefs,
@@ -161,6 +166,7 @@ class DigestService:
             freelance_focus=focus,
             skip_job_ids=skipped_ids,
             saved_job_ids=saved_ids,
+            skill_weights=skill_weights,
         )
         items = findings.get("items") or []
         if not items:

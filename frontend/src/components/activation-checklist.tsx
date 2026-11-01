@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getAuthFindings, getPreferences, getToken, me } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { CheckCircle2, Circle } from "lucide-react";
 
 const READY_KEY = "signaldesk_ready";
 
@@ -35,7 +37,8 @@ export function ActivationChecklist() {
         ]);
         if (cancelled) return;
         const next: ChecklistState = {
-          keywords: (prefs.keywords || []).length > 0,
+          keywords:
+            (prefs.skills || []).length > 0 || (prefs.keywords || []).length > 0,
           verified: Boolean(user.is_verified),
           leads: Boolean(findings && findings.total_findings > 0),
         };
@@ -85,13 +88,14 @@ export function ActivationChecklist() {
   };
 
   return (
-    <section className="rounded-2xl border border-[var(--signal)]/25 bg-[var(--signal)]/5 p-6">
+    <Card
+      className="border-[var(--accent)]/25 bg-[var(--accent-muted)]/40 p-6"
+      data-testid="activation-checklist"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-            Get ready
-          </h2>
-          <p className="mt-1 text-sm text-[var(--fog)]">
+          <h2 className="text-xl font-semibold text-[var(--text)]">Get ready</h2>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
             Finish these once — then the desk stays out of your way.
           </p>
         </div>
@@ -99,24 +103,29 @@ export function ActivationChecklist() {
           Dismiss
         </Button>
       </div>
-      <ul className="mt-5 space-y-3">
+      <ul className="mt-5 space-y-1">
         {items.map((item) => (
           <li
             key={item.label}
-            className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3 text-sm"
+            className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] py-3 text-sm"
           >
-            <span className={item.done ? "text-[var(--signal)]" : "text-[var(--paper)]"}>
+            <span className="inline-flex items-center gap-2 text-[var(--text)]">
+              {item.done ? (
+                <CheckCircle2 className="size-4 text-[var(--success)]" />
+              ) : (
+                <Circle className="size-4 text-[var(--text-muted)]" />
+              )}
               {item.done ? "Done — " : "Todo — "}
               {item.label}
             </span>
             {!item.done ? (
-              <Link href={item.href} className="text-[var(--signal)] hover:underline">
+              <Link href={item.href} className="text-[var(--accent)] hover:underline">
                 {item.cta}
               </Link>
             ) : null}
           </li>
         ))}
       </ul>
-    </section>
+    </Card>
   );
 }

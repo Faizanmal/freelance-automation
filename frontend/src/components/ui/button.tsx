@@ -1,36 +1,49 @@
-import * as React from "react"
-import { motion, HTMLMotionProps } from "framer-motion"
-import { cn } from "./card" // Reusing cn utility
+import * as React from "react";
+import { cn } from "@/lib/cn";
 
-interface ButtonProps extends HTMLMotionProps<"button"> {
-  variant?: "default" | "outline" | "ghost" | "destructive";
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: "default" | "outline" | "ghost" | "destructive" | "secondary";
+  size?: "default" | "sm" | "lg" | "icon";
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", ...props }, ref) => {
-    
+  ({ className, variant = "default", size = "default", type = "button", ...props }, ref) => {
     const variants = {
-      default: "bg-[var(--signal)] text-[var(--ink)] shadow-[0_0_20px_rgba(198,242,92,0.3)] hover:shadow-[0_0_30px_rgba(198,242,92,0.5)]",
-      outline: "border border-white/20 bg-transparent text-[var(--paper)] hover:border-[var(--signal)]/50 hover:bg-white/5",
-      ghost: "bg-transparent text-[var(--mute)] hover:text-[var(--paper)] hover:bg-white/5",
-      destructive: "bg-red-950 text-red-200 hover:bg-red-900",
-    }
+      default:
+        "bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] shadow-[var(--shadow-sm)]",
+      secondary:
+        "bg-[var(--surface-hover)] text-[var(--text)] border border-[var(--border)] hover:border-[var(--border-strong)]",
+      outline:
+        "border border-[var(--border)] bg-transparent text-[var(--text)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]",
+      ghost: "bg-transparent text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]",
+      destructive: "bg-[var(--danger-muted)] text-[var(--danger)] hover:bg-[var(--danger)] hover:text-white",
+    };
+
+    const sizes = {
+      default: "h-10 px-4 py-2 text-sm",
+      sm: "h-8 px-3 text-xs",
+      lg: "h-11 px-5 text-sm",
+      icon: "h-9 w-9 p-0",
+    };
 
     return (
-      <motion.button
+      <button
         ref={ref}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
+        type={type}
         className={cn(
-          "inline-flex items-center justify-center rounded-full px-5 py-2.5 font-semibold transition-all disabled:opacity-50 disabled:pointer-events-none",
+          "inline-flex items-center justify-center gap-2 rounded-[var(--radius)] font-semibold transition-[color,background-color,border-color,transform,opacity] duration-150",
+          "hover:scale-[1.01] active:scale-[0.98]",
+          "motion-reduce:hover:scale-100 motion-reduce:active:scale-100",
+          "disabled:pointer-events-none disabled:opacity-50",
           variants[variant],
-          className
+          sizes[size],
+          className,
         )}
         {...props}
       />
-    )
-  }
-)
-Button.displayName = "Button"
+    );
+  },
+);
+Button.displayName = "Button";
 
-export { Button }
+export { Button };

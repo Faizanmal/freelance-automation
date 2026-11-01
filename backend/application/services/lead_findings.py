@@ -79,10 +79,13 @@ class LeadFindingsService:
         skip_job_ids: set[int] | None = None,
         saved_job_ids: set[int] | None = None,
         include_skipped: bool = False,
+        skill_weights: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         skipped = skip_job_ids or set()
         saved = saved_job_ids or set()
-        matches = self.matcher.rank_jobs(jobs, preferences)
+        matches = self.matcher.rank_jobs(
+            jobs, preferences, skill_weights=skill_weights
+        )
         findings = [
             self._from_match(match, freelance_focus=freelance_focus)
             for match in matches

@@ -10,7 +10,6 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({
-  getApiBase: vi.fn(() => 'http://localhost:8000'),
   getToken: vi.fn(() => 'fake-token'),
   subscribeAuth: (onStoreChange: () => void) => {
     void onStoreChange
@@ -21,6 +20,35 @@ vi.mock('@/lib/api', () => ({
   healthLive: vi.fn(),
   listJobs: vi.fn(),
   scrapeJobs: vi.fn(),
+  me: vi.fn(() => Promise.resolve({ id: '1', email: 'dev@signaldesk.com', full_name: 'Dev User', plan: 'free' })),
+  getPreferences: vi.fn(() =>
+    Promise.resolve({
+      keywords: [],
+      exclude_keywords: [],
+      skills: ['python'],
+      min_budget: null,
+      max_budget: null,
+      sources: [],
+      match_threshold: 0.35,
+      notification_channels: ['email'],
+      digest_mode: true,
+      digest_days: ['mon', 'wed', 'fri'],
+      digest_time_local: '09:00',
+      timezone: 'UTC',
+      notes: null,
+    }),
+  ),
+  getAuthFindings: vi.fn(() =>
+    Promise.resolve({
+      generated_at: '2026-06-20T10:00:00Z',
+      total_scanned: 1,
+      total_matched: 1,
+      total_findings: 1,
+      action_counts: { draft_bid: 1, watch: 0, skip: 0 },
+      keywords: ['python'],
+      items: [],
+    }),
+  ),
 }))
 
 vi.mock('@/components/activation-checklist', () => ({
@@ -68,9 +96,13 @@ test('renders authenticated desk and fetches jobs', async () => {
   await waitFor(() => {
     expect(screen.getByRole('button', { name: /refresh inventory/i })).toBeInTheDocument()
   })
-  expect(screen.getByRole('link', { name: /hunt rules/i })).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: /^hunt rules$/i }).length).toBeGreaterThanOrEqual(1)
   expect(screen.getByTestId('activation-checklist')).toBeInTheDocument()
   expect(screen.getByText(/1 opportunities stored/i)).toBeInTheDocument()
+  await waitFor(() => {
+    expect(screen.getByTestId('desk-status')).toHaveTextContent(/online/i)
+  })
+  expect(screen.queryByText(/localhost:8000/i)).not.toBeInTheDocument()
 })
 
 test('renders marketing hero without scrape when logged out', async () => {

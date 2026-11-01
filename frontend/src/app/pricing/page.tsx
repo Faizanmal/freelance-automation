@@ -10,6 +10,13 @@ import {
   startCheckout,
   type BillingPlan,
 } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Check } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 export default function PricingPage() {
   const router = useRouter();
@@ -17,7 +24,9 @@ export default function PricingPage() {
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [devActivateAllowed, setDevActivateAllowed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
+  const [loading, setLoading] = useState(true);
+  const [upgrading, setUpgrading] = useState(false);
 
   useEffect(() => {
     startTransition(async () => {
@@ -28,6 +37,8 @@ export default function PricingPage() {
         setDevActivateAllowed(Boolean(data.dev_activate_allowed));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load plans");
+      } finally {
+        setLoading(false);
       }
     });
   }, []);
@@ -37,6 +48,7 @@ export default function PricingPage() {
       router.push("/auth");
       return;
     }
+    setUpgrading(true);
     startTransition(async () => {
       try {
         setError(null);
@@ -46,83 +58,112 @@ export default function PricingPage() {
           return;
         }
         if (!devActivateAllowed) {
-          setError("Live billing is not configured yet. Set Stripe keys to enable upgrades.");
+          setError("Pro checkout is not open yet. Start free — we’ll enable upgrades soon.");
           return;
         }
         await activateDevPro();
         router.push("/preferences?billing=dev-pro");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upgrade failed");
+      } finally {
+        setUpgrading(false);
       }
     });
   };
 
+  const proCheckoutReady = stripeEnabled || devActivateAllowed;
+
   return (
-    <main className="flex flex-1 flex-col gap-12">
-      <section className="max-w-3xl">
-        <p className="text-sm tracking-[0.28em] text-[var(--signal)] uppercase">Pricing</p>
-        <h1
-          className="mt-3 text-5xl leading-[1.05] tracking-tight md:text-6xl"
-          style={{ fontFamily: "var(--font-display), Georgia, serif" }}
-        >
-          Signal Desk plans
-        </h1>
-        <p className="mt-4 max-w-xl text-lg text-[var(--fog)]">
-          Start free with Hunt Rules, ranked leads, and an email digest. Pro raises hunt density and digest caps — not marketplace bid bots.
-        </p>
-      </section>
+    <div className="flex flex-1 flex-col gap-10">
+      <PageHeader
+        eyebrow="Pricing"
+        title="Signal Desk plans"
+        description="Start free with Hunt Rules, ranked leads, and an email digest. Pro raises hunt density and digest caps — not marketplace bid bots."
+      />
 
-      <section className="grid gap-8 md:grid-cols-2">
-        {plans.map((plan) => (
-          <article key={plan.id} className="border-t border-white/15 pt-6">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-3xl capitalize" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-                {plan.id}
-              </h2>
-              <p className="text-xl text-[var(--signal)]">{plan.price_label}</p>
-            </div>
-            <ul className="mt-6 space-y-3 text-[var(--fog)]">
-              {plan.features.map((feature) => (
-                <li key={feature}>{feature}</li>
-              ))}
-            </ul>
-            {plan.id === "pro" ? (
-              stripeEnabled || devActivateAllowed ? (
-                <button
-                  type="button"
-                  onClick={upgrade}
-                  disabled={pending}
-                  className="mt-8 rounded-full bg-[var(--signal)] px-5 py-2.5 font-semibold text-[var(--ink)] disabled:opacity-60"
-                >
-                  {pending
-                    ? "Working…"
-                    : stripeEnabled
-                      ? "Upgrade with Stripe"
-                      : "Activate Pro (dev)"}
-                </button>
-              ) : (
-                <p className="mt-8 text-sm text-[var(--mute)]">
-                  Billing is not configured in this environment. Contact support to upgrade.
-                </p>
-              )
-            ) : (
-              <Link
-                href="/auth"
-                className="mt-8 inline-block rounded-full border border-white/20 px-5 py-2.5 text-[var(--paper)]"
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Skeleton className="h-72 w-full" />
+          <Skeleton className="h-72 w-full" />
+        </div>
+      ) : (
+        <section className="grid gap-4 md:grid-cols-2">
+          {plans.map((plan) => {
+            const isPro = plan.id === "pro";
+            return (
+              <Card
+                key={plan.id}
+                className={cn(
+                  "relative flex flex-col p-6 md:p-8",
+                  isPro && "border-[var(--accent)]/40 ring-1 ring-[var(--accent)]/20",
+                )}
               >
-                Start free
-              </Link>
-            )}
-          </article>
-        ))}
-      </section>
+                {isPro ? (
+                  <Badge variant="accent" className="absolute top-4 right-4">
+                    Recommended
+                  </Badge>
+                ) : null}
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2
+                    className="text-3xl text-[var(--text)]"
+                    style={{ fontFamily: "var(--font-display), Georgia, serif" }}
+                  >
+                    {plan.id === "pro" ? "Pro" : plan.id === "free" ? "Free" : plan.id}
+                  </h2>
+                  <p className="text-xl font-semibold text-[var(--accent)]">{plan.price_label}</p>
+                </div>
+                <ul className="mt-6 flex-1 space-y-3">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex gap-2 text-sm text-[var(--text-secondary)]">
+                      <Check className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-8">
+                  {isPro ? (
+                    proCheckoutReady ? (
+                      <Button type="button" onClick={upgrade} disabled={upgrading} className="w-full sm:w-auto">
+                        {upgrading
+                          ? "Working…"
+                          : stripeEnabled
+                            ? "Upgrade to Pro"
+                            : "Activate Pro (dev)"}
+                      </Button>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-sm text-[var(--text-muted)]">
+                          Pro checkout opens soon. Start free today — your Hunt Rules and leads stay with you when upgrades unlock.
+                        </p>
+                        <Link
+                          href="/auth"
+                          className="inline-flex h-10 items-center rounded-[var(--radius)] border border-[var(--border)] px-5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                        >
+                          Start free
+                        </Link>
+                      </div>
+                    )
+                  ) : (
+                    <Link
+                      href="/auth"
+                      className="inline-flex h-10 items-center rounded-[var(--radius)] border border-[var(--border)] px-5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                    >
+                      Start free
+                    </Link>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </section>
+      )}
 
-      {error ? <p className="text-sm text-[var(--ember)]">{error}</p> : null}
+      {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
       {!stripeEnabled && devActivateAllowed ? (
-        <p className="text-sm text-[var(--mute)]">
-          Stripe keys are optional in development. Set `STRIPE_SECRET_KEY` and `STRIPE_PRICE_PRO` for live checkout.
+        <p className="text-sm text-[var(--text-muted)]">
+          Local/dev mode: Pro can be activated without Stripe for testing.
         </p>
       ) : null}
-    </main>
+    </div>
   );
 }

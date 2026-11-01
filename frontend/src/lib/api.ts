@@ -35,11 +35,15 @@ export type Job = {
   created_at?: string | null;
 };
 
+export type ExperienceLevel = "any" | "junior" | "mid" | "senior" | "lead";
+
 export type Preferences = {
   id?: number;
   user_id?: string;
   keywords: string[];
   exclude_keywords: string[];
+  skills?: string[];
+  experience_level?: ExperienceLevel | string | null;
   min_budget: number | null;
   max_budget: number | null;
   sources: string[];
@@ -82,6 +86,8 @@ export type BillingStatus = {
   dev_activate_allowed?: boolean;
   limits: {
     scrape_limit: number;
+    max_digest?: number;
+    daily_scrape_runs?: number;
     marketplace: boolean;
     channels: string[];
     sources: string[];
@@ -94,6 +100,8 @@ export type BillingPlan = {
   price_label: string;
   marketplace: boolean;
   scrape_limit: number;
+  max_digest?: number;
+  daily_scrape_runs?: number;
   channels: string[];
   features: string[];
 };
@@ -214,6 +222,9 @@ export type ScrapeResult = {
   message?: string;
   plan?: string;
   scrape_limit?: number;
+  daily_scrape_runs?: number;
+  daily_scrape_used?: number;
+  daily_scrape_remaining?: number;
   total_fetched: number;
   total_ingested: number;
   total_merged: number;
@@ -438,6 +449,17 @@ export type IntegrationsStatus = {
     maps_query?: string;
     maps_ll?: string;
     sources: string[];
+    primary?: string | null;
+    fallback?: string | null;
+    tavily_configured?: boolean;
+    serpapi_configured?: boolean;
+    ready?: boolean;
+  };
+  tavily?: {
+    configured: boolean;
+    search_depth: string;
+    role: string;
+    fallback: string;
   };
   unsupported: {
     fiverr: string;

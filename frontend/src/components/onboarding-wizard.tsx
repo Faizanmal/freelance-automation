@@ -10,12 +10,16 @@ import { getToken, subscribeAuth } from "@/lib/api";
 export function OnboardingWizard() {
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [hasToken, setHasToken] = useState(() => Boolean(getToken()));
+  // Always start false so SSR and the first client paint match; then sync from storage.
+  const [hasToken, setHasToken] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const onAuthPage = Boolean(pathname?.startsWith("/auth"));
 
-  useEffect(() => subscribeAuth(() => setHasToken(Boolean(getToken()))), []);
+  useEffect(() => {
+    setHasToken(Boolean(getToken()));
+    return subscribeAuth(() => setHasToken(Boolean(getToken())));
+  }, []);
 
   useEffect(() => {
     if (onAuthPage || !hasToken) return;
@@ -34,7 +38,7 @@ export function OnboardingWizard() {
     {
       title: "Set Hunt Rules",
       content:
-        "Tell Signal Desk what to hunt — skills, budget, location, and freelance focus. Rules drive matching and your digest.",
+        "Set skills, experience level, budget, and location. The shared job pool is ranked to your profile for Leads and digests.",
       action: "Open Hunt Rules",
       onClick: () => {
         router.push("/preferences?tab=matching");

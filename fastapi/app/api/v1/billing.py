@@ -51,6 +51,8 @@ async def list_plans() -> dict[str, object]:
                 "price_label": plan.price_label,
                 "marketplace": plan.marketplace,
                 "scrape_limit": plan.scrape_limit,
+                "max_digest": plan.max_digest,
+                "daily_scrape_runs": plan.daily_scrape_runs,
                 "channels": sorted(plan.allowed_channels),
                 "features": list(plan.features),
             }
@@ -74,6 +76,8 @@ async def my_billing(
         and (not settings.stripe_enabled),
         limits={
             "scrape_limit": limits.scrape_limit,
+            "max_digest": limits.max_digest,
+            "daily_scrape_runs": limits.daily_scrape_runs,
             "marketplace": limits.marketplace,
             "channels": sorted(limits.allowed_channels),
             "sources": list(limits.allowed_sources),

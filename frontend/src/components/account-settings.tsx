@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { setToken, request, type User } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 export function AccountSettings({ user }: { user: User }) {
   const router = useRouter();
@@ -30,50 +31,71 @@ export function AccountSettings({ user }: { user: User }) {
     });
   };
 
+  const plan = (user.plan || "free").toLowerCase();
+
   return (
-    <Card className="p-8 mt-8">
-      <h2 className="text-2xl mb-6" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-        Account Settings
-      </h2>
-      
-      <div className="space-y-6">
+    <Card className="mt-2 p-6 md:p-8">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-medium text-[var(--fog)] mb-1">Profile details</h3>
-          <p className="text-sm text-[var(--mute)]">
-            Signed in as <strong className="text-[var(--paper)]">{user.email}</strong> 
-            {user.full_name && ` (${user.full_name})`}
+          <h2
+            className="text-2xl text-[var(--text)]"
+            style={{ fontFamily: "var(--font-display), Georgia, serif" }}
+          >
+            Account Settings
+          </h2>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Profile, session, and account controls.
+          </p>
+        </div>
+        <Badge variant={plan === "pro" ? "accent" : "muted"}>{plan === "pro" ? "Pro" : "Free"}</Badge>
+      </div>
+
+      <div className="space-y-6">
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+          <h3 className="mb-1 text-sm font-medium text-[var(--text-secondary)]">Personal information</h3>
+          <p className="text-sm text-[var(--text-muted)]">
+            Signed in as <strong className="text-[var(--text)]">{user.email}</strong>
+            {user.full_name ? ` (${user.full_name})` : null}
+          </p>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">
+            Email verification:{" "}
+            <span className={user.is_verified ? "text-[var(--success)]" : "text-[var(--warning)]"}>
+              {user.is_verified ? "Verified" : "Not verified"}
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            Profile name and password changes are managed through auth recovery flows. Two-factor authentication is under Hunt Rules → Security.
           </p>
         </div>
 
-        <div className="pt-4 border-t border-white/10">
+        <div className="border-t border-[var(--border)] pt-4">
           <Button onClick={handleLogout} variant="outline" className="w-full sm:w-auto">
             Sign out
           </Button>
-          
-          {user.is_superuser && (
-            <Button onClick={() => router.push("/admin")} className="w-full sm:w-auto ml-0 sm:ml-3 mt-3 sm:mt-0 bg-[var(--signal)] text-[var(--ink)]">
+
+          {user.is_superuser ? (
+            <Button
+              onClick={() => router.push("/admin")}
+              className="mt-3 w-full sm:ml-3 sm:mt-0 sm:w-auto"
+            >
               Admin Dashboard
             </Button>
-          )}
+          ) : null}
         </div>
 
-        <div className="pt-8 border-t border-red-900/30">
-          <h3 className="text-sm font-medium text-[var(--ember)] mb-2">Danger Zone</h3>
-          <p className="text-sm text-[var(--mute)] mb-4">
+        <div className="border-t border-[var(--danger)]/25 pt-6">
+          <h3 className="mb-2 text-sm font-medium text-[var(--danger)]">Danger zone</h3>
+          <p className="mb-4 text-sm text-[var(--text-muted)]">
             Permanently delete your account and all associated data. This action cannot be undone.
           </p>
-          
+
           {!confirmDelete ? (
-            <Button 
-              onClick={() => setConfirmDelete(true)} 
-              variant="destructive"
-              className="bg-red-950 text-red-200 hover:bg-red-900"
-            >
+            <Button onClick={() => setConfirmDelete(true)} variant="destructive">
               Delete Account
             </Button>
           ) : (
-            <div className="flex items-center gap-3 bg-red-950/40 p-4 rounded-xl border border-red-900/50">
-              <span className="text-sm text-red-200">Are you absolutely sure?</span>
+            <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius)] border border-[var(--danger)]/30 bg-[var(--danger-muted)] p-4">
+              <span className="text-sm text-[var(--danger)]">Are you absolutely sure?</span>
               <Button onClick={() => setConfirmDelete(false)} variant="outline" disabled={pending}>
                 Cancel
               </Button>
@@ -82,7 +104,7 @@ export function AccountSettings({ user }: { user: User }) {
               </Button>
             </div>
           )}
-          {error && <p className="text-sm text-[var(--ember)] mt-2">{error}</p>}
+          {error ? <p className="mt-2 text-sm text-[var(--danger)]">{error}</p> : null}
         </div>
       </div>
     </Card>

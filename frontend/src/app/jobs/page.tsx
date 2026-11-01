@@ -5,10 +5,7 @@ import { listJobs, type Job } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-
-function stripHtml(value: string) {
-  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-}
+import { openSafeExternalUrl, stripHtml } from "@/lib/security";
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -167,7 +164,7 @@ export default function JobsPage() {
                   <Button 
                     variant="outline" 
                     className="w-full text-sm py-2"
-                    onClick={() => window.open(job.url, "_blank")}
+                    onClick={() => openSafeExternalUrl(job.url)}
                   >
                     View Details
                   </Button>

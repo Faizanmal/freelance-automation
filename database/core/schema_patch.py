@@ -110,6 +110,14 @@ PREFERENCE_COLUMNS = {
         "ALTER TABLE user_preferences ADD COLUMN digest_last_sent_at DATETIME",
         "ALTER TABLE user_preferences ADD COLUMN digest_last_sent_at TIMESTAMPTZ",
     ),
+    "skills": (
+        "ALTER TABLE user_preferences ADD COLUMN skills JSON",
+        "ALTER TABLE user_preferences ADD COLUMN skills JSON",
+    ),
+    "experience_level": (
+        "ALTER TABLE user_preferences ADD COLUMN experience_level VARCHAR(32) DEFAULT 'any'",
+        "ALTER TABLE user_preferences ADD COLUMN experience_level VARCHAR(32) DEFAULT 'any'",
+    ),
 }
 
 

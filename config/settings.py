@@ -108,7 +108,15 @@ class Settings(BaseSettings):
     )
     guru_search_query: str = Field("python", alias="GURU_SEARCH_QUERY")
 
-    # SerpAPI discovery (Google organic + Jobs + Maps + company careers) — Pro, billed by SerpAPI
+    # Tavily discovery (primary for freelance/jobs/companies) — https://tavily.com/
+    tavily_api_key: str | None = Field(None, alias="TAVILY_API_KEY")
+    tavily_search_depth: str = Field(
+        "basic",
+        alias="TAVILY_SEARCH_DEPTH",
+        description="Tavily search_depth: basic | advanced | fast | ultra-fast",
+    )
+
+    # SerpAPI discovery (fallback for freelance/jobs/companies; primary for maps)
     serpapi_api_key: str | None = Field(None, alias="SERPAPI_API_KEY")
     serpapi_freelance_query: str = Field(
         _DEFAULT_SERPAPI_FREELANCE_QUERY,

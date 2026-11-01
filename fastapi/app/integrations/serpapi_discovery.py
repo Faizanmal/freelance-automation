@@ -74,7 +74,23 @@ class SourceNotConfiguredError(RuntimeError):
 
 
 def serpapi_configured() -> bool:
-    return bool(get_settings().serpapi_api_key)
+    key = get_settings().serpapi_api_key
+    return isinstance(key, str) and bool(key.strip())
+
+
+def discovery_provider_status() -> dict[str, object]:
+    """Primary = Tavily when keyed; SerpAPI is fallback for freelance/jobs/companies."""
+    from app.integrations import tavily_discovery
+
+    tavily_ok = tavily_discovery.tavily_configured()
+    serpapi_ok = serpapi_configured()
+    return {
+        "primary": "tavily" if tavily_ok else ("serpapi" if serpapi_ok else None),
+        "fallback": "serpapi" if tavily_ok and serpapi_ok else None,
+        "tavily_configured": tavily_ok,
+        "serpapi_configured": serpapi_ok,
+        "ready": tavily_ok or serpapi_ok,
+    }
 
 
 def normalize_company_host(value: str) -> str:
@@ -232,12 +248,64 @@ async def search_discovery(
     query: str | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
+    """Discover listings. Tavily runs first for freelance/jobs/companies; SerpAPI is fallback.
+
+    Maps stays SerpAPI-only (no Tavily Maps engine).
+    """
+    if mode != "maps":
+        rows = await _try_tavily_first(mode=mode, query=query, limit=limit)
+        if rows is not None:
+            return rows
+
+    return await _search_serpapi(mode=mode, query=query, limit=limit)
+
+
+async def _try_tavily_first(
+    *,
+    mode: Mode,
+    query: str | None,
+    limit: int,
+) -> list[dict[str, Any]] | None:
+    """Return Tavily rows when useful; None means caller should use SerpAPI."""
+    from app.integrations import tavily_discovery
+
+    if not tavily_discovery.tavily_configured():
+        return None
+    try:
+        rows = await tavily_discovery.search_discovery(
+            mode=mode, query=query, limit=limit
+        )
+    except SourceNotConfiguredError as exc:
+        logger.warning("Tavily unavailable (%s); falling back to SerpAPI", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001 — hunter must not abort the wave
+        logger.warning("Tavily failed (%s); falling back to SerpAPI", exc)
+        return None
+    if rows:
+        logger.info(
+            "Tavily primary hit mode=%s count=%s",
+            mode,
+            len(rows),
+        )
+        return rows
+    logger.info("Tavily returned no rows for mode=%s; falling back to SerpAPI", mode)
+    return None
+
+
+async def _search_serpapi(
+    *,
+    mode: Mode,
+    query: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
     settings = get_settings()
     api_key = settings.serpapi_api_key
-    if not api_key:
+    if not isinstance(api_key, str) or not api_key.strip():
         raise SourceNotConfiguredError(
-            "SerpAPI is not configured. Set SERPAPI_API_KEY in the environment."
+            "No discovery provider ready. Set TAVILY_API_KEY (preferred) "
+            "and/or SERPAPI_API_KEY in the environment."
         )
+    api_key = api_key.strip()
 
     if mode == "freelance":
         search_query = (query or settings.serpapi_freelance_query).strip()
@@ -388,6 +456,7 @@ async def _search_google_organic(
                 "metadata": {
                     "discovery_mode": mode,
                     "engine": "google",
+                    "provider": "serpapi",
                     "query": query,
                     "position": item.get("position"),
                     "displayed_link": item.get("displayed_link"),
@@ -468,6 +537,7 @@ async def _search_google_maps(
                 "metadata": {
                     "discovery_mode": "maps",
                     "engine": "google_maps",
+                    "provider": "serpapi",
                     "query": query,
                     "phone": phone or None,
                     "website": website or None,
@@ -560,6 +630,7 @@ async def _search_google_jobs(
                 "metadata": {
                     "discovery_mode": "jobs",
                     "engine": "google_jobs",
+                    "provider": "serpapi",
                     "query": query,
                     "via": item.get("via"),
                 },

@@ -1,29 +1,26 @@
-import * as React from "react"
-import { motion, HTMLMotionProps } from "framer-motion"
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import * as React from "react";
+import { cn } from "@/lib/cn";
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
+export { cn } from "@/lib/cn";
 
-const Card = React.forwardRef<HTMLDivElement, HTMLMotionProps<"div">>(
-  ({ className, ...props }, ref) => (
-    <motion.div
+type CardProps = React.HTMLAttributes<HTMLDivElement> & {
+  interactive?: boolean;
+};
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, interactive = false, ...props }, ref) => (
+    <div
       ref={ref}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      whileHover={{ y: -4, transition: { duration: 0.2 } }}
       className={cn(
-        "rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl",
-        "shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-colors hover:border-white/20",
-        className
+        "rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-sm)]",
+        interactive &&
+          "transition-[border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-[var(--border-strong)] motion-reduce:hover:translate-y-0",
+        className,
       )}
       {...props}
     />
-  )
-)
-Card.displayName = "Card"
+  ),
+);
+Card.displayName = "Card";
 
-export { Card }
+export { Card };

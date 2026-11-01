@@ -2,8 +2,15 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.application.services.billing import (
+    FREE_DAILY_SCRAPE_RUNS,
+    FREE_MAX_DIGEST,
+    FREE_SCRAPE_LIMIT,
     PLAN_FREE,
     PLAN_PRO,
+    PRO_DAILY_SCRAPE_RUNS,
+    PRO_MAX_DIGEST,
+    PRO_SCRAPE_LIMIT,
+    clamp_digest_limit,
     filter_channels_for_user,
     filter_sources_for_user,
     is_pro,
@@ -55,6 +62,29 @@ class BillingServiceTests(unittest.TestCase):
         user = _User(plan=PLAN_PRO, subscription_status="past_due")
         self.assertFalse(is_pro(user))
         self.assertEqual(limits_for_user(user).name, PLAN_FREE)
+
+    def test_market_entry_plan_limits(self) -> None:
+        free = limits_for_user(_User())
+        pro = limits_for_user(_User(plan=PLAN_PRO, subscription_status="active"))
+        self.assertEqual(free.scrape_limit, FREE_SCRAPE_LIMIT)
+        self.assertEqual(free.max_digest, FREE_MAX_DIGEST)
+        self.assertEqual(free.daily_scrape_runs, FREE_DAILY_SCRAPE_RUNS)
+        self.assertEqual(pro.scrape_limit, PRO_SCRAPE_LIMIT)
+        self.assertEqual(pro.max_digest, PRO_MAX_DIGEST)
+        self.assertEqual(pro.daily_scrape_runs, PRO_DAILY_SCRAPE_RUNS)
+        self.assertIn("serpapi_freelance", free.allowed_sources)
+        self.assertIn("serpapi_maps", pro.allowed_sources)
+        self.assertNotIn("serpapi_maps", free.allowed_sources)
+        self.assertTrue(any("digest" in f.lower() for f in free.features))
+        self.assertFalse(any("bid bot" in f.lower() for f in pro.features))
+
+    def test_clamp_digest_limit_respects_plan(self) -> None:
+        free = _User()
+        pro = _User(plan=PLAN_PRO, subscription_status="active")
+        self.assertEqual(clamp_digest_limit(free, 50), FREE_MAX_DIGEST)
+        self.assertEqual(clamp_digest_limit(free, 3), 3)
+        self.assertEqual(clamp_digest_limit(pro, 50), PRO_MAX_DIGEST)
+        self.assertEqual(clamp_digest_limit(pro, 10), 10)
 
 
 class StripeWebhookGateTests(unittest.IsolatedAsyncioTestCase):

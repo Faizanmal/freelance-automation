@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.billing import destinations_from_preferences
+from backend.application.services.hunt_query_builder import HuntQueryBuilder
 from backend.application.services.job_ingestion import JobIngestionService
 from backend.application.services.matching import MatchingService
 from backend.application.services.notification_service import (
@@ -53,6 +54,9 @@ class ScrapeService:
         selected = (
             sources or get_settings().scrape_source_list or list(V1_DEFAULT_HUNTERS)
         )
+        query_map = await HuntQueryBuilder(self.session).queries_for_sources(
+            selected, explicit=query
+        )
         summary: dict[str, object] = {
             "sources": {},
             "total_fetched": 0,
@@ -61,6 +65,7 @@ class ScrapeService:
             "total_skipped": 0,
             "alerts_sent": 0,
             "new_job_ids": [],
+            "hunt_queries": {k: v for k, v in query_map.items() if v},
         }
 
         for source_name in selected:
@@ -70,10 +75,11 @@ class ScrapeService:
                 continue
 
             source = cls()
+            source_query = query_map.get(source_name)
             try:
                 fetch = source.fetch
                 try:
-                    candidates = await fetch(limit=limit, query=query)
+                    candidates = await fetch(limit=limit, query=source_query)
                 except TypeError:
                     candidates = await fetch(limit=limit)
             except (

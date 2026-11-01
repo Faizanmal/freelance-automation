@@ -21,6 +21,16 @@ RED_FLAG_PATTERNS = (
 
 WORD_BOUNDARY_TEMPLATE = r"(?<![a-z0-9]){keyword}(?![a-z0-9])"
 
+EXPERIENCE_LEVELS = frozenset({"any", "junior", "mid", "senior", "lead"})
+
+# Tokens that signal a seniority band in title / seniority / description.
+SENIORITY_BANDS: dict[str, tuple[str, ...]] = {
+    "junior": ("junior", "entry", "associate", "intern", "graduate", "jr"),
+    "mid": ("mid-level", "mid level", "intermediate", "midlevel", "regular"),
+    "senior": ("senior", "sr."),
+    "lead": ("lead", "principal", "staff", "architect", "head of", "director"),
+}
+
 
 @dataclass(slots=True)
 class JobMatch:
@@ -34,14 +44,16 @@ class JobMatch:
 
 
 class MatchingService:
-    """Score jobs with keyword fit, freshness, client-quality proxies, and red flags."""
+    """Score jobs with skills/keywords fit, experience, freshness, and red flags."""
 
     def score_job(
-        self, job: JobRecord, preferences: UserPreferences
+        self,
+        job: JobRecord,
+        preferences: UserPreferences,
+        *,
+        skill_weights: dict[str, float] | None = None,
     ) -> JobMatch | None:
-        keywords = [
-            k.strip().lower() for k in (preferences.keywords or []) if k and k.strip()
-        ]
+        terms = self._match_terms(preferences)
         excludes = [
             k.strip().lower()
             for k in (preferences.exclude_keywords or [])
@@ -84,25 +96,33 @@ class MatchingService:
         ):
             return None
 
+        location = (getattr(preferences, "location", None) or "").strip().lower()
+        if location and location not in {"remote", "anywhere", "worldwide"}:
+            # Soft preference only — do not hard-filter when location is absent on the job.
+            job_loc = (job.location or "").lower()
+            if job_loc and location not in job_loc and "remote" not in job_loc:
+                # Keep candidate but score will not get a location boost (handled below).
+                pass
+
         red_flags = self._detect_red_flags(haystack)
         matched: list[str] = []
         reasons: list[str] = []
 
-        if not keywords:
+        if not terms:
             keyword_score = 0.45
-            reasons.append("no_keywords_configured")
+            reasons.append("no_skills_configured")
         else:
-            for keyword in keywords:
-                if self._contains_keyword(haystack, keyword):
-                    matched.append(keyword)
+            for term in terms:
+                if self._contains_keyword(haystack, term):
+                    matched.append(term)
             if not matched:
                 return None
-            keyword_score = len(matched) / len(keywords)
-            reasons.append(f"matched {len(matched)}/{len(keywords)} keywords")
+            keyword_score = len(matched) / len(terms)
+            reasons.append(f"matched {len(matched)}/{len(terms)} skills")
 
-        if job.tags and keywords:
-            keyword_set = set(keywords)
-            tag_hits = [tag for tag in job.tags if str(tag).lower() in keyword_set]
+        if job.tags and terms:
+            term_set = set(terms)
+            tag_hits = [tag for tag in job.tags if str(tag).lower() in term_set]
             if tag_hits:
                 keyword_score = min(1.0, keyword_score + 0.08 * len(tag_hits))
                 reasons.append(f"tag overlap: {', '.join(map(str, tag_hits))}")
@@ -110,15 +130,48 @@ class MatchingService:
         freshness = self._freshness_score(job)
         client_quality = self._client_quality_score(job)
         red_flag_penalty = min(0.35, 0.12 * len(red_flags))
+        experience_delta, experience_reason = self._experience_adjustment(
+            preferences, haystack, job.seniority
+        )
+        location_boost = 0.0
+        if location:
+            job_loc = (job.location or "").lower()
+            if location in job_loc or (
+                location in {"remote", "anywhere", "worldwide"}
+                and ("remote" in job_loc or "worldwide" in job_loc or not job_loc)
+            ):
+                location_boost = 0.05
+                reasons.append("location fit")
+
+        engagement_delta, engagement_reason = self._engagement_adjustment(
+            preferences, job
+        )
+        quality_penalty, quality_reason = self._quality_penalty(job)
+        feedback_delta, feedback_reason = self._feedback_adjustment(
+            job, skill_weights or {}
+        )
 
         score = (
-            (0.62 * keyword_score)
-            + (0.20 * freshness)
-            + (0.18 * client_quality)
+            (0.54 * keyword_score)
+            + (0.16 * freshness)
+            + (0.14 * client_quality)
+            + experience_delta
+            + engagement_delta
+            + location_boost
+            + feedback_delta
             - red_flag_penalty
+            - quality_penalty
         )
         score = max(0.0, min(1.0, score))
 
+        if experience_reason:
+            reasons.append(experience_reason)
+        if engagement_reason:
+            reasons.append(engagement_reason)
+        if quality_reason:
+            reasons.append(quality_reason)
+        if feedback_reason:
+            reasons.append(feedback_reason)
         if freshness >= 0.75:
             reasons.append("fresh posting")
         if client_quality >= 0.7:
@@ -145,22 +198,134 @@ class MatchingService:
         )
 
     def rank_jobs(
-        self, jobs: list[JobRecord], preferences: UserPreferences
+        self,
+        jobs: list[JobRecord],
+        preferences: UserPreferences,
+        *,
+        skill_weights: dict[str, float] | None = None,
     ) -> list[JobMatch]:
         matches = [
             match
             for job in jobs
-            if (match := self.score_job(job, preferences)) is not None
+            if (
+                match := self.score_job(
+                    job, preferences, skill_weights=skill_weights
+                )
+            )
+            is not None
         ]
         matches.sort(key=lambda item: item.score, reverse=True)
         return matches
 
+    def _match_terms(self, preferences: UserPreferences) -> list[str]:
+        """Skills first, then extra keywords/requirements — de-duplicated."""
+        skills = [
+            k.strip().lower()
+            for k in (getattr(preferences, "skills", None) or [])
+            if k and str(k).strip()
+        ]
+        keywords = [
+            k.strip().lower()
+            for k in (preferences.keywords or [])
+            if k and str(k).strip()
+        ]
+        # Legacy rows often only have keywords; treat them as skills.
+        ordered = skills + keywords if skills else keywords
+        seen: set[str] = set()
+        terms: list[str] = []
+        for term in ordered:
+            if term not in seen:
+                seen.add(term)
+                terms.append(term)
+        return terms
+
+    def _experience_adjustment(
+        self,
+        preferences: UserPreferences,
+        haystack: str,
+        seniority: str | None,
+    ) -> tuple[float, str | None]:
+        raw = (getattr(preferences, "experience_level", None) or "any").strip().lower()
+        level = raw if raw in EXPERIENCE_LEVELS else "any"
+        if level == "any":
+            return 0.0, None
+
+        detected = self._detect_seniority_band(haystack, seniority)
+        if detected is None:
+            return 0.0, None
+        if detected == level:
+            return 0.1, f"experience fit ({level})"
+
+        order = ("junior", "mid", "senior", "lead")
+        try:
+            distance = abs(order.index(detected) - order.index(level))
+        except ValueError:
+            return 0.0, None
+        if distance == 1:
+            return -0.04, f"nearby experience ({detected} vs {level})"
+        return -0.12, f"experience mismatch ({detected} vs {level})"
+
+    def _engagement_adjustment(
+        self, preferences: UserPreferences, job: JobRecord
+    ) -> tuple[float, str | None]:
+        enrichment = job.enrichment or {}
+        engagement = str(
+            enrichment.get("engagement_type") or enrichment.get("project_type") or ""
+        ).lower()
+        if not engagement or engagement == "unknown":
+            return 0.0, None
+        freelance_focus = bool(getattr(preferences, "freelance_focus", True))
+        if freelance_focus and engagement in {"freelance", "contract"}:
+            return 0.06, f"engagement fit ({engagement})"
+        if freelance_focus and engagement == "full_time":
+            return -0.08, "full-time vs freelance focus"
+        return 0.0, None
+
+    def _quality_penalty(self, job: JobRecord) -> tuple[float, str | None]:
+        flags = list((job.enrichment or {}).get("quality_flags") or [])
+        if not flags:
+            return 0.0, None
+        penalty = min(0.25, 0.08 * len(flags))
+        return penalty, f"quality flags: {', '.join(flags)}"
+
+    def _feedback_adjustment(
+        self, job: JobRecord, skill_weights: dict[str, float]
+    ) -> tuple[float, str | None]:
+        if not skill_weights:
+            return 0.0, None
+        enrichment = job.enrichment or {}
+        skills = {
+            str(s).lower()
+            for s in list(enrichment.get("skills") or []) + list(job.tags or [])
+            if s
+        }
+        delta = 0.0
+        hits: list[str] = []
+        for skill in skills:
+            weight = skill_weights.get(skill)
+            if weight:
+                delta += weight
+                hits.append(skill)
+        delta = max(-0.15, min(0.15, delta))
+        if not hits or abs(delta) < 0.02:
+            return 0.0, None
+        label = "saved-skill boost" if delta > 0 else "skipped-skill penalty"
+        return delta, f"{label}: {', '.join(hits[:4])}"
+
+    def _detect_seniority_band(
+        self, haystack: str, seniority: str | None
+    ) -> str | None:
+        text = f"{seniority or ''} {haystack}".lower()
+        # Check lead before senior so "staff/principal" does not also count as senior-only.
+        for band in ("lead", "senior", "junior", "mid"):
+            for token in SENIORITY_BANDS[band]:
+                if token in text:
+                    return band
+        return None
+
     def _contains_keyword(self, haystack: str, keyword: str) -> bool:
         if not keyword:
             return False
-        if " " in keyword or len(keyword) <= 2:
-            pattern = WORD_BOUNDARY_TEMPLATE.format(keyword=re.escape(keyword))
-            return re.search(pattern, haystack) is not None
         pattern = WORD_BOUNDARY_TEMPLATE.format(keyword=re.escape(keyword))
         return re.search(pattern, haystack) is not None
 

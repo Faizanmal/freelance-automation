@@ -7,8 +7,13 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.application.services.billing import filter_channels_for_user, is_pro
+from backend.application.services.billing import (
+    clamp_digest_limit,
+    filter_channels_for_user,
+    is_pro,
+)
 from backend.application.services.lead_findings import LeadFindingsService
+from backend.application.services.match_feedback import MatchFeedbackService
 from backend.application.services.matching import MatchingService
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.core.session import get_db
@@ -21,11 +26,18 @@ from fastapi import APIRouter, Depends, HTTPException
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
 
+ExperienceLevel = Literal["any", "junior", "mid", "senior", "lead"]
+
+
 class PreferencesPayload(BaseModel):
     keywords: list[str] = Field(
-        default_factory=lambda: ["python", "fastapi", "react"], max_length=40
+        default_factory=list, max_length=40
     )
     exclude_keywords: list[str] = Field(default_factory=list, max_length=40)
+    skills: list[str] = Field(
+        default_factory=lambda: ["python", "fastapi", "react"], max_length=40
+    )
+    experience_level: ExperienceLevel = "any"
     min_budget: float | None = None
     max_budget: float | None = None
     sources: list[str] = Field(default_factory=list, max_length=20)
@@ -39,7 +51,7 @@ class PreferencesPayload(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     digest_days: list[str] | None = Field(default=None, max_length=7)
     digest_time_local: str | None = Field(default=None, max_length=8)
-    max_per_digest: int = Field(default=10, ge=1, le=50)
+    max_per_digest: int = Field(default=5, ge=1, le=50)
     notes: str | None = Field(default=None, max_length=2000)
     alert_email: EmailStr | None = None
     slack_webhook_url: str | None = Field(default=None, max_length=1024)
@@ -73,12 +85,28 @@ async def _lead_status_sets(
     return skipped, saved
 
 
+def _normalize_experience(value: str | None) -> ExperienceLevel:
+    raw = (value or "any").strip().lower()
+    if raw in {"any", "junior", "mid", "senior", "lead"}:
+        return raw  # type: ignore[return-value]
+    return "any"
+
+
 def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
+    skills = list(getattr(prefs, "skills", None) or [])
+    keywords = list(prefs.keywords or [])
+    # Legacy rows: surface keywords as skills when skills were never set.
+    if not skills and keywords:
+        skills = list(keywords)
     return PreferencesOut(
         id=prefs.id,
         user_id=prefs.user_id,
-        keywords=prefs.keywords or [],
+        keywords=keywords,
         exclude_keywords=prefs.exclude_keywords or [],
+        skills=skills,
+        experience_level=_normalize_experience(
+            getattr(prefs, "experience_level", None)
+        ),
         min_budget=prefs.min_budget,
         max_budget=prefs.max_budget,
         sources=prefs.sources or [],
@@ -92,7 +120,7 @@ def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
             list(prefs.digest_days) if getattr(prefs, "digest_days", None) else None
         ),
         digest_time_local=getattr(prefs, "digest_time_local", None),
-        max_per_digest=int(getattr(prefs, "max_per_digest", None) or 10),
+        max_per_digest=int(getattr(prefs, "max_per_digest", None) or 5),
         notes=prefs.notes,
         alert_email=prefs.alert_email,
         slack_webhook_url=prefs.slack_webhook_url,
@@ -113,8 +141,10 @@ async def _get_or_create_preferences(
         return prefs
     prefs = UserPreferences(
         user_id=user.id,
-        keywords=["python", "fastapi", "react", "typescript"],
+        keywords=[],
         exclude_keywords=[],
+        skills=["python", "fastapi", "react", "typescript"],
+        experience_level="any",
         sources=[],
         notification_channels=["email"],
         match_threshold=0.35,
@@ -122,7 +152,7 @@ async def _get_or_create_preferences(
         freelance_focus=True,
         digest_days=["mon", "tue", "wed", "thu", "fri"],
         digest_time_local="09:00",
-        max_per_digest=10,
+        max_per_digest=5,
         alert_email=user.email,
     )
     session.add(prefs)
@@ -156,8 +186,13 @@ async def update_my_preferences(
             detail="Multi-channel alerts require Pro. Upgrade at /pricing.",
         )
 
-    prefs.keywords = payload.keywords
+    skills = [s.strip() for s in payload.skills if s and s.strip()][:40]
+    extra_keywords = [k.strip() for k in payload.keywords if k and k.strip()][:40]
+    # Keep keywords filled for older clients / digests that only read keywords.
+    prefs.skills = skills
+    prefs.keywords = extra_keywords or list(skills)
     prefs.exclude_keywords = payload.exclude_keywords
+    prefs.experience_level = _normalize_experience(payload.experience_level)
     prefs.min_budget = payload.min_budget
     prefs.max_budget = payload.max_budget
     prefs.sources = payload.sources
@@ -169,7 +204,7 @@ async def update_my_preferences(
     prefs.timezone = payload.timezone
     prefs.digest_days = payload.digest_days
     prefs.digest_time_local = payload.digest_time_local
-    prefs.max_per_digest = payload.max_per_digest
+    prefs.max_per_digest = clamp_digest_limit(user, payload.max_per_digest)
     prefs.notes = payload.notes
     prefs.alert_email = str(payload.alert_email) if payload.alert_email else user.email
     prefs.slack_webhook_url = payload.slack_webhook_url
@@ -191,8 +226,9 @@ async def list_matches(
     prefs = await _get_or_create_preferences(session, user)
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
+    skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
     matcher = MatchingService()
-    matches = matcher.rank_jobs(jobs, prefs)[:limit]
+    matches = matcher.rank_jobs(jobs, prefs, skill_weights=skill_weights)[:limit]
     items = []
     for match in matches:
         job_data = await repo.to_candidate_dict(match.job)
@@ -228,6 +264,7 @@ async def list_findings(
     skipped, saved = await _lead_status_sets(session, user.id)
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
+    skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
     return LeadFindingsService().build(
         jobs,
         prefs,
@@ -236,6 +273,7 @@ async def list_findings(
         skip_job_ids=skipped,
         saved_job_ids=saved,
         include_skipped=include_skipped,
+        skill_weights=skill_weights,
     )
 
 

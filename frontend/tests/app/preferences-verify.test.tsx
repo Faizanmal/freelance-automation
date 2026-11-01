@@ -92,7 +92,14 @@ beforeEach(() => {
     is_pro: false,
     stripe_enabled: false,
     dev_activate_allowed: true,
-    limits: { scrape_limit: 25, marketplace: false, channels: ["email"], sources: [] },
+    limits: {
+      scrape_limit: 15,
+      max_digest: 5,
+      daily_scrape_runs: 3,
+      marketplace: false,
+      channels: ["email"],
+      sources: [],
+    },
     features: [],
   });
 });

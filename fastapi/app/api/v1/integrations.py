@@ -95,6 +95,16 @@ async def integrations_status() -> dict[str, object]:
             "maps_query": settings.serpapi_maps_query,
             "maps_ll": settings.serpapi_maps_ll,
             "sources": list(DISCOVERY_SOURCES),
+            **serpapi_discovery.discovery_provider_status(),
+        },
+        "tavily": {
+            "configured": bool(
+                isinstance(settings.tavily_api_key, str)
+                and settings.tavily_api_key.strip()
+            ),
+            "search_depth": settings.tavily_search_depth,
+            "role": "primary_for_freelance_jobs_companies",
+            "fallback": "serpapi",
         },
         "unsupported": {
             "fiverr": (

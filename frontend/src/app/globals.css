@@ -1,33 +1,84 @@
 @import "tailwindcss";
 
 :root {
-  /* Default dark theme */
-  --ink: #10140f;
-  --paper: #f3f0e7;
-  --fog: #d9d4c5;
-  --moss: #2f4f3a;
-  --signal: #c6f25c;
-  --ember: #e4572e;
-  --mute: #6d7268;
-  --panel: rgba(16, 20, 15, 0.72);
-  --bg-gradient: radial-gradient(1200px 600px at 12% -10%, rgba(198, 242, 92, 0.18), transparent 55%),
-    radial-gradient(900px 500px at 90% 0%, rgba(228, 87, 46, 0.14), transparent 50%),
-    linear-gradient(160deg, #0c100c 0%, #151b14 42%, #0f1411 100%);
+  /* Dark — slate foundation, electric blue accent */
+  --bg: #09090b;
+  --bg-elevated: #111114;
+  --surface: #18181b;
+  --surface-hover: #1f1f23;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --text: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-muted: rgba(59, 130, 246, 0.14);
+  --accent-foreground: #f8fafc;
+  --success: #22c55e;
+  --success-muted: rgba(34, 197, 94, 0.14);
+  --warning: #f59e0b;
+  --warning-muted: rgba(245, 158, 11, 0.14);
+  --danger: #ef4444;
+  --danger-muted: rgba(239, 68, 68, 0.14);
+  --radius: 0.625rem;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --sidebar-width: 15.5rem;
+  --sidebar-collapsed: 4.25rem;
+  --header-height: 3.5rem;
+
+  /* Legacy aliases — keep existing classNames working during migration */
+  --ink: var(--bg);
+  --paper: var(--text);
+  --fog: var(--text-secondary);
+  --moss: #1e3a5f;
+  --signal: var(--accent);
+  --ember: var(--danger);
+  --mute: var(--text-muted);
+  --panel: var(--surface);
+  --background: var(--bg);
+  --bg-gradient:
+    radial-gradient(900px 480px at 8% -8%, rgba(59, 130, 246, 0.09), transparent 55%),
+    radial-gradient(700px 400px at 100% 0%, rgba(39, 39, 42, 0.55), transparent 50%),
+    linear-gradient(180deg, #09090b 0%, #0c0c0f 100%);
 }
 
-[data-theme='light'] {
-  /* Light theme overrides */
-  --ink: #f3f0e7;
-  --paper: #10140f;
-  --fog: #333333;
-  --moss: #99c2a2;
-  --signal: #4f850d;
-  --ember: #e4572e;
-  --mute: #888888;
-  --panel: rgba(243, 240, 231, 0.72);
-  --bg-gradient: radial-gradient(1200px 600px at 12% -10%, rgba(79, 133, 13, 0.1), transparent 55%),
-    radial-gradient(900px 500px at 90% 0%, rgba(228, 87, 46, 0.1), transparent 50%),
-    linear-gradient(160deg, #f3f0e7 0%, #ebe7d9 42%, #e0dccc 100%);
+[data-theme="light"] {
+  --bg: #fafafa;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #18181b;
+  --text-secondary: #52525b;
+  --text-muted: #71717a;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-muted: rgba(37, 99, 235, 0.1);
+  --accent-foreground: #ffffff;
+  --success: #16a34a;
+  --success-muted: rgba(22, 163, 74, 0.1);
+  --warning: #d97706;
+  --warning-muted: rgba(217, 119, 6, 0.1);
+  --danger: #dc2626;
+  --danger-muted: rgba(220, 38, 38, 0.1);
+  --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.06);
+  --shadow-md: 0 8px 24px rgba(24, 24, 27, 0.08);
+
+  --ink: var(--bg);
+  --paper: var(--text);
+  --fog: var(--text-secondary);
+  --moss: #dbeafe;
+  --signal: var(--accent);
+  --ember: var(--danger);
+  --mute: var(--text-muted);
+  --panel: var(--surface);
+  --background: var(--bg);
+  --bg-gradient:
+    radial-gradient(900px 480px at 8% -8%, rgba(37, 99, 235, 0.06), transparent 55%),
+    linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
 }
 
 @theme inline {
@@ -38,6 +89,13 @@
   --color-signal: var(--signal);
   --color-ember: var(--ember);
   --color-mute: var(--mute);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
 }
@@ -53,10 +111,12 @@ body {
 
 body {
   margin: 0;
-  color: var(--paper);
+  color: var(--text);
   background: var(--bg-gradient);
+  background-color: var(--bg);
   font-family: var(--font-body), "Segoe UI", sans-serif;
-  transition: background 0.3s ease, color 0.3s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -69,4 +129,55 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Utility surfaces used across the product shell */
+.sd-surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.sd-input {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  padding: 0.625rem 0.875rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sd-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.sd-label {
+  display: grid;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.sd-label > span {
+  font-weight: 500;
+  color: var(--text-secondary);
 }
