@@ -167,6 +167,7 @@ class Settings(BaseSettings):
     email_username: str | None = Field(None, alias="EMAIL_USERNAME")
     email_password: str | None = Field(None, alias="EMAIL_PASSWORD")
     email_from: str | None = Field(None, alias="EMAIL_FROM")
+    resend_api_key: str | None = Field(None, alias="RESEND_API_KEY")
 
     # Stripe billing (optional until keys are set)
     stripe_secret_key: str | None = Field(None, alias="STRIPE_SECRET_KEY")

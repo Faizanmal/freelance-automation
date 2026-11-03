@@ -35,6 +35,7 @@ const emptyPrefs: Preferences = {
   experience_level: "any",
   min_budget: null,
   max_budget: null,
+  min_hourly_rate: null,
   sources: [],
   match_threshold: 0.35,
   notification_channels: ["email"],
@@ -419,9 +420,9 @@ function PreferencesPageInner() {
                   className={inputClass}
                 />
               </label>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <label className="sd-label">
-                  <span>Min budget</span>
+                  <span>Min project budget</span>
                   <input
                     type="number"
                     value={prefs.min_budget ?? ""}
@@ -431,11 +432,12 @@ function PreferencesPageInner() {
                         min_budget: e.target.value === "" ? null : Number(e.target.value),
                       }))
                     }
+                    placeholder="e.g. 1500"
                     className={inputClass}
                   />
                 </label>
                 <label className="sd-label">
-                  <span>Max budget</span>
+                  <span>Max project budget</span>
                   <input
                     type="number"
                     value={prefs.max_budget ?? ""}
@@ -445,6 +447,22 @@ function PreferencesPageInner() {
                         max_budget: e.target.value === "" ? null : Number(e.target.value),
                       }))
                     }
+                    placeholder="e.g. 10000"
+                    className={inputClass}
+                  />
+                </label>
+                <label className="sd-label">
+                  <span>Min hourly rate ($/hr)</span>
+                  <input
+                    type="number"
+                    value={prefs.min_hourly_rate ?? ""}
+                    onChange={(e) =>
+                      setPrefs((current) => ({
+                        ...current,
+                        min_hourly_rate: e.target.value === "" ? null : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="e.g. 50"
                     className={inputClass}
                   />
                 </label>

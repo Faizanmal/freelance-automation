@@ -198,6 +198,19 @@ def main():
         print(f"❌ Billing Plans Failed: {e}")
         sys.exit(1)
 
+    # 9b. GDPR Export My Data
+    print("Testing GDPR Data Export...")
+    try:
+        res = requests.get(f"{base_url}/users/me/export", headers=headers)
+        res.raise_for_status()
+        export_data = res.json()
+        if "user" not in export_data or "preferences" not in export_data:
+            raise RuntimeError("Export payload missing key sections")
+        print("✅ GDPR Data Export Passed")
+    except (requests.RequestException, RuntimeError) as e:
+        print(f"❌ GDPR Data Export Failed: {e}")
+        sys.exit(1)
+
     # 10. Delete the account created above
     print("Testing Account Delete...")
     try:
@@ -210,7 +223,7 @@ def main():
         sys.exit(1)
 
     print(
-        "\n🎉 API checks passed (health, register, login, Hunt Rules, findings, jobs, roadmap, exit survey, billing plans, delete)."
+        "\n🎉 API checks passed (health, register, login, Hunt Rules, findings, jobs, roadmap, exit survey, billing plans, gdpr export, delete)."
     )
     print(
         "Subscribe, SerpAPI scrape, and digest delivery still need a host with keys and Celery beat."

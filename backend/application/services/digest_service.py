@@ -82,13 +82,24 @@ def is_digest_due(
     prefs: UserPreferences,
     *,
     now_local: datetime | None = None,
+    now_utc: datetime | None = None,
     window_minutes: int = 20,
 ) -> bool:
     """True when local clock is on a digest day near digest_time_local and not already sent today."""
     if not bool(getattr(prefs, "digest_mode", True)):
         return False
 
-    local_now = now_local or _user_now(getattr(prefs, "timezone", None))
+    if now_local is not None:
+        local_now = now_local
+    elif now_utc is not None:
+        try:
+            tz = ZoneInfo((getattr(prefs, "timezone", None) or "UTC").strip() or "UTC")
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("UTC")
+        local_now = now_utc.astimezone(tz)
+    else:
+        local_now = _user_now(getattr(prefs, "timezone", None))
+
     days = _parse_digest_days(getattr(prefs, "digest_days", None))
     if local_now.weekday() not in days:
         return False
@@ -99,12 +110,23 @@ def is_digest_due(
     if delta > window_minutes * 60:
         return False
 
-    last = getattr(prefs, "digest_last_sent_at", None)
+    last = getattr(prefs, "last_digest_at", None)
     if last is not None:
-        last_local = last if last.tzinfo else last.replace(tzinfo=UTC)
-        last_local = last_local.astimezone(local_now.tzinfo)
-        if last_local.date() == local_now.date():
-            return False
+        try:
+            tz = local_now.tzinfo or ZoneInfo("UTC")
+            last_dt = (
+                last.astimezone(tz)
+                if last.tzinfo
+                else last.replace(tzinfo=UTC).astimezone(tz)
+            )
+            if (
+                last_dt.year == local_now.year
+                and last_dt.month == local_now.month
+                and last_dt.day == local_now.day
+            ):
+                return False
+        except (ValueError, TypeError):
+            pass
     return True
 
 
@@ -112,96 +134,106 @@ class DigestService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def process_due_digests(self) -> dict[str, int]:
-        users_result = await self.session.execute(
-            select(User).where(User.is_active.is_(True), User.is_verified.is_(True))
+    async def process_due_digests(
+        self, *, now_local: datetime | None = None
+    ) -> dict[str, int]:
+        stmt = (
+            select(User, UserPreferences)
+            .join(UserPreferences, UserPreferences.user_id == User.id)
+            .where(User.is_active.is_(True), User.is_verified.is_(True))
         )
-        users = list(users_result.scalars().all())
+        res = await self.session.execute(stmt)
+        pairs = res.all()
+
+        checked = 0
         sent = 0
         skipped = 0
-        for user in users:
-            prefs_result = await self.session.execute(
-                select(UserPreferences).where(UserPreferences.user_id == user.id)
-            )
-            prefs = prefs_result.scalar_one_or_none()
-            if prefs is None or not is_digest_due(prefs):
+
+        for user, prefs in pairs:
+            checked += 1
+            if not is_digest_due(prefs, now_local=now_local):
                 skipped += 1
                 continue
-            if await self._send_digest_for_user(user, prefs):
+
+            delivered = await self._send_user_digest(user, prefs)
+            if delivered:
                 sent += 1
+                prefs.last_digest_at = datetime.now(UTC)
+                self.session.add(prefs)
             else:
                 skipped += 1
-        return {"sent": sent, "skipped": skipped, "checked": len(users)}
 
-    async def _send_digest_for_user(self, user: User, prefs: UserPreferences) -> bool:
-        actions = await self.session.execute(
-            select(UserLeadAction).where(UserLeadAction.user_id == user.id)
-        )
-        skipped_ids: set[int] = set()
-        saved_ids: set[int] = set()
-        for row in actions.scalars().all():
-            if row.status == "skip":
-                skipped_ids.add(row.job_id)
-            elif row.status == "save":
-                saved_ids.add(row.job_id)
-
-        repo = SQLAlchemyJobRepository(self.session)
-        jobs = await repo.list_recent(limit=300)
-        last_sent = getattr(prefs, "digest_last_sent_at", None)
-        if last_sent is not None:
-            cutoff = last_sent if last_sent.tzinfo else last_sent.replace(tzinfo=UTC)
-            jobs = [
-                job
-                for job in jobs
-                if (job.created_at or job.posted_at or cutoff) > cutoff
-            ]
-
-        focus = bool(getattr(prefs, "freelance_focus", True))
-        limit = clamp_digest_limit(user, getattr(prefs, "max_per_digest", None))
-        skill_weights = await MatchFeedbackService(self.session).skill_weights(user.id)
-        findings = LeadFindingsService().build(
-            jobs,
-            prefs,
-            limit=limit,
-            freelance_focus=focus,
-            skip_job_ids=skipped_ids,
-            saved_job_ids=saved_ids,
-            skill_weights=skill_weights,
-        )
-        items = findings.get("items") or []
-        if not items:
-            prefs.digest_last_sent_at = datetime.now(UTC)
-            self.session.add(prefs)
+        if sent:
             await self.session.commit()
+
+        return {"checked": checked, "sent": sent, "skipped": skipped}
+
+    async def _send_user_digest(
+        self, user: User, prefs: UserPreferences
+    ) -> bool:
+        cap = clamp_digest_limit(user, getattr(prefs, "max_per_digest", 5))
+        keywords_str = ",".join(prefs.keywords or [])
+        findings_service = LeadFindingsService(self.session)
+        freelance_focus = bool(getattr(prefs, "freelance_focus", True))
+        findings = await findings_service.generate(
+            keywords_str or "freelance,remote",
+            limit=cap * 2,
+            freelance_focus=freelance_focus,
+            user_id=str(user.id),
+        )
+
+        actions_res = await self.session.execute(
+            select(UserLeadAction.job_id).where(
+                UserLeadAction.user_id == str(user.id),
+                UserLeadAction.status.in_(["skip", "saved", "pitched"]),
+            )
+        )
+        handled_ids = set(actions_res.scalars().all())
+
+        leads: list[dict] = []
+        for item in findings.get("items", []):
+            jid = item.get("id")
+            if jid in handled_ids:
+                continue
+            leads.append(item)
+            if len(leads) >= cap:
+                break
+
+        if not leads:
             return False
 
-        lines = []
-        for item in items:
-            title = item.get("title") or "Lead"
-            url = item.get("apply_url") or item.get("url") or ""
-            why = item.get("why") or ""
-            lines.append(f"- {title}\n  {why}\n  Open original: {url}")
+        feedback_service = MatchFeedbackService(self.session)
+        leads = await feedback_service.rerank_leads(str(user.id), leads)
+
+        lead_lines = []
+        for idx, lead in enumerate(leads, start=1):
+            title = lead.get("title", "Untitled")
+            company = lead.get("company") or "Unknown"
+            url = lead.get("url") or "#"
+            score = int((lead.get("score") or 0) * 100)
+            lead_lines.append(
+                f"{idx}. {title} ({company}) — Match {score}%\n   View: {url}"
+            )
+
         body = (
-            "Your Signal Desk digest — new fits since last send:\n\n"
-            + "\n\n".join(lines)
-            + "\n\nPitch on the original page. We never auto-apply."
+            f"Here are your top {len(leads)} freelance discovery leads for today:\n\n"
+            + "\n\n".join(lead_lines)
+            + "\n\nSet your preferences anytime in your Signal Desk account."
         )
 
         notifier = PersistentNotificationService(self.session)
-        await notifier.send(
+        destinations = destinations_from_preferences(prefs)
+        destinations["email"] = prefs.alert_email or user.email
+
+        outcomes = await notifier.send(
             NotificationPayload(
-                user_id=user.id,
-                title=f"Digest: {len(items)} new lead{'s' if len(items) != 1 else ''}",
+                user_id=str(user.id),
+                title=f"Your Signal Desk Digest — {len(leads)} New Leads",
                 body=body,
                 channels=[NotificationChannel.EMAIL],
                 priority=NotificationPriority.NORMAL,
                 digest=True,
-                destinations=destinations_from_preferences(prefs)
-                | {"email": prefs.alert_email or user.email},
-                metadata={"digest_count": len(items)},
+                destinations=destinations,
             )
         )
-        prefs.digest_last_sent_at = datetime.now(UTC)
-        self.session.add(prefs)
-        await self.session.commit()
-        return True
+        return any(o.delivered for o in outcomes)

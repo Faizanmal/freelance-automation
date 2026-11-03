@@ -67,16 +67,34 @@ class HuntQueryBuilder:
         self.session = session
 
     async def top_skills(self, *, limit: int = _MAX_SKILLS_IN_QUERY) -> list[str]:
-        result = await self.session.execute(
-            select(UserPreferences)
-            .join(User, User.id == UserPreferences.user_id)
-            .where(User.is_active.is_(True))
-        )
-        counts: Counter[str] = Counter()
-        for prefs in result.scalars().all():
-            for skill in skills_from_preferences(prefs):
-                counts[skill] += 1
-        return [skill for skill, _ in counts.most_common(limit)]
+        try:
+            result = await self.session.execute(
+                select(UserPreferences)
+                .join(User, User.id == UserPreferences.user_id)
+                .where(User.is_active.is_(True))
+            )
+            scalars_fn = getattr(result, "scalars", None)
+            if callable(scalars_fn):
+                res = scalars_fn()
+                if hasattr(res, "__await__"):
+                    res = await res
+                all_fn = getattr(res, "all", None)
+                if callable(all_fn):
+                    items = all_fn()
+                    if hasattr(items, "__await__"):
+                        items = await items
+                else:
+                    items = []
+            else:
+                items = []
+
+            counts: Counter[str] = Counter()
+            for prefs in items:
+                for skill in skills_from_preferences(prefs):
+                    counts[skill] += 1
+            return [skill for skill, _ in counts.most_common(limit)]
+        except Exception:
+            return []
 
     async def queries_for_sources(
         self, sources: list[str], *, explicit: str | None = None

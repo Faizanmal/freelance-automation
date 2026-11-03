@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 
 from app.core.logging.logger import get_logger
 
+from backend.application.services.budget_parser import resolve_budget
 from backend.application.services.duplicate_detection import JobCandidate
 from backend.application.services.llm import any_llm_configured, chat_completion
 
@@ -111,6 +112,10 @@ class JobEnrichment:
     summary: str | None = None
     relevance_hints: list[str] = field(default_factory=list)
     provider: str = "heuristic"
+    budget_min: float | None = None
+    budget_max: float | None = None
+    budget_period: str = "unknown"
+    budget_currency: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -162,7 +167,7 @@ class EnrichmentService:
             f"skills: {', '.join(skills[:8]) or 'general'}"
             f"{f'; {engagement}' if engagement != 'unknown' else ''}."
         )
-        return JobEnrichment(
+        enrichment = JobEnrichment(
             skills=skills[:20],
             seniority=seniority,
             difficulty=difficulty,
@@ -173,6 +178,8 @@ class EnrichmentService:
             relevance_hints=skills[:5],
             provider="heuristic",
         )
+        _attach_budget_signal(enrichment, candidate)
+        return enrichment
 
     def _extract_skills(self, text: str) -> list[str]:
         found: list[str] = []
@@ -254,7 +261,7 @@ class EnrichmentService:
             in {"junior", "mid", "senior", "lead"}
             else None
         )
-        return JobEnrichment(
+        enrichment = JobEnrichment(
             skills=[str(s).lower() for s in (data.get("skills") or [])][:20],
             seniority=seniority,
             difficulty=data.get("difficulty"),
@@ -267,3 +274,20 @@ class EnrichmentService:
             relevance_hints=[str(s).lower() for s in (data.get("skills") or [])][:5],
             provider=result.provider,
         )
+        _attach_budget_signal(enrichment, candidate)
+        return enrichment
+
+
+def _attach_budget_signal(enrichment: JobEnrichment, candidate: JobCandidate) -> None:
+    text = f"{candidate.title}\n{candidate.description or ''}"
+    signal = resolve_budget(
+        budget_min=candidate.budget_min,
+        budget_max=candidate.budget_max,
+        text=text,
+        period_hint=(candidate.metadata or {}).get("salary_period"),
+    )
+    if signal is not None:
+        enrichment.budget_min = signal.minimum
+        enrichment.budget_max = signal.maximum
+        enrichment.budget_period = signal.period
+        enrichment.budget_currency = signal.currency or (candidate.metadata or {}).get("currency")

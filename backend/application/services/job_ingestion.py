@@ -57,6 +57,10 @@ class JobIngestionService:
         existing_tags = [str(tag).lower() for tag in (job.tags or [])]
         merged = list(dict.fromkeys([*existing_tags, *enrichment.skills]))
         job.tags = merged[:30]
+        if job.budget_min is None and job.budget_max is None:
+            if enrichment.budget_min is not None or enrichment.budget_max is not None:
+                job.budget_min = enrichment.budget_min
+                job.budget_max = enrichment.budget_max
 
     async def ingest(
         self,

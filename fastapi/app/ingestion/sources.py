@@ -534,6 +534,19 @@ class SerpApiMapsSource:
         return [_candidate_from_row(self.name, row) for row in rows]
 
 
+class HnHiringSource:
+    """Hacker News hiring hunt: official Firebase API, [Seeking Freelancer] and contract posts."""
+
+    name = "hn_hiring"
+
+    async def fetch(
+        self, *, limit: int = 25, query: str | None = None
+    ) -> list[JobCandidate]:
+        from app.integrations import hn_hiring
+
+        return await hn_hiring.fetch_hn_hiring_jobs(limit=limit, query=query)
+
+
 class RedditHiringSource:
     """W5 volume hunter: Reddit official API, [Hiring] posts only."""
 
@@ -712,6 +725,7 @@ SOURCE_REGISTRY = {
     SerpApiCompaniesSource.name: SerpApiCompaniesSource,
     SerpApiMapsSource.name: SerpApiMapsSource,
     RedditHiringSource.name: RedditHiringSource,
+    HnHiringSource.name: HnHiringSource,
     LinkedInBrowserSource.name: LinkedInBrowserSource,
     UpworkBrowserSource.name: UpworkBrowserSource,
 }
@@ -742,7 +756,7 @@ V1_DEFAULT_HUNTERS = (
 )
 
 # Post-V1 volume pack — opt-in via SCRAPE_SOURCES after soft-launch gates.
-POST_V1_HUNTERS = ("reddit_hiring",)
+POST_V1_HUNTERS = ("reddit_hiring", "hn_hiring")
 
 # Commercial product allowlists. Remotive and We Work Remotely stay registered for
 # local demos but are excluded from paid plans until written commercial permission exists.
@@ -784,6 +798,7 @@ SOURCE_ATTRIBUTION = {
     "serpapi_companies": "Company careers (Tavily → SerpAPI)",
     "serpapi_maps": "Google Maps (via SerpAPI)",
     "reddit_hiring": "Reddit hiring threads",
+    "hn_hiring": "Hacker News (Seeking Freelancer / Who is Hiring)",
     "linkedin_browser": "LinkedIn (Playwright)",
     "upwork_browser": "Upwork (Playwright)",
 }

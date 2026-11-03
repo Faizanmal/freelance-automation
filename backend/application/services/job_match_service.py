@@ -5,6 +5,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from backend.domain.interfaces import IJobMatchService
+from backend.application.services.budget_parser import (
+    passes_budget_filter,
+    stored_period,
+)
 from backend.domain.models import (
     JobOpportunity,
     MatchResult,
@@ -79,12 +83,19 @@ class DomainJobMatchService(IJobMatchService):
             ]
         ).lower()
 
-        min_budget = preferences.min_budget
-        job_max = job.metadata.get("budget_max")
-        if (
-            min_budget is not None
-            and job_max is not None
-            and float(job_max) < min_budget
+        job_b_min = job.metadata.get("budget_min")
+        job_b_max = job.metadata.get("budget_max")
+        b_min = float(job_b_min) if job_b_min is not None else None
+        b_max = float(job_b_max) if job_b_max is not None else None
+        job_period = stored_period(job.metadata.get("enrichment"), b_min, b_max)
+        min_hourly = getattr(preferences, "min_hourly_rate", None)
+        if not passes_budget_filter(
+            budget_min=b_min,
+            budget_max=b_max,
+            period=job_period,
+            min_project_budget=preferences.min_budget,
+            max_project_budget=None,
+            min_hourly_rate=min_hourly,
         ):
             return None
 

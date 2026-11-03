@@ -284,15 +284,70 @@ class EmailAdapter:
             message = f"Subject: {title}\n\n{body}"
             smtp.sendmail(from_address, [to_address], message)
 
+    def _send_resend_sync(
+        self,
+        api_key: str,
+        from_address: str,
+        to_address: str,
+        title: str,
+        body: str,
+    ) -> str:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        app_url = (os.getenv("PUBLIC_APP_URL") or "http://localhost:3000").rstrip("/")
+        payload = json.dumps({
+            "from": from_address,
+            "to": [to_address],
+            "subject": title,
+            "text": body,
+            "headers": {
+                "List-Unsubscribe": f"<{app_url}/preferences>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            },
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return str(resp.status)
+
     async def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+        resend_key = os.getenv("RESEND_API_KEY")
+        from_address = os.getenv("EMAIL_FROM") or "Signal Desk <notifications@signaldesk.com>"
+        to_address = (
+            _destinations(envelope).get("email") or os.getenv("EMAIL_TO") or os.getenv("EMAIL_USERNAME")
+        )
+        if not to_address:
+            return NotificationResult(
+                channel=self.channel, delivered=False, error="provider_not_configured"
+            )
+
+        if resend_key:
+            try:
+                status = await asyncio.to_thread(
+                    self._send_resend_sync,
+                    resend_key,
+                    from_address,
+                    to_address,
+                    envelope.title,
+                    envelope.body,
+                )
+                if int(status) < 400:
+                    return NotificationResult(
+                        channel=self.channel, delivered=True, message_id=f"resend-{status}"
+                    )
+            except Exception:
+                # Fall through to SMTP if configured
+                pass
+
         smtp_host = os.getenv("EMAIL_SMTP_HOST")
         smtp_port = int(os.getenv("EMAIL_SMTP_PORT", "587"))
         username = os.getenv("EMAIL_USERNAME")
         password = os.getenv("EMAIL_PASSWORD")
-        from_address = os.getenv("EMAIL_FROM")
-        to_address = (
-            _destinations(envelope).get("email") or os.getenv("EMAIL_TO") or username
-        )
         if not (smtp_host and username and password and from_address and to_address):
             return NotificationResult(
                 channel=self.channel, delivered=False, error="provider_not_configured"

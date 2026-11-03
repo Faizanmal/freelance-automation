@@ -4,6 +4,10 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from backend.application.services.budget_parser import (
+    passes_budget_filter,
+    stored_period,
+)
 from database.models.job import JobRecord
 from database.models.preference import UserPreferences
 
@@ -83,16 +87,15 @@ class MatchingService:
             if self._contains_keyword(haystack, exclude):
                 return None
 
-        if (
-            preferences.min_budget is not None
-            and job.budget_max is not None
-            and job.budget_max < preferences.min_budget
-        ):
-            return None
-        if (
-            preferences.max_budget is not None
-            and job.budget_min is not None
-            and job.budget_min > preferences.max_budget
+        job_period = stored_period(job.enrichment, job.budget_min, job.budget_max)
+        min_hourly = getattr(preferences, "min_hourly_rate", None)
+        if not passes_budget_filter(
+            budget_min=job.budget_min,
+            budget_max=job.budget_max,
+            period=job_period,
+            min_project_budget=preferences.min_budget,
+            max_project_budget=preferences.max_budget,
+            min_hourly_rate=min_hourly,
         ):
             return None
 
@@ -371,10 +374,17 @@ class MatchingService:
         if job.budget_min or job.budget_max:
             score += 0.2
             top = job.budget_max or job.budget_min or 0
-            if top >= 2000:
-                score += 0.1
-            if top >= 5000:
-                score += 0.05
+            period = stored_period(job.enrichment, job.budget_min, job.budget_max)
+            if period == "hourly":
+                if top >= 50:
+                    score += 0.1
+                if top >= 90:
+                    score += 0.05
+            else:
+                if top >= 2000:
+                    score += 0.1
+                if top >= 5000:
+                    score += 0.05
         if job.seniority and any(
             token in job.seniority.lower()
             for token in ("senior", "lead", "principal", "staff")

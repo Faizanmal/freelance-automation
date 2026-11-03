@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from typing import Any
+
 import httpx
-from app.ingestion.sources import SOURCE_REGISTRY, V1_DEFAULT_HUNTERS
+from app.core.redis_client import get_redis
+from app.ingestion.sources import (
+    DISCOVERY_SOURCES,
+    SOURCE_REGISTRY,
+    V1_DEFAULT_HUNTERS,
+)
 from app.integrations.apify_marketplaces import (
     SourceNotConfiguredError as ApifyNotConfigured,
 )
@@ -19,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.billing import destinations_from_preferences
+from backend.application.services.duplicate_detection import JobCandidate
 from backend.application.services.hunt_query_builder import HuntQueryBuilder
 from backend.application.services.job_ingestion import JobIngestionService
 from backend.application.services.matching import MatchingService
@@ -40,6 +50,72 @@ class ScrapeService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.ingestion = JobIngestionService(session)
+
+    async def _get_cached_candidates(
+        self, source_name: str, query: str | None, limit: int
+    ) -> list[JobCandidate] | None:
+        try:
+            redis_client = await get_redis()
+            if not redis_client:
+                return None
+            norm_q = (query or "").strip().lower()
+            h = hashlib.sha256(f"{norm_q}:{limit}".encode()).hexdigest()
+            key = f"hunter_cache:{source_name}:{h}"
+            cached_data = await redis_client.get(key)
+            if not cached_data:
+                return None
+            items = json.loads(cached_data)
+            return [
+                JobCandidate(
+                    source_name=item["source_name"],
+                    source_id=item["source_id"],
+                    title=item["title"],
+                    description=item["description"],
+                    url=item["url"],
+                    company=item.get("company"),
+                    budget_min=item.get("budget_min"),
+                    budget_max=item.get("budget_max"),
+                    posted_at=item.get("posted_at"),
+                    metadata=item.get("metadata") or {},
+                )
+                for item in items
+            ]
+        except Exception:
+            return None
+
+    async def _set_cached_candidates(
+        self,
+        source_name: str,
+        query: str | None,
+        limit: int,
+        candidates: list[JobCandidate],
+        ttl_seconds: int = 7200,
+    ) -> None:
+        try:
+            redis_client = await get_redis()
+            if not redis_client or not candidates:
+                return
+            norm_q = (query or "").strip().lower()
+            h = hashlib.sha256(f"{norm_q}:{limit}".encode()).hexdigest()
+            key = f"hunter_cache:{source_name}:{h}"
+            serialized = [
+                {
+                    "source_name": c.source_name,
+                    "source_id": c.source_id,
+                    "title": c.title,
+                    "description": c.description,
+                    "url": c.url,
+                    "company": c.company,
+                    "budget_min": c.budget_min,
+                    "budget_max": c.budget_max,
+                    "posted_at": c.posted_at,
+                    "metadata": c.metadata,
+                }
+                for c in candidates
+            ]
+            await redis_client.set(key, json.dumps(serialized), ex=ttl_seconds)
+        except Exception:
+            pass
 
     async def run(
         self,
@@ -76,41 +152,55 @@ class ScrapeService:
 
             source = cls()
             source_query = query_map.get(source_name)
-            try:
-                fetch = source.fetch
+
+            # Check Redis cache for discovery/rate-sensitive sources
+            candidates: list[JobCandidate] | None = None
+            is_cacheable = source_name in DISCOVERY_SOURCES
+            if is_cacheable:
+                candidates = await self._get_cached_candidates(
+                    source_name, source_query, limit
+                )
+
+            if candidates is None:
                 try:
-                    candidates = await fetch(limit=limit, query=source_query)
-                except TypeError:
-                    candidates = await fetch(limit=limit)
-            except (
-                UpworkNotConfigured,
-                FreelancerNotConfigured,
-                ApifyNotConfigured,
-                SerpApiNotConfigured,
-                RedditNotConfigured,
-            ) as exc:
-                summary["sources"][source_name] = {
-                    "error": "not_configured",
-                    "detail": str(exc),
-                    "fetched": 0,
-                }
-                continue
-            except (
-                httpx.HTTPError,
-                RuntimeError,
-                ValueError,
-                OSError,
-                TimeoutError,
-            ) as exc:
-                summary["sources"][source_name] = {"error": str(exc), "fetched": 0}
-                continue
-            except Exception as exc:
-                # Keep other hunters running if one source blows up unexpectedly.
-                summary["sources"][source_name] = {
-                    "error": f"{exc.__class__.__name__}: {exc}",
-                    "fetched": 0,
-                }
-                continue
+                    fetch = source.fetch
+                    try:
+                        candidates = await fetch(limit=limit, query=source_query)
+                    except TypeError:
+                        candidates = await fetch(limit=limit)
+                    if is_cacheable and candidates:
+                        await self._set_cached_candidates(
+                            source_name, source_query, limit, candidates
+                        )
+                except (
+                    UpworkNotConfigured,
+                    FreelancerNotConfigured,
+                    ApifyNotConfigured,
+                    SerpApiNotConfigured,
+                    RedditNotConfigured,
+                ) as exc:
+                    summary["sources"][source_name] = {
+                        "error": "not_configured",
+                        "detail": str(exc),
+                        "fetched": 0,
+                    }
+                    continue
+                except (
+                    httpx.HTTPError,
+                    RuntimeError,
+                    ValueError,
+                    OSError,
+                    TimeoutError,
+                ) as exc:
+                    summary["sources"][source_name] = {"error": str(exc), "fetched": 0}
+                    continue
+                except Exception as exc:
+                    # Keep other hunters running if one source blows up unexpectedly.
+                    summary["sources"][source_name] = {
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                        "fetched": 0,
+                    }
+                    continue
 
             counts = {
                 "fetched": len(candidates),
@@ -168,25 +258,23 @@ class ScrapeService:
             return 0
 
         users_result = await self.session.execute(
-            select(User).where(User.is_active.is_(True), User.is_verified.is_(True))
+            select(User, UserPreferences)
+            .join(UserPreferences, UserPreferences.user_id == User.id)
+            .where(User.is_active.is_(True), User.is_verified.is_(True))
         )
-        users = list(users_result.scalars().all())
-        matcher = MatchingService()
-        notifier = PersistentNotificationService(self.session)
+        pairs = users_result.all()
         sent = 0
+        matching = MatchingService()
+        notifier = PersistentNotificationService(self.session)
 
-        for user in users:
-            prefs_result = await self.session.execute(
-                select(UserPreferences).where(UserPreferences.user_id == user.id)
-            )
-            prefs = prefs_result.scalar_one_or_none()
-            if prefs is None:
+        for user, prefs in pairs:
+            # When digest_mode is enabled, the show-clock digest owns delivery.
+            if getattr(prefs, "digest_mode", False):
                 continue
-            # Show clock owns digests; skip per-scrape pings when digest mode is on.
-            if bool(getattr(prefs, "digest_mode", True)):
-                continue
-            matches = matcher.rank_jobs(jobs, prefs)
-            for match in matches[:5]:
+            for job in jobs:
+                match = matching.calculate_match(job, prefs)
+                if not match.is_match:
+                    continue
                 channels = []
                 for channel_name in prefs.notification_channels or ["email"]:
                     try:

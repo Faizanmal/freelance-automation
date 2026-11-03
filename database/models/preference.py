@@ -36,6 +36,7 @@ class UserPreferences(Base):
     )
     min_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_hourly_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     sources: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     match_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.35)
     notification_channels: Mapped[list] = mapped_column(

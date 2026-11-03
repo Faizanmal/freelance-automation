@@ -26,18 +26,26 @@ class MatchFeedbackService:
             .where(UserLeadAction.user_id == user_id)
         )
         saved: Counter[str] = Counter()
+        pitched: Counter[str] = Counter()
         skipped: Counter[str] = Counter()
         for action, job in result.all():
             skills = self._job_skills(job)
-            bucket = saved if action.status == "save" else skipped
-            if action.status not in {"save", "skip"}:
-                continue
-            for skill in skills:
-                bucket[skill] += 1
+            if action.status == "save":
+                for skill in skills:
+                    saved[skill] += 1
+            elif action.status in {"pitched", "won"}:
+                for skill in skills:
+                    pitched[skill] += 1
+            elif action.status == "skip":
+                for skill in skills:
+                    skipped[skill] += 1
 
         weights: dict[str, float] = {}
         for skill, count in saved.items():
             weights[skill] = weights.get(skill, 0.0) + min(0.12, 0.04 * count)
+        for skill, count in pitched.items():
+            # Pitched/won jobs are high-intent actions; higher weight ceiling
+            weights[skill] = weights.get(skill, 0.0) + min(0.18, 0.06 * count)
         for skill, count in skipped.items():
             weights[skill] = weights.get(skill, 0.0) - min(0.12, 0.04 * count)
         return {k: v for k, v in weights.items() if abs(v) >= 0.02}

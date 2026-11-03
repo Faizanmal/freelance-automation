@@ -61,3 +61,7 @@ temp/
 .ingest_trace.out
 .build_manifest.tmp
 .internal_*.md
+
+*.tmp.md
+*.cache.md
+.product_roadmap.tmp.md

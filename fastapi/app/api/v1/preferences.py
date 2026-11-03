@@ -17,6 +17,7 @@ from backend.application.services.match_feedback import MatchFeedbackService
 from backend.application.services.matching import MatchingService
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.core.session import get_db
+from database.models.application import JobApplication
 from database.models.job import JobRecord
 from database.models.lead_action import UserLeadAction
 from database.models.preference import UserPreferences
@@ -40,6 +41,7 @@ class PreferencesPayload(BaseModel):
     experience_level: ExperienceLevel = "any"
     min_budget: float | None = None
     max_budget: float | None = None
+    min_hourly_rate: float | None = None
     sources: list[str] = Field(default_factory=list, max_length=20)
     match_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     notification_channels: list[str] = Field(
@@ -66,7 +68,7 @@ class PreferencesOut(PreferencesPayload):
 
 
 class LeadActionPayload(BaseModel):
-    status: Literal["save", "skip", "clear"]
+    status: Literal["save", "skip", "pitched", "won", "clear"]
 
 
 async def _lead_status_sets(
@@ -109,6 +111,7 @@ def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
         ),
         min_budget=prefs.min_budget,
         max_budget=prefs.max_budget,
+        min_hourly_rate=getattr(prefs, "min_hourly_rate", None),
         sources=prefs.sources or [],
         match_threshold=prefs.match_threshold,
         notification_channels=prefs.notification_channels or [],
@@ -195,6 +198,7 @@ async def update_my_preferences(
     prefs.experience_level = _normalize_experience(payload.experience_level)
     prefs.min_budget = payload.min_budget
     prefs.max_budget = payload.max_budget
+    prefs.min_hourly_rate = payload.min_hourly_rate
     prefs.sources = payload.sources
     prefs.match_threshold = payload.match_threshold
     prefs.notification_channels = channels
@@ -261,7 +265,30 @@ async def list_findings(
         if freelance_focus is not None
         else bool(getattr(prefs, "freelance_focus", True))
     )
-    skipped, saved = await _lead_status_sets(session, user.id)
+    actions_res = await session.execute(
+        select(UserLeadAction).where(UserLeadAction.user_id == user.id)
+    )
+    lead_actions = {row.job_id: row.status for row in actions_res.scalars().all()}
+
+    apps_res = await session.execute(
+        select(JobApplication)
+        .where(JobApplication.user_id == user.id)
+        .order_by(JobApplication.created_at.desc())
+    )
+    applications: dict[int, dict[str, Any]] = {}
+    for app in apps_res.scalars().all():
+        if app.job_id not in applications:
+            applications[app.job_id] = {
+                "id": app.id,
+                "proposal": app.proposal,
+                "bid_amount": app.bid_amount,
+                "currency": app.currency,
+                "delivery_days": app.delivery_days,
+                "milestone_plan": app.milestone_plan,
+                "status": app.status,
+                "created_at": app.created_at.isoformat() if app.created_at else None,
+            }
+
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
     skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
@@ -270,8 +297,8 @@ async def list_findings(
         prefs,
         limit=limit,
         freelance_focus=focus,
-        skip_job_ids=skipped,
-        saved_job_ids=saved,
+        lead_actions=lead_actions,
+        applications=applications,
         include_skipped=include_skipped,
         skill_weights=skill_weights,
     )

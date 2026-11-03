@@ -215,12 +215,14 @@ async def stripe_webhook(
         await _apply_subscription_event(session, data_object, active=True)
     elif event_type in {"customer.subscription.deleted"}:
         await _apply_subscription_event(session, data_object, active=False)
+    elif event_type in {"invoice.payment_failed"}:
+        await _apply_subscription_event(session, data_object, active=False, past_due=True)
 
     return {"status": "ok"}
 
 
 async def _apply_subscription_event(
-    session: AsyncSession, data_object: dict, *, active: bool
+    session: AsyncSession, data_object: dict, *, active: bool, past_due: bool = False
 ) -> None:
     user_id = None
     customer_id = data_object.get("customer")
@@ -249,7 +251,7 @@ async def _apply_subscription_event(
         user.stripe_subscription_id = subscription_id
 
     status_value = data_object.get("status")
-    if status_value == "past_due":
+    if past_due or status_value == "past_due":
         user.plan = PLAN_FREE
         user.subscription_status = "past_due"
     elif active and (

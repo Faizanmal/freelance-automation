@@ -29,6 +29,7 @@ class UserPreferences(BaseModel):
     user_id: str
     keywords: list[str] = Field(default_factory=list)
     min_budget: float | None = None
+    min_hourly_rate: float | None = None
     preferred_sources: list[str] = Field(default_factory=list)
     freelance_only: bool = True
 

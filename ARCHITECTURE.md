@@ -22,7 +22,7 @@ Key qualities:
 - Dependency injection for replaceable implementations
 - Fully typed contracts and explicit interfaces
 
-**V1 default hunters:** `serpapi_freelance`, `serpapi_jobs`, `serpapi_companies`.  
+**V1 default hunters:** `serpapi_freelance`, `serpapi_jobs`, `serpapi_companies`, `hn_hiring` (zero-cost direct founder/contract posts via official HN API).  
 **Post-V1 opt-in:** `reddit_hiring` (`POST_V1_HUNTERS`). Marketplaces stay registered but off the default schedule.
 
 ## 2. Top-level modules
@@ -112,10 +112,12 @@ freelance_automation/
 ## 4. Module responsibilities
 
 ### `backend`
-- Expose a stable HTTP/REST or GraphQL API for the frontend and internal services.
+- Expose a stable HTTP/REST API for the frontend and internal services.
 - Provide business use cases through a service layer.
-- Coordinate `JobMatchService`, `UserPreferenceService`, `NotificationService`, and `AIService`.
-- Enforce domain rules and orchestrate cross-module workflows.
+- Coordinate `JobMatchService`, `UserPreferenceService`, `NotificationService`, and `ProposalDraftService` (1-click tailored outreach pitch generation).
+- `EmailService` supports primary Resend HTTPS API with SMTP fallback, injecting RFC 8058 `List-Unsubscribe` headers.
+- GDPR Article 20 Data Portability (`GET /users/me/export`) and cascade user account purge (`DELETE /users/me`).
+- Enforce domain rules, plan limits, and orchestrate cross-module workflows.
 - Depend on abstractions from `database`, `ai`, and `notifications` via interfaces.
 
 ### `frontend`
@@ -132,10 +134,12 @@ freelance_automation/
 - Be source-agnostic and depend only on `config` and adapter contracts.
 
 ### `workers`
-- Schedule scraping cycles and run source-specific ingestion jobs.
+- Schedule scraping cycles and run source-specific ingestion jobs via Celery beat (`hunt_wave_task`).
+- Automated Stale Sweeper (`sweep_stale_jobs_task`) runs every 6 hours, expiring stale opportunities and pruning dead/404 links.
+- Redis Hunter Query Cache (2-hour sliding TTL) eliminates redundant upstream search queries.
 - Consume normalized jobs for enrichment, deduplication, and matching.
-- Execute background workflows such as preference retraining, alert batching, and cleanup.
-- Manage queue processing and retry policies.
+- Execute user show-clock digests (`send_scheduled_digests_task`) on local timezone schedules.
+- Manage queue processing, retry policies, and dead letter queues (`celery_dlq`).
 - Use `database`, `ai`, `notifications`, and `scrapers` through contracts.
 
 ### `database`

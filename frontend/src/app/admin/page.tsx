@@ -1,22 +1,36 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { adminListUsers, adminUpdateUser, me, type User } from "@/lib/api";
+import {
+  adminGetSystemTelemetry,
+  adminListUsers,
+  adminTriggerStaleSweep,
+  adminUpdateUser,
+  me,
+  type AdminSystemTelemetry,
+  type User,
+} from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
+  const [telemetry, setTelemetry] = useState<AdminSystemTelemetry | null>(null);
+  const [sweepResult, setSweepResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
 
-  const loadUsers = () => {
-    adminListUsers()
-      .then(setUsers)
+  const loadData = () => {
+    Promise.all([adminListUsers(), adminGetSystemTelemetry()])
+      .then(([usersData, telemetryData]) => {
+        setUsers(usersData);
+        setTelemetry(telemetryData);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   };
@@ -27,7 +41,7 @@ export default function AdminDashboardPage() {
         if (!user.is_superuser) {
           router.push("/");
         } else {
-          loadUsers();
+          loadData();
         }
       })
       .catch(() => router.push("/auth"));
@@ -48,6 +62,22 @@ export default function AdminDashboardPage() {
     });
   };
 
+  const handleTriggerSweep = () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        setSweepResult("Running sweep…");
+        const res = await adminTriggerStaleSweep();
+        setSweepResult(`Sweep complete: ${res.expired_count} stale/expired jobs pruned.`);
+        const updatedTelemetry = await adminGetSystemTelemetry();
+        setTelemetry(updatedTelemetry);
+      } catch (err) {
+        setSweepResult(null);
+        setError(err instanceof Error ? err.message : "Failed to trigger stale sweep");
+      }
+    });
+  };
+
   if (loading) {
     return <p className="text-center text-[var(--mute)] mt-20">Loading admin dashboard...</p>;
   }
@@ -56,18 +86,62 @@ export default function AdminDashboardPage() {
     <motion.main 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="flex flex-1 flex-col gap-8 max-w-6xl mx-auto w-full pt-12"
+      className="flex flex-1 flex-col gap-8 max-w-6xl mx-auto w-full pt-12 pb-16"
     >
-      <div>
-        <h1 className="text-4xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-          Admin Dashboard
-        </h1>
-        <p className="mt-2 text-[var(--fog)]">Manage users, subscriptions, and system health.</p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-4xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+            Admin Operations
+          </h1>
+          <p className="mt-2 text-[var(--fog)]">Manage platform users, subscriptions, and hunter telemetry.</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={handleTriggerSweep}
+          className="border-white/15"
+        >
+          {pending ? "Working…" : "Trigger Stale Link Sweep"}
+        </Button>
       </div>
+
+      {sweepResult && (
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-400">
+          {sweepResult}
+        </div>
+      )}
 
       {error && <p className="text-[var(--ember)]">{error}</p>}
 
-      <Card className="overflow-x-auto">
+      {/* Telemetry Overview */}
+      {telemetry && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="p-4 border-white/10 bg-white/[0.02]">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Active Opportunities</p>
+            <p className="mt-2 text-2xl font-bold text-[var(--paper)]">{telemetry.active_jobs}</p>
+            <p className="mt-1 text-xs text-[var(--fog)]">{telemetry.expired_jobs} pruned as expired</p>
+          </Card>
+          <Card className="p-4 border-white/10 bg-white/[0.02]">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Registered Freelancers</p>
+            <p className="mt-2 text-2xl font-bold text-[var(--paper)]">{telemetry.total_users}</p>
+            <p className="mt-1 text-xs text-[var(--signal)]">{telemetry.pro_users} on Pro plan</p>
+          </Card>
+          <Card className="p-4 border-white/10 bg-white/[0.02] sm:col-span-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Opportunities by Hunter</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {Object.entries(telemetry.jobs_by_source).map(([source, count]) => (
+                <Badge key={source} variant="outline" className="text-xs py-1 px-2 border-white/10">
+                  {source}: <span className="ml-1 font-bold text-[var(--paper)]">{count}</span>
+                </Badge>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* User Management Table */}
+      <Card className="overflow-x-auto border-white/10">
         <table className="w-full text-left text-sm">
           <thead className="bg-white/5 border-b border-white/10 text-[var(--mute)]">
             <tr>

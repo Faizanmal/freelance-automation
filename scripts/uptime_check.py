@@ -23,6 +23,14 @@ def main() -> int:
         )
         return 0
 
+    # Defensively normalize if the user passed full endpoint URL
+    if base.endswith("/health/live"):
+        base = base[:-12].rstrip("/")
+    elif base.endswith("/health/ready"):
+        base = base[:-13].rstrip("/")
+    elif base.endswith("/health"):
+        base = base[:-7].rstrip("/")
+
     live_url = f"{base}/health/live"
     ready_url = f"{base}/health/ready"
     try:

@@ -243,18 +243,29 @@ export default function HomePage() {
           ))}
         </section>
 
-        <section>
-          <div className="mb-5 flex items-end justify-between gap-4">
+        <section className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
-                Sample of the desk
+              <div className="flex items-center gap-2">
+                <span className="inline-block size-2 rounded-full bg-[var(--success)] animate-pulse" />
+                <span className="text-xs font-semibold tracking-wider text-[var(--text-muted)] uppercase">Live Desk Preview</span>
+              </div>
+              <h2 className="mt-1 text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+                Recent opportunities from our shared hunt pool
               </h2>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">{total} opportunities stored</p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                {total} contract opportunities indexed across direct client posts, ATS boards, and developer communities.
+              </p>
             </div>
-            <Link href="/leads" className="text-sm text-[var(--accent)] hover:underline">
-              Leads
+            <Link
+              href="/auth"
+              className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-4 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+            >
+              Set your Hunt Rules
+              <ArrowRight className="size-3.5" />
             </Link>
           </div>
+
           {jobs.length === 0 ? (
             <EmptyState
               title="No public sample listings yet"
@@ -263,33 +274,79 @@ export default function HomePage() {
               actionLabel="How it works"
             />
           ) : (
-            <div className="divide-y divide-[var(--border)] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
+            <div className="divide-y divide-[var(--border)] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-sm">
               {jobs.map((job) => (
-                <a
+                <div
                   key={job.id}
-                  href={job.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block px-5 py-4 transition-colors hover:bg-[var(--surface-hover)]"
+                  className="flex flex-col gap-2 p-5 transition-colors hover:bg-[var(--surface-hover)] sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="text-base font-medium text-[var(--text)]">{job.title}</h3>
-                    <span className="text-xs tracking-wide text-[var(--text-muted)] uppercase">
-                      {job.source_name}
-                    </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-medium text-[var(--text)]">{job.title}</h3>
+                      <Badge variant="outline" className="text-[10px] tracking-wide uppercase">
+                        {job.source_name}
+                      </Badge>
+                      {job.is_remote ? (
+                        <Badge variant="secondary" className="text-[10px]">Remote</Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                      {[job.company, job.location].filter(Boolean).join(" · ") || "Remote contract"}
+                    </p>
                   </div>
-                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                    {[job.company, job.location].filter(Boolean).join(" · ") || "Remote opportunity"}
-                  </p>
-                </a>
+                  <div className="flex items-center gap-3">
+                    {job.min_budget || job.max_budget ? (
+                      <span className="text-xs font-medium text-[var(--text-muted)]">
+                        {job.currency || "$"}{job.min_budget ?? 0}
+                        {job.max_budget ? ` - ${job.currency || "$"}${job.max_budget}` : "+"}
+                      </span>
+                    ) : null}
+                    <a
+                      href={sanitizeExternalUrl(job.url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center gap-1 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs font-medium text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                    >
+                      View post
+                    </a>
+                  </div>
+                </div>
               ))}
             </div>
           )}
+
           {error ? (
-            <p className="mt-3 text-sm text-[var(--text-muted)]">
+            <p className="text-sm text-[var(--text-muted)]">
               Live feed unavailable right now — pricing and signup still work.
             </p>
           ) : null}
+
+          <div className="mt-4 rounded-[1rem] border border-[var(--border)] bg-gradient-to-r from-[var(--surface)] to-[var(--surface-hover)] p-6 md:p-8">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--text)]">
+                  Get high-fit contract posts delivered directly to your inbox
+                </h3>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  Signal Desk filters noise, scores jobs against your exact tech stack and rates, and delivers tailored outreach hooks.
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-3">
+                <Link
+                  href="/auth"
+                  className="inline-flex h-10 items-center justify-center rounded-[var(--radius)] bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)]"
+                >
+                  Create free account
+                </Link>
+                <Link
+                  href="/pricing"
+                  className="inline-flex h-10 items-center justify-center rounded-[var(--radius)] border border-[var(--border)] px-4 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface)]"
+                >
+                  Compare plans
+                </Link>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     );

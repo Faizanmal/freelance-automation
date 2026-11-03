@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from backend.application.services.budget_parser import describe_budget
 from backend.application.services.llm import any_llm_configured, chat_completion
 from database.models.job import JobRecord
 from database.models.preference import UserPreferences
@@ -24,6 +25,7 @@ PUBLIC_EMAIL_APPLY = {
     "serpapi_jobs",
     "serpapi_companies",
     "serpapi_maps",
+    "hn_hiring",
 }
 
 
@@ -33,10 +35,8 @@ def submit_mode_for_source(source_name: str) -> str:
     if name in MARKETPLACE_API_BID:
         return "api_bid"
     if name in MARKETPLACE_API_PROPOSAL:
-        # Upwork search works; proposal API submit is not enabled yet.
         return "external_apply"
     if name in PUBLIC_EMAIL_APPLY:
-        # Prefer open-listing unless a concrete mailto/email is found on the job.
         return "external_apply"
     return "unsupported"
 
@@ -55,7 +55,7 @@ def submit_mode_for_job(job: JobRecord) -> str:
 
 
 class ProposalDraftService:
-    """Generate editable apply form fields. Never auto-submits."""
+    """Generate editable tailored outreach pitch & apply form fields. Never auto-submits."""
 
     async def draft(
         self, *, user: User, preferences: UserPreferences, job: JobRecord
@@ -87,7 +87,7 @@ class ProposalDraftService:
             "draft": draft_text,
             "form_fields": form_fields,
             "disclaimer": (
-                "Review and edit before confirming. Signal Desk only submits after you click Confirm."
+                "Review and customize before sending. Signal Desk never auto-applies or contacts clients on your behalf."
             ),
         }
 
@@ -99,7 +99,7 @@ class ProposalDraftService:
         job: JobRecord,
     ) -> dict[str, Any]:
         keywords = [k for k in (preferences.keywords or [])[:6] if k]
-        skill_line = ", ".join(keywords) if keywords else "relevant experience"
+        skill_line = ", ".join(keywords) if keywords else "relevant technical experience"
         budget = self._budget_line(job)
         name = (user.full_name or user.email.split("@")[0]).strip()
         notes = (preferences.notes or "").strip()
@@ -107,19 +107,18 @@ class ProposalDraftService:
         summary = job.analysis_summary or enrichment.get("summary") or ""
 
         opener = (
-            f"Hi — I’m {name}, and your {job.title} posting looks like a strong fit "
-            f"based on my work with {skill_line}."
+            f"Hi — I’m {name}. I saw your posting for '{job.title}' and wanted to reach out directly "
+            f"as this aligns closely with my background in {skill_line}."
         )
-        notes_line = f"\n\nAbout me: {notes}" if notes else ""
-        summary_line = f"\n\nI reviewed the scope ({summary[:180]})." if summary else ""
+        summary_line = f"\n\nRegarding your requirements: {summary[:240]}." if summary else ""
+        notes_line = f"\n\nAbout my work: {notes}" if notes else ""
         proposal = (
             f"{opener}{summary_line}{notes_line}\n\n"
-            f"I’ve shipped similar work and can move quickly on the core scope"
-            f"{' within your stated budget' if budget else ''}. "
-            f"I can start with a short discovery pass, confirm deliverables, "
-            f"and share a concrete timeline within one business day.\n\n"
-            f"Happy to jump on a quick call or reply here with a scoped plan.\n\n"
-            f"— {name}"
+            f"I have delivered similar contract work and can move quickly on the core deliverables"
+            f"{' within your target budget' if budget else ''}. "
+            f"My typical process starts with a focused alignment pass to lock down milestones, followed by rapid, transparent execution.\n\n"
+            f"I'm available to get started right away. Feel free to reply here or grab a quick 15-minute intro chat.\n\n"
+            f"Best regards,\n{name}"
         )
 
         bid_amount = self._suggest_bid_amount(job, preferences)
@@ -127,9 +126,9 @@ class ProposalDraftService:
             7 if (job.budget_max or 0) and (job.budget_max or 0) < 1000 else 14
         )
         milestone = (
-            "Milestone 1: discovery + written plan (30%). "
-            "Milestone 2: core delivery (50%). "
-            "Milestone 3: revisions + handoff (20%)."
+            "Milestone 1: Discovery & scoping alignment (30%). "
+            "Milestone 2: Core development & delivery (50%). "
+            "Milestone 3: Revisions & final handoff (20%)."
         )
 
         return {
@@ -157,10 +156,11 @@ class ProposalDraftService:
         excerpt = (job.description or "")[:1200]
         enrichment = job.enrichment if isinstance(job.enrichment, dict) else {}
         prompt = (
-            "Fill a freelance application form as JSON only. Keys: "
-            "proposal (120-200 words), bid_amount (number or null), currency (string), "
+            "Write a concise, compelling freelance client outreach message as JSON only. Keys: "
+            "proposal (120-180 words, 3 clear paragraphs: problem angle, proof/approach, friendly CTA), "
+            "bid_amount (number or null), currency (string), "
             "delivery_days (integer), milestone_plan (short string), milestone_percentage (1-100).\n"
-            "Be specific and professional. Never invent clients, metrics, or fake experience.\n"
+            "Keep the tone direct, professional, and human. Never invent fake past clients or hallucinated metrics.\n"
             f"Freelancer name: {user.full_name or user.email}\n"
             f"Skills: {', '.join(preferences.keywords or [])}\n"
             f"Profile notes: {(preferences.notes or '')[:500]}\n"
@@ -174,7 +174,7 @@ class ProposalDraftService:
         )
         try:
             result = await chat_completion(
-                system="You fill freelance bid/apply forms. Respond with a single JSON object only.",
+                system="You write tailored, high-converting freelance client pitches. Respond with a single JSON object only.",
                 user=prompt,
                 temperature=0.4,
                 json_mode=True,
@@ -229,13 +229,7 @@ class ProposalDraftService:
         return None
 
     def _budget_line(self, job: JobRecord) -> str | None:
-        if job.budget_min and job.budget_max:
-            return f"${job.budget_min:,.0f}–${job.budget_max:,.0f}"
-        if job.budget_max:
-            return f"up to ${job.budget_max:,.0f}"
-        if job.budget_min:
-            return f"from ${job.budget_min:,.0f}"
-        return None
+        return describe_budget(job.budget_min, job.budget_max, job.enrichment)
 
     @staticmethod
     def _to_float(value: Any) -> float | None:

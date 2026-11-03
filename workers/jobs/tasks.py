@@ -318,3 +318,40 @@ def process_lead_digests_task(self):
         return _run_async(_process_lead_digests_async())
     except (RuntimeError, TimeoutError) as exc:
         raise self.retry(exc=exc)
+
+
+async def _sweep_stale_jobs_async(max_stale_days: int = 45, limit: int = 200) -> int:
+    import os
+    import sys
+
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    fastapi_dir = os.path.join(root, "fastapi")
+    for path in (root, fastapi_dir):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+
+    from backend.application.services.job_expiration import JobExpirationService
+    from database.core.session import get_session
+
+    async with get_session() as session:
+        service = JobExpirationService(session)
+        return await service.sweep_stale_jobs(
+            max_stale_days=max_stale_days, limit=limit
+        )
+
+
+@celery_app.task(
+    name="tasks.sweep_stale_jobs",
+    bind=True,
+    base=DLQTask,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def sweep_stale_jobs_task(self, max_stale_days: int = 45, limit: int = 200):
+    """Background task to sweep and expire jobs exceeding TTL."""
+    try:
+        return _run_async(
+            _sweep_stale_jobs_async(max_stale_days=max_stale_days, limit=limit)
+        )
+    except (RuntimeError, TimeoutError) as exc:
+        raise self.retry(exc=exc)

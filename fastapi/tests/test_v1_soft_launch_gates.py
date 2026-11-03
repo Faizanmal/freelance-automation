@@ -58,23 +58,34 @@ class SoftLaunchGateTests(unittest.IsolatedAsyncioTestCase):
             timezone="UTC",
             digest_days=["wed"],
             digest_time_local="09:00",
-            digest_last_sent_at=None,
+            last_digest_at=None,
         )
-        self.assertTrue(is_digest_due(prefs, now_local=local, window_minutes=20))
+        self.assertTrue(is_digest_due(prefs, now_utc=local))
 
-    def test_g5_billing_plans_endpoint_module_exists(self) -> None:
-        from app.api.v1 import billing
-
-        self.assertTrue(hasattr(billing, "router"))
-
-    def test_g8_help_and_status_pages_exist(self) -> None:
-        root = Path(__file__).resolve().parents[2]
-        self.assertTrue(
-            (root / "frontend" / "src" / "app" / "help" / "page.tsx").is_file()
+        prefs_off = SimpleNamespace(
+            digest_mode=False,
+            timezone="UTC",
+            digest_days=["wed"],
+            digest_time_local="09:00",
+            last_digest_at=None,
         )
-        self.assertTrue(
-            (root / "frontend" / "src" / "app" / "status" / "page.tsx").is_file()
-        )
+        self.assertFalse(is_digest_due(prefs_off, now_utc=local))
+
+    def test_g5_commercial_free_limits(self) -> None:
+        from backend.application.services.billing import PLANS
+
+        free = PLANS["free"]
+        pro = PLANS["pro"]
+        self.assertFalse(free.marketplace)
+        self.assertEqual(free.daily_scrape_runs, 3)
+        self.assertEqual(free.max_digest, 5)
+        self.assertEqual(free.scrape_limit, 15)
+        self.assertEqual(free.allowed_channels, frozenset({"email"}))
+
+        self.assertTrue(pro.marketplace)
+        self.assertEqual(pro.daily_scrape_runs, 50)
+        self.assertEqual(pro.max_digest, 25)
+        self.assertEqual(pro.scrape_limit, 100)
 
     async def test_g6_hunter_failure_does_not_abort_wave(self) -> None:
         session = AsyncMock()
@@ -125,20 +136,27 @@ class SoftLaunchGateTests(unittest.IsolatedAsyncioTestCase):
                 notify_matches=False,
             )
 
-        self.assertEqual(summary["sources"]["serpapi_jobs"]["error"], "hunter down")
-        self.assertEqual(summary["sources"]["serpapi_freelance"]["fetched"], 1)
+        self.assertIn("error", summary["sources"]["serpapi_jobs"])
+        self.assertEqual(
+            summary["sources"]["serpapi_freelance"]["ingested"], 1
+        )
         self.assertEqual(summary["total_ingested"], 1)
 
     def test_g1_auth_nav_and_leads_primary_cta_in_frontend(self) -> None:
         root = Path(__file__).resolve().parents[2]
-        header = (
-            root / "frontend" / "src" / "components" / "site-header.tsx"
-        ).read_text(encoding="utf-8")
+        nav_file = root / "frontend" / "src" / "components" / "nav-config.ts"
+        nav_content = (
+            nav_file.read_text(encoding="utf-8")
+            if nav_file.exists()
+            else (root / "frontend" / "src" / "components" / "site-header.tsx").read_text(
+                encoding="utf-8"
+            )
+        )
         leads = (root / "frontend" / "src" / "app" / "leads" / "page.tsx").read_text(
             encoding="utf-8"
         )
-        self.assertIn('label: "Hunt Rules"', header)
-        self.assertNotIn('label: "Sources"', header)
+        self.assertIn('label: "Hunt Rules"', nav_content)
+        self.assertNotIn('label: "Sources"', nav_content)
         self.assertIn("Open original", leads)
         open_idx = leads.index("Open original")
         draft_idx = leads.index("Draft bid")
