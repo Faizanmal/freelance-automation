@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { usePathname, useRouter } from "next/navigation";
 import {
   getToken,
@@ -41,7 +40,11 @@ const SUGGESTED_RATES = [
 export function OnboardingWizard() {
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [hasToken, setHasToken] = useState(false);
+  const hasToken = useSyncExternalStore(
+    subscribeAuth,
+    () => Boolean(getToken()),
+    () => false
+  );
   const [selectedSkills, setSelectedSkills] = useState<string[]>([
     "React",
     "TypeScript",
@@ -52,21 +55,17 @@ export function OnboardingWizard() {
   const [freelanceFocus, setFreelanceFocus] = useState(true);
   const [digestTime, setDigestTime] = useState("09:00");
   const [saving, setSaving] = useState(false);
-  const [timezone, setTimezone] = useState("UTC");
+  const [timezone] = useState(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+      return "UTC";
+    }
+  });
 
   const router = useRouter();
   const pathname = usePathname();
   const onAuthPage = Boolean(pathname?.startsWith("/auth"));
-
-  useEffect(() => {
-    setHasToken(Boolean(getToken()));
-    try {
-      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
-    } catch {
-      setTimezone("UTC");
-    }
-    return subscribeAuth(() => setHasToken(Boolean(getToken())));
-  }, []);
 
   useEffect(() => {
     if (onAuthPage || !hasToken) return;
@@ -133,6 +132,9 @@ export function OnboardingWizard() {
         digest_time_local: digestTime,
         digest_days: ["mon", "tue", "wed", "thu", "fri"],
         timezone: timezone,
+        match_threshold: 0.35,
+        notification_channels: ["email"],
+        notes: null,
       };
 
       await updatePreferences(payload);

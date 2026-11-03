@@ -134,13 +134,14 @@ export default function JobsPage() {
             </motion.div>
           ) : (
             jobs.map((job, index) => (
-              <Card 
-                key={job.id} 
-                className="flex flex-col p-6"
+              <motion.div
+                key={job.id}
                 initial={{ opacity: 0, scale: 0.9, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ delay: Math.min(index * 0.05, 0.5) }}
+                className="flex"
               >
+                <Card className="flex flex-col p-6 w-full">
                 <div className="mb-4 flex items-start justify-between gap-2">
                   <h2 className="text-xl font-medium leading-tight text-[var(--paper)]">{job.title}</h2>
                   <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[10px] tracking-wider text-[var(--mute)] uppercase">
@@ -170,8 +171,9 @@ export default function JobsPage() {
                   </Button>
                 </div>
               </Card>
-            ))
-          )}
+            </motion.div>
+          ))
+        )}
         </AnimatePresence>
       </motion.div>
     </motion.main>

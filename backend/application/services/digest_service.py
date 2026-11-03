@@ -110,7 +110,7 @@ def is_digest_due(
     if delta > window_minutes * 60:
         return False
 
-    last = getattr(prefs, "last_digest_at", None)
+    last = getattr(prefs, "digest_last_sent_at", None) or getattr(prefs, "last_digest_at", None)
     if last is not None:
         try:
             tz = local_now.tzinfo or ZoneInfo("UTC")

@@ -254,9 +254,18 @@ function ProductShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setMobileOpen(false);
+  }
+
   useEffect(() => {
     try {
-      setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
+      const isCol = localStorage.getItem(COLLAPSE_KEY) === "1";
+      if (isCol) {
+        queueMicrotask(() => setCollapsed(true));
+      }
     } catch {
       // ignore
     }
@@ -275,10 +284,6 @@ function ProductShell({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {

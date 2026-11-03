@@ -183,6 +183,21 @@ class Settings(BaseSettings):
     )
     public_app_url: str = Field("http://localhost:3000", alias="PUBLIC_APP_URL")
 
+    @field_validator("debug", mode="before")
+    @classmethod
+    def _parse_debug_flag(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            clean = value.strip().lower()
+            if clean in {"true", "1", "yes", "y", "debug", "on", "t"}:
+                return True
+            if clean in {"false", "0", "no", "n", "release", "prod", "production", "off", "f"}:
+                return False
+        return False
+
     @field_validator(
         "serpapi_freelance_query",
         "serpapi_jobs_query",

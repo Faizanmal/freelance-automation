@@ -11,6 +11,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState, useTransition } fr
 import {
 
   draftProposal,
+  reportJobExpired,
 
   getAuthFindings,
 
@@ -48,7 +49,7 @@ import { PageHeader } from "@/components/ui/page-header";
 
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { Check, Copy, ExternalLink, Filter, Sparkles } from "lucide-react";
+import { ExternalLink, Filter } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 
@@ -141,7 +142,6 @@ function LeadsPageInner() {
   const [pending, startTransition] = useTransition();
 
   const [authed, setAuthed] = useState(false);
-  const [copied, setCopied] = useState(false);
 
 
 
@@ -217,17 +217,21 @@ function LeadsPageInner() {
 
 
 
-  useEffect(() => {
-
-    const raw = searchParams.get("filter");
-
-    if (raw === "saved" || raw === "pitched" || raw === "skipped" || raw === "new" || raw === "high" || raw === "all") {
-
-      setStatusFilter(raw);
-
+  const filterParam = searchParams.get("filter");
+  const [prevFilterParam, setPrevFilterParam] = useState(filterParam);
+  if (prevFilterParam !== filterParam) {
+    setPrevFilterParam(filterParam);
+    if (
+      filterParam === "saved" ||
+      filterParam === "pitched" ||
+      filterParam === "skipped" ||
+      filterParam === "new" ||
+      filterParam === "high" ||
+      filterParam === "all"
+    ) {
+      setStatusFilter(filterParam);
     }
-
-  }, [searchParams]);
+  }
 
 
 
@@ -414,6 +418,23 @@ function LeadsPageInner() {
   };
 
 
+
+  const handleReportExpired = (jobId: number) => {
+    if (!getToken()) {
+      router.push("/auth");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        setError(null);
+        await reportJobExpired(jobId, "dead_link");
+        await load(keywords, freelanceFocus);
+        setSubmitMessage("Reported as dead/closed link. It will be pruned.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not report link");
+      }
+    });
+  };
 
   const updateLeadStatus = (jobId: number, status: "save" | "skip" | "pitched" | "won" | "clear") => {
 

@@ -70,12 +70,8 @@ export default function HomePage() {
     total_findings: number;
     generated_at?: string;
   } | null>(null);
-  const [greeting, setGreeting] = useState("Welcome");
+  const [greeting] = useState(() => greetingForHour());
   const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    setGreeting(greetingForHour());
-  }, []);
 
   const refresh = (isAuthed: boolean) => {
     startTransition(async () => {
@@ -286,8 +282,8 @@ export default function HomePage() {
                       <Badge variant="outline" className="text-[10px] tracking-wide uppercase">
                         {job.source_name}
                       </Badge>
-                      {job.is_remote ? (
-                        <Badge variant="secondary" className="text-[10px]">Remote</Badge>
+                      {job.location && /remote/i.test(job.location) ? (
+                        <Badge variant="muted" className="text-[10px]">Remote</Badge>
                       ) : null}
                     </div>
                     <p className="mt-1 text-sm text-[var(--text-secondary)]">
@@ -295,10 +291,14 @@ export default function HomePage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    {job.min_budget || job.max_budget ? (
+                    {job.budget_label ? (
                       <span className="text-xs font-medium text-[var(--text-muted)]">
-                        {job.currency || "$"}{job.min_budget ?? 0}
-                        {job.max_budget ? ` - ${job.currency || "$"}${job.max_budget}` : "+"}
+                        {job.budget_label}
+                      </span>
+                    ) : job.budget_min || job.budget_max ? (
+                      <span className="text-xs font-medium text-[var(--text-muted)]">
+                        ${job.budget_min ?? 0}
+                        {job.budget_max ? ` - $${job.budget_max}` : "+"}
                       </span>
                     ) : null}
                     <a
