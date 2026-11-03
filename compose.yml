@@ -154,9 +154,11 @@ services:
     # Trust only the compose network (Caddy). Avoid wildcard forwarded-allow-ips.
     command: >
       sh -c "alembic -c database/alembic.ini upgrade head &&
-      uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=172.16.0.0/12,10.0.0.0/8,192.168.0.0/16 "
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.1 "
     environment:
       <<: *api-environment
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8002}:8000"
     expose:
       - "8000"
     logging:

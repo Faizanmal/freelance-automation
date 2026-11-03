@@ -19,7 +19,7 @@ services:
     build: *api-build
     command: sh -c "alembic -c database/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --reload"
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-8002}:8000"
     environment:
       APP_ENV: development
       DEBUG: "true"
