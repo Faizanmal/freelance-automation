@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     )
 
     cors_origins: str = Field(
-        "http://localhost:3000,http://127.0.0.1:3000", alias="CORS_ORIGINS"
+        "http://localhost:3000,http://127.0.0.1:3000,https://freelance-automation-xi.vercel.app", alias="CORS_ORIGINS"
     )
     scrape_on_startup: bool = Field(False, alias="SCRAPE_ON_STARTUP")
     scrape_interval_minutes: int = Field(0, alias="SCRAPE_INTERVAL_MINUTES")
