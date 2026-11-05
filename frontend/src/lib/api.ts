@@ -1104,6 +1104,22 @@ export async function me() {
 
 
 
+export async function updateProfile(fullName: string) {
+
+  return request<User>("/users/me", {
+
+    method: "PATCH",
+
+    body: JSON.stringify({ full_name: fullName }),
+
+    auth: true,
+
+  });
+
+}
+
+
+
 export async function getPreferences() {
 
   return request<Preferences>("/preferences/me", { auth: true });

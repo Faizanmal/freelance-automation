@@ -1,6 +1,6 @@
 export default function TermsPage() {
   return (
-    <main className="mx-auto max-w-3xl py-8">
+    <div className="mx-auto max-w-3xl py-8">
       <h1 className="mb-6 font-display text-3xl font-bold text-[var(--signal)]">
         Terms and Conditions
       </h1>
@@ -11,7 +11,7 @@ export default function TermsPage() {
           <a className="text-[var(--signal)]" href="mailto:support@signaldesk.com">
             support@signaldesk.com
           </a>
-          ). Replace this operator line with your legal entity name when incorporated.
+          ).
         </p>
 
         <section>
@@ -108,6 +108,6 @@ export default function TermsPage() {
           </p>
         </section>
       </div>
-    </main>
+    </div>
   );
 }

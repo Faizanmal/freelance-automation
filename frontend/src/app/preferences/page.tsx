@@ -64,8 +64,14 @@ const TABS: { id: PrefTab; label: string }[] = [
 ];
 
 function parseTab(value: string | null): PrefTab {
-  if (value === "alerts" || value === "billing" || value === "security" || value === "matching") {
-    return value;
+  if (value === "alerts" || value === "digest") {
+    return "alerts";
+  }
+  if (value === "billing") {
+    return "billing";
+  }
+  if (value === "security") {
+    return "security";
   }
   return "matching";
 }
@@ -115,13 +121,22 @@ function PreferencesPageInner() {
         setUser(currentUser);
         setPrefs(currentPrefs);
         setBilling(currentBilling);
-        const skills =
+        const rawSkills =
           currentPrefs.skills?.length
             ? currentPrefs.skills
             : currentPrefs.keywords || [];
-        setSkillsText(skills.join(", "));
+        const seenSkills = new Set<string>();
+        const dedupedSkills: string[] = [];
+        for (const s of rawSkills) {
+          const norm = s.trim().toLowerCase();
+          if (norm && !seenSkills.has(norm)) {
+            seenSkills.add(norm);
+            dedupedSkills.push(s.trim());
+          }
+        }
+        setSkillsText(dedupedSkills.join(", "));
         // Extra requirements = keywords that are not already listed as skills.
-        const skillSet = new Set(skills.map((s) => s.toLowerCase()));
+        const skillSet = new Set(dedupedSkills.map((s) => s.toLowerCase()));
         const extra = (currentPrefs.keywords || []).filter(
           (k) => !skillSet.has(k.toLowerCase()),
         );
@@ -165,11 +180,8 @@ function PreferencesPageInner() {
         const saved = await updatePreferences(payload);
         setPrefs(saved);
         try {
-          const authMatches = await getAuthMatches();
-          setMatches(authMatches.items);
-        } catch {
-          // Matches are optional after save — do not surface as a save failure.
-        }
+          localStorage.setItem("signaldesk_onboarded", "true");
+        } catch {}
         const params = new URLSearchParams(searchParams.toString());
         if (params.has("verify")) {
           params.delete("verify");
@@ -177,7 +189,12 @@ function PreferencesPageInner() {
           router.replace(qs ? `/preferences?${qs}` : "/preferences");
         }
         setMessage(tab === "alerts" ? "Digest settings saved" : "Hunt Rules saved");
-        setTimeout(() => setMessage(null), 3000);
+        setTimeout(() => setMessage(null), 3500);
+
+        // Fetch matches in background so Save button completes immediately without freezing
+        getAuthMatches()
+          .then((authMatches) => setMatches(authMatches.items))
+          .catch(() => {});
       } catch (err) {
         setError(err instanceof Error ? err.message : "Save failed");
       }
@@ -259,7 +276,7 @@ function PreferencesPageInner() {
           </h2>
           <p className="mb-4 text-sm text-[var(--mute)]">
             {verifyParam === "smtp"
-              ? "We couldn't send the verification email. Please try again later."
+              ? "We couldn't send the verification email. Outbound mail (SMTP / Resend) is not configured or reachable on this server. Check EMAIL_SMTP_* or RESEND_API_KEY settings on the API server, or click Resend verification once updated."
               : "Digests and automated hunts stay locked until your email is verified. You can still browse leads, save, and draft bids. Check your inbox, or resend a fresh link."}
           </p>
           <div className="flex flex-wrap gap-3">

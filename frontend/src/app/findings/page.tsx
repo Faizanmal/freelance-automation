@@ -14,9 +14,9 @@ function RedirectInner({ base }: { base: string }) {
   }, [router, searchParams, base]);
 
   return (
-    <main className="flex flex-1 flex-col justify-center">
+    <div className="flex flex-1 flex-col justify-center">
       <p className="text-[var(--mute)]">Redirecting to Leads…</p>
-    </main>
+    </div>
   );
 }
 

@@ -97,7 +97,7 @@ export default function NotificationsPage() {
 
   if (!authed) {
     return (
-      <main className="flex flex-1 flex-col gap-8">
+      <div className="flex flex-1 flex-col gap-8">
         <section>
           <h1 className="text-4xl md:text-5xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
             Alerts
@@ -120,12 +120,12 @@ export default function NotificationsPage() {
             Sign in
           </Link>
         </section>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col gap-8">
+    <div className="flex flex-1 flex-col gap-8">
       <section>
         <h1 className="text-4xl md:text-5xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
           Alerts
@@ -247,6 +247,6 @@ export default function NotificationsPage() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

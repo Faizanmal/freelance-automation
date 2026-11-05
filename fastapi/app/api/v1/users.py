@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pydantic import BaseModel, Field
+
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -22,10 +24,28 @@ from fastapi import APIRouter, Depends, status
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+class UserUpdatePayload(BaseModel):
+    full_name: str | None = Field(None, max_length=120)
+
+
 @router.get("/me", response_model=UserRead)
 async def read_current_user(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> UserRead:
+    return UserRead.model_validate(current_user)
+
+
+@router.patch("/me", response_model=UserRead)
+async def update_current_user(
+    payload: UserUpdatePayload,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> UserRead:
+    if payload.full_name is not None:
+        current_user.full_name = payload.full_name.strip() or None
+        session.add(current_user)
+        await session.commit()
+        await session.refresh(current_user)
     return UserRead.model_validate(current_user)
 
 

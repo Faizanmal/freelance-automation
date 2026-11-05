@@ -51,7 +51,7 @@ export function OnboardingWizard() {
     "Python",
   ]);
   const [customSkill, setCustomSkill] = useState("");
-  const [minRate, setMinRate] = useState<number | null>(75);
+  const [minRate, setMinRate] = useState<number | null>(null);
   const [freelanceFocus, setFreelanceFocus] = useState(true);
   const [digestTime, setDigestTime] = useState("09:00");
   const [saving, setSaving] = useState(false);
@@ -65,29 +65,52 @@ export function OnboardingWizard() {
 
   const router = useRouter();
   const pathname = usePathname();
-  const onAuthPage = Boolean(pathname?.startsWith("/auth"));
+  const isSuppressedPage = Boolean(
+    pathname?.startsWith("/auth") ||
+    pathname?.startsWith("/preferences") ||
+    pathname?.startsWith("/pricing")
+  );
 
   useEffect(() => {
-    if (onAuthPage || !hasToken) return;
+    if (isSuppressedPage || !hasToken) return;
     const hasSeenOnboarding = localStorage.getItem("signaldesk_onboarded");
     if (hasSeenOnboarding) return;
 
-    // Load any existing preferences to prefill
+    // Load any existing preferences to prefill and check if already configured
     getPreferences()
       .then((existing) => {
-        if (existing?.keywords?.length) {
-          setSelectedSkills(existing.keywords);
+        if (!existing) return;
+        // If user already configured their rules, auto-mark onboarded
+        if (
+          existing.min_hourly_rate !== null ||
+          existing.min_budget !== null ||
+          (existing.skills && existing.skills.length > 4)
+        ) {
+          localStorage.setItem("signaldesk_onboarded", "true");
+          return;
         }
-        if (typeof existing?.min_hourly_rate === "number") {
+
+        const raw = existing.skills?.length ? existing.skills : existing.keywords || [];
+        const seen = new Set<string>();
+        const deduped: string[] = [];
+        for (const s of raw) {
+          const norm = s.trim().toLowerCase();
+          if (norm && !seen.has(norm)) {
+            seen.add(norm);
+            deduped.push(s.trim());
+          }
+        }
+        if (deduped.length) {
+          setSelectedSkills(deduped);
+        }
+        if (typeof existing.min_hourly_rate === "number") {
           setMinRate(existing.min_hourly_rate);
         }
-      })
-      .catch(() => {})
-      .finally(() => {
         const timer = setTimeout(() => setIsOpen(true), 1200);
         return () => clearTimeout(timer);
-      });
-  }, [pathname, onAuthPage, hasToken]);
+      })
+      .catch(() => {});
+  }, [pathname, isSuppressedPage, hasToken]);
 
   const dismissOnboarding = () => {
     localStorage.setItem("signaldesk_onboarded", "true");
@@ -150,7 +173,7 @@ export function OnboardingWizard() {
     }
   };
 
-  if (!isOpen || onAuthPage || !hasToken) return null;
+  if (!isOpen || isSuppressedPage || !hasToken) return null;
 
   return (
     <AnimatePresence>

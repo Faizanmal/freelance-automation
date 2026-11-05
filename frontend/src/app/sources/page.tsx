@@ -54,7 +54,7 @@ export default function SourcesPage() {
   };
 
   return (
-    <main className="flex flex-1 flex-col gap-8">
+    <div className="flex flex-1 flex-col gap-8">
       <section>
         <h1 className="text-4xl md:text-5xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
           Sources
@@ -254,6 +254,6 @@ export default function SourcesPage() {
       <Link href="/" className="text-sm text-[var(--mute)]">
         Back to desk
       </Link>
-    </main>
+    </div>
   );
 }

@@ -37,7 +37,7 @@ export default function CancelFeedbackPage() {
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-6 pt-12">
+    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-6 pt-12">
       <div>
         <h1 className="text-4xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
           Exit survey
@@ -90,6 +90,6 @@ export default function CancelFeedbackPage() {
         </form>
       )}
       {error ? <p className="text-sm text-[var(--ember)]">{error}</p> : null}
-    </main>
+    </div>
   );
 }

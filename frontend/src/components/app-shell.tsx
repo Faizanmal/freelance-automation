@@ -407,6 +407,7 @@ function ProductShell({ children }: { children: React.ReactNode }) {
  * Logged in: collapsible sidebar product shell.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || "/";
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -414,8 +415,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
   const authedRaw = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const authed = mounted && authedRaw;
+  const isDedicatedAuthPage = pathname.startsWith("/auth/") && pathname !== "/auth";
 
-  if (authed) {
+  if (authed && !isDedicatedAuthPage) {
     return <ProductShell>{children}</ProductShell>;
   }
 

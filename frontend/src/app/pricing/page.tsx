@@ -20,6 +20,7 @@ import { cn } from "@/lib/cn";
 
 export default function PricingPage() {
   const router = useRouter();
+  const [authed, setAuthed] = useState(() => (typeof window !== "undefined" ? Boolean(getToken()) : false));
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [devActivateAllowed, setDevActivateAllowed] = useState(false);
@@ -135,17 +136,14 @@ export default function PricingPage() {
                         <p className="text-sm text-[var(--text-muted)]">
                           Pro checkout opens soon. Start free today — your Hunt Rules and leads stay with you when upgrades unlock.
                         </p>
-                        <Link
-                          href="/auth"
-                          className="inline-flex h-10 items-center rounded-[var(--radius)] border border-[var(--border)] px-5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                        >
-                          Start free
-                        </Link>
+                        <Button disabled variant="outline" className="w-full sm:w-auto opacity-70">
+                          Pro coming soon
+                        </Button>
                       </div>
                     )
                   ) : (
                     <Link
-                      href="/auth"
+                      href={authed ? "/preferences" : "/auth"}
                       className="inline-flex h-10 items-center rounded-[var(--radius)] border border-[var(--border)] px-5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
                     >
                       Start free

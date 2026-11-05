@@ -54,6 +54,31 @@ HIGH_TRAFFIC_HOST_MARKERS: tuple[str, ...] = (
     "ziprecruiter.com",
     "torre.ai",
     "wdtalenthub.com",
+    "facebook.com",
+    "fb.com",
+    "reddit.com",
+    "medium.com",
+    "substack.com",
+    "quora.com",
+    "pinterest.com",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "tiktok.com",
+    "threads.net",
+    "jooble.org",
+    "talent.com",
+    "adzuna.com",
+    "salary.com",
+    "careerjet.com",
+    "monster.com",
+    "geebo.com",
+    "bebee.com",
+    "postjobfree.com",
+    "jobrapido.com",
+    "careerbuilder.com",
+    "lensa.com",
+    "snagajob.com",
 )
 
 # Public ATS hosts used for SerpAPI site: discovery (contract/freelance keywords).
@@ -170,7 +195,37 @@ def _host_matches(host: str | None, markers: tuple[str, ...] | list[str]) -> boo
 
 
 def _looks_useful_freelance(title: str, snippet: str, link: str) -> bool:
+    host = _hostname(link)
+    if _host_matches(host, HIGH_TRAFFIC_HOST_MARKERS):
+        return False
+
     blob = f"{title} {snippet} {link}".lower()
+    noise = (
+        "salary guide",
+        "how to become",
+        "course",
+        "tutorial",
+        "what is a freelancer",
+        "best freelance websites",
+        "jobs in ",
+        "openings in ",
+        "browse jobs",
+        "find jobs",
+        "top 10 ",
+        "top 5 ",
+        "interview questions",
+        "resume template",
+    )
+    if any(token in blob for token in noise):
+        return False
+
+    # Check for aggregator dumps of multiple listings
+    if re.search(r"\b\d+\+?\s+jobs\b|\b\d+\+?\s+openings\b|\bview\s+\d+\b", blob):
+        return False
+    # If snippet has 3+ piped/bulleted segments, likely a directory/aggregator scrape
+    if snippet.count(" | ") >= 3 or snippet.count(" · ") >= 3:
+        return False
+
     positive = (
         "freelance",
         "freelancer",
@@ -185,16 +240,6 @@ def _looks_useful_freelance(title: str, snippet: str, link: str) -> bool:
         "remote",
         "project",
     )
-    noise = (
-        "salary guide",
-        "how to become",
-        "course",
-        "tutorial",
-        "what is a freelancer",
-        "best freelance websites",
-    )
-    if any(token in blob for token in noise):
-        return False
     return any(token in blob for token in positive)
 
 

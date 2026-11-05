@@ -141,7 +141,10 @@ function LeadsPageInner() {
 
   const [pending, startTransition] = useTransition();
 
-  const [authed, setAuthed] = useState(false);
+  const [authed, setAuthed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return Boolean(getToken());
+  });
 
 
 
@@ -684,7 +687,7 @@ function LeadsPageInner() {
 
 
 
-      {!authed ? (
+      {!authed && !pending && data !== null ? (
 
         <p className="text-sm text-[var(--text-muted)]">
 
@@ -978,9 +981,13 @@ function LeadsPageInner() {
 
                   ) : null}
 
-                  {typeof finding.freelance_fit === "number" ? (
+                  {finding.freelance_benefits?.length ? (
 
-                    <Badge variant="muted">Freelance {Math.round(finding.freelance_fit * 100)}%</Badge>
+                    <Badge variant="muted">{finding.freelance_benefits[0]}</Badge>
+
+                  ) : typeof finding.freelance_fit === "number" && finding.freelance_fit >= 0.7 ? (
+
+                    <Badge variant="muted">Contract / Freelance</Badge>
 
                   ) : null}
 

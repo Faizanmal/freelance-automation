@@ -77,7 +77,7 @@ function VerifyEmailContent() {
 
 export default function VerifyEmailPage() {
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6">
+    <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6">
       <div>
         <h1 className="text-4xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
           Verify Email
@@ -87,6 +87,6 @@ export default function VerifyEmailPage() {
       <Suspense fallback={<p className="text-[var(--mute)]">Loading...</p>}>
         <VerifyEmailContent />
       </Suspense>
-    </main>
+    </div>
   );
 }

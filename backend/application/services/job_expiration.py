@@ -75,8 +75,10 @@ class JobExpirationService:
                 try:
                     response = await client.head(url)
                     # Some servers return 405 Method Not Allowed for HEAD requests
-                    if response.status_code == 405:
+                    if response.status_code in (405, 501):
                         response = await client.get(url)
+                except httpx.TimeoutException:
+                    raise
                 except httpx.HTTPError:
                     response = await client.get(url)
 

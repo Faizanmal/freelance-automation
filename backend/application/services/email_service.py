@@ -91,15 +91,20 @@ class EmailService:
             msg.attach(MIMEText(html_body, "html"))
 
         try:
-            with smtplib.SMTP(
-                smtp_host, getattr(settings, "email_smtp_port", 587), timeout=8
-            ) as server:
-                server.starttls()
-                smtp_user = getattr(settings, "email_username", None)
-                smtp_pass = getattr(settings, "email_password", None)
-                if smtp_user and smtp_pass:
-                    server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
+            port = int(getattr(settings, "email_smtp_port", 587) or 587)
+            smtp_user = getattr(settings, "email_username", None)
+            smtp_pass = getattr(settings, "email_password", None)
+            if port == 465:
+                with smtplib.SMTP_SSL(smtp_host, port, timeout=10) as server:
+                    if smtp_user and smtp_pass:
+                        server.login(smtp_user, smtp_pass)
+                    server.send_message(msg)
+            else:
+                with smtplib.SMTP(smtp_host, port, timeout=10) as server:
+                    server.starttls()
+                    if smtp_user and smtp_pass:
+                        server.login(smtp_user, smtp_pass)
+                    server.send_message(msg)
             logger.info("Email sent via SMTP to %s: %s", to_email, subject)
             return True
         except Exception:

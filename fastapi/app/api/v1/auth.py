@@ -155,7 +155,7 @@ async def register(
 
     settings = get_settings()
     verification_token = create_email_verification_token(user.email)
-    smtp_configured = bool(settings.email_smtp_host)
+    smtp_configured = bool(getattr(settings, "email_smtp_host", None) or getattr(settings, "resend_api_key", None))
     # Never block signup on SMTP — queue outbound mail after the response.
     if smtp_configured:
         background_tasks.add_task(
@@ -318,7 +318,7 @@ async def resend_verification(
 
     if user and user.is_active and not user.is_verified:
         token = create_email_verification_token(user.email)
-        if settings.email_smtp_host:
+        if getattr(settings, "email_smtp_host", None) or getattr(settings, "resend_api_key", None):
             background_tasks.add_task(
                 EmailService.send_verification_email, user.email, token
             )

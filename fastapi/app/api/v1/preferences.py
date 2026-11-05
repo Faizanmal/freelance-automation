@@ -232,14 +232,18 @@ async def list_matches(
     jobs = await repo.list_recent(limit=300)
     skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
     matcher = MatchingService()
+    findings_service = LeadFindingsService(matcher)
+    freelance_focus = bool(getattr(prefs, "freelance_focus", True))
     matches = matcher.rank_jobs(jobs, prefs, skill_weights=skill_weights)[:limit]
     items = []
     for match in matches:
+        finding = findings_service._from_match(match, freelance_focus=freelance_focus)
         job_data = await repo.to_candidate_dict(match.job)
         items.append(
             {
                 **job_data,
-                "match_score": match.score,
+                "match_score": finding.score,
+                "freelance_fit": finding.freelance_fit,
                 "matched_keywords": match.matched_keywords,
                 "match_reasons": match.reasons,
                 "freshness_score": match.freshness_score,

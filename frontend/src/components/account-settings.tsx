@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setToken, request, type User } from "@/lib/api";
+import { setToken, request, updateProfile, type User } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +11,30 @@ export function AccountSettings({ user }: { user: User }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [fullName, setFullName] = useState(user.full_name || "");
+  const [currentName, setCurrentName] = useState(user.full_name || "");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleLogout = () => {
     setToken(null);
     router.push("/");
+  };
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    startTransition(async () => {
+      try {
+        setError(null);
+        setMessage(null);
+        const updated = await updateProfile(fullName.trim());
+        setCurrentName(updated.full_name || "");
+        setMessage("Profile name updated.");
+        setTimeout(() => setMessage(null), 3000);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update profile");
+      }
+    });
   };
 
   const handleDeleteAccount = () => {
@@ -50,12 +69,21 @@ export function AccountSettings({ user }: { user: User }) {
         <Badge variant={plan === "pro" ? "accent" : "muted"}>{plan === "pro" ? "Pro" : "Free"}</Badge>
       </div>
 
+      {message ? (
+        <p className="mb-4 rounded-md border border-[var(--accent)]/30 bg-[var(--accent-muted)] px-3 py-2 text-sm text-[var(--accent)]">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>
+      ) : null}
+
       <div className="space-y-6">
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-          <h3 className="mb-1 text-sm font-medium text-[var(--text-secondary)]">Personal information</h3>
+          <h3 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">Personal information</h3>
           <p className="text-sm text-[var(--text-muted)]">
             Signed in as <strong className="text-[var(--text)]">{user.email}</strong>
-            {user.full_name ? ` (${user.full_name})` : null}
+            {currentName ? ` (${currentName})` : null}
           </p>
           <p className="mt-2 text-xs text-[var(--text-muted)]">
             Email verification:{" "}
@@ -63,8 +91,27 @@ export function AccountSettings({ user }: { user: User }) {
               {user.is_verified ? "Verified" : "Not verified"}
             </span>
           </p>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Profile name and password changes are managed through auth recovery flows. Two-factor authentication is under Hunt Rules → Security.
+
+          <form onSubmit={handleSaveProfile} className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <label htmlFor="account-fullname" className="sr-only">Full Name</label>
+              <input
+                id="account-fullname"
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Full name"
+                className="sd-input"
+                maxLength={120}
+              />
+            </div>
+            <Button type="submit" disabled={pending || fullName.trim() === currentName}>
+              {pending ? "Saving…" : "Save name"}
+            </Button>
+          </form>
+
+          <p className="mt-3 text-xs text-[var(--text-muted)]">
+            Two-factor authentication and passwords are managed under Hunt Rules → Security.
           </p>
         </div>
 
@@ -104,7 +151,6 @@ export function AccountSettings({ user }: { user: User }) {
               </Button>
             </div>
           )}
-          {error ? <p className="mt-2 text-sm text-[var(--danger)]">{error}</p> : null}
         </div>
       </div>
     </Card>

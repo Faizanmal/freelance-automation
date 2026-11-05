@@ -278,11 +278,16 @@ class EmailAdapter:
         title: str,
         body: str,
     ) -> None:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=5) as smtp:
-            smtp.starttls()
-            smtp.login(username, password)
-            message = f"Subject: {title}\n\n{body}"
-            smtp.sendmail(from_address, [to_address], message)
+        message = f"Subject: {title}\n\n{body}"
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as smtp:
+                smtp.login(username, password)
+                smtp.sendmail(from_address, [to_address], message)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as smtp:
+                smtp.starttls()
+                smtp.login(username, password)
+                smtp.sendmail(from_address, [to_address], message)
 
     def _send_resend_sync(
         self,
