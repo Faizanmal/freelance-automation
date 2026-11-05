@@ -8,6 +8,8 @@ import pyotp
 from app.api.dependencies import get_current_user, security
 from app.core.logging.logger import get_logger
 from app.core.security.blocklist import blocklist
+from app.core.security.github_auth import GitHubAuthService
+from app.core.security.google_auth import GoogleAuthService
 from app.core.security.jwt import (
     create_access_token,
     create_email_verification_token,
@@ -20,6 +22,10 @@ from app.core.security.rate_limit import auth_rate_limiter, client_ip
 from app.schemas.token import Token
 from app.schemas.user import (
     ForgotPasswordRequest,
+    GitHubAuthRequest,
+    GitHubAuthUrlResponse,
+    GoogleAuthRequest,
+    GoogleAuthUrlResponse,
     ResendVerificationRequest,
     ResetPasswordRequest,
     Setup2FAResponse,
@@ -97,7 +103,7 @@ async def login(
             )
 
         totp = pyotp.TOTP(user.totp_secret)
-        if not totp.verify(totp_code):
+        if not totp.verify(totp_code, valid_window=1):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code"
             )
@@ -464,3 +470,155 @@ async def disable_2fa(
         "TOTP was just turned off for your Signal Desk account. If this was not you, reset your password.",
     )
     return {"detail": "2FA successfully disabled"}
+
+
+@router.get("/google/url", response_model=GoogleAuthUrlResponse)
+async def get_google_auth_url(
+    redirect_uri: str | None = None,
+) -> GoogleAuthUrlResponse:
+    url, state = GoogleAuthService.get_authorization_url(redirect_uri=redirect_uri)
+    return GoogleAuthUrlResponse(url=url, state=state)
+
+
+@router.post("/google", response_model=Token)
+async def google_auth(
+    request: Request,
+    payload: GoogleAuthRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> Token:
+    await auth_rate_limiter.check(
+        f"google:{client_ip(request)}", limit=20, window_seconds=60
+    )
+
+    if payload.id_token:
+        google_info = await GoogleAuthService.verify_id_token(payload.id_token)
+    elif payload.code:
+        google_info = await GoogleAuthService.exchange_code_for_user(
+            code=payload.code,
+            state=payload.state,
+            redirect_uri=payload.redirect_uri,
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either code or id_token must be provided.",
+        )
+
+    repository = SQLAlchemyUserRepository(session)
+    service = UserService(repository)
+
+    user, is_new = await service.authenticate_or_create_google_user(
+        google_id=google_info["sub"],
+        email=google_info["email"],
+        full_name=google_info.get("name"),
+    )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled"
+        )
+
+    if is_new:
+        prefs = UserPreferences(
+            user_id=user.id,
+            keywords=["python", "fastapi", "react", "typescript"],
+            exclude_keywords=[],
+            sources=[],
+            notification_channels=["email"],
+            match_threshold=0.35,
+            digest_mode=False,
+            alert_email=user.email,
+        )
+        session.add(prefs)
+        await session.commit()
+        await session.refresh(user)
+
+    if user.is_totp_enabled:
+        if not payload.totp_code:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="TOTP_REQUIRED"
+            )
+        totp = pyotp.TOTP(user.totp_secret)
+        if not totp.verify(payload.totp_code, valid_window=1):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code"
+            )
+
+    expires_delta = timedelta(minutes=get_settings().access_token_expire_minutes)
+    access_token = create_access_token(str(user.id), expires_delta=expires_delta)
+    return Token(
+        access_token=access_token,
+        expires_at=datetime.now(UTC) + expires_delta,
+    )
+
+
+@router.get("/github/url", response_model=GitHubAuthUrlResponse)
+async def get_github_auth_url(
+    redirect_uri: str | None = None,
+) -> GitHubAuthUrlResponse:
+    url, state = GitHubAuthService.get_authorization_url(redirect_uri=redirect_uri)
+    return GitHubAuthUrlResponse(url=url, state=state)
+
+
+@router.post("/github", response_model=Token)
+async def github_auth(
+    request: Request,
+    payload: GitHubAuthRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> Token:
+    await auth_rate_limiter.check(
+        f"github:{client_ip(request)}", limit=20, window_seconds=60
+    )
+
+    github_info = await GitHubAuthService.exchange_code_for_user(
+        code=payload.code,
+        state=payload.state,
+        redirect_uri=payload.redirect_uri,
+    )
+
+    repository = SQLAlchemyUserRepository(session)
+    service = UserService(repository)
+
+    user, is_new = await service.authenticate_or_create_github_user(
+        github_id=github_info["sub"],
+        email=github_info["email"],
+        full_name=github_info.get("name"),
+    )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled"
+        )
+
+    if is_new:
+        prefs = UserPreferences(
+            user_id=user.id,
+            keywords=["python", "fastapi", "react", "typescript"],
+            exclude_keywords=[],
+            sources=[],
+            notification_channels=["email"],
+            match_threshold=0.35,
+            digest_mode=False,
+            alert_email=user.email,
+        )
+        session.add(prefs)
+        await session.commit()
+        await session.refresh(user)
+
+    if user.is_totp_enabled:
+        if not payload.totp_code:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="TOTP_REQUIRED"
+            )
+        totp = pyotp.TOTP(user.totp_secret)
+        if not totp.verify(payload.totp_code, valid_window=1):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code"
+            )
+
+    expires_delta = timedelta(minutes=get_settings().access_token_expire_minutes)
+    access_token = create_access_token(str(user.id), expires_delta=expires_delta)
+    return Token(
+        access_token=access_token,
+        expires_at=datetime.now(UTC) + expires_delta,
+    )

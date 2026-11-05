@@ -162,6 +162,10 @@ export type User = {
 
   is_totp_enabled?: boolean;
 
+  google_id?: string | null;
+
+  github_id?: string | null;
+
   verification_email_sent?: boolean | null;
 
   detail?: string | null;
@@ -1085,6 +1089,160 @@ export async function login(email: string, password: string, totp_code?: string)
     throw new Error(friendlyAuthError(response.status, detail));
 
   }
+
+  const data = (await response.json()) as { access_token: string };
+
+  setToken(data.access_token);
+
+  return data;
+
+}
+
+
+
+export async function getGoogleAuthUrl(redirect_uri?: string): Promise<{ url: string; state: string }> {
+
+  const query = redirect_uri ? `?redirect_uri=${encodeURIComponent(redirect_uri)}` : "";
+
+  return request<{ url: string; state: string }>(`/auth/google/url${query}`);
+
+}
+
+
+
+export async function loginWithGoogle(payload: {
+
+  code?: string;
+
+  state?: string;
+
+  redirect_uri?: string;
+
+  id_token?: string;
+
+  totp_code?: string;
+
+}): Promise<{ access_token: string }> {
+
+  let response: Response;
+
+  try {
+
+    response = await fetch(`${API_BASE}/auth/google`, {
+
+      method: "POST",
+
+      headers: { "Content-Type": "application/json" },
+
+      body: JSON.stringify(payload),
+
+    });
+
+  } catch {
+
+    throw new Error("Can't reach the API. Check that the backend is running.");
+
+  }
+
+
+
+  if (!response.ok) {
+
+    let detail = await response.text();
+
+    try {
+
+      const parsed = JSON.parse(detail);
+
+      if (parsed.detail) detail = String(parsed.detail);
+
+    } catch {
+
+      // keep raw text
+
+    }
+
+    throw new Error(friendlyAuthError(response.status, detail));
+
+  }
+
+
+
+  const data = (await response.json()) as { access_token: string };
+
+  setToken(data.access_token);
+
+  return data;
+
+}
+
+
+
+export async function getGitHubAuthUrl(redirect_uri?: string): Promise<{ url: string; state: string }> {
+
+  const query = redirect_uri ? `?redirect_uri=${encodeURIComponent(redirect_uri)}` : "";
+
+  return request<{ url: string; state: string }>(`/auth/github/url${query}`);
+
+}
+
+
+
+export async function loginWithGitHub(payload: {
+
+  code: string;
+
+  state?: string;
+
+  redirect_uri?: string;
+
+  totp_code?: string;
+
+}): Promise<{ access_token: string }> {
+
+  let response: Response;
+
+  try {
+
+    response = await fetch(`${API_BASE}/auth/github`, {
+
+      method: "POST",
+
+      headers: { "Content-Type": "application/json" },
+
+      body: JSON.stringify(payload),
+
+    });
+
+  } catch {
+
+    throw new Error("Can't reach the API. Check that the backend is running.");
+
+  }
+
+
+
+  if (!response.ok) {
+
+    let detail = await response.text();
+
+    try {
+
+      const parsed = JSON.parse(detail);
+
+      if (parsed.detail) detail = String(parsed.detail);
+
+    } catch {
+
+      // keep raw text
+
+    }
+
+    throw new Error(friendlyAuthError(response.status, detail));
+
+  }
+
+
 
   const data = (await response.json()) as { access_token: string };
 

@@ -115,6 +115,27 @@ export function AccountSettings({ user }: { user: User }) {
           </p>
         </div>
 
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+          <h3 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">Connected accounts</h3>
+          <p className="mb-3 text-xs text-[var(--text-muted)]">
+            Sign in faster with single sign-on (SSO). Accounts matching your email are automatically linked.
+          </p>
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm">
+              <span className="font-medium text-[var(--text)]">Google</span>
+              <Badge variant={user.google_id ? "accent" : "muted"}>
+                {user.google_id ? "Connected" : "Not connected"}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm">
+              <span className="font-medium text-[var(--text)]">GitHub</span>
+              <Badge variant={user.github_id ? "accent" : "muted"}>
+                {user.github_id ? "Connected" : "Not connected"}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
         <div className="border-t border-[var(--border)] pt-4">
           <Button onClick={handleLogout} variant="outline" className="w-full sm:w-auto">
             Sign out

@@ -8,6 +8,8 @@ CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT NOT NULL UNIQUE,
   full_name TEXT,
+  google_id TEXT UNIQUE,
+  github_id TEXT UNIQUE,
   timezone TEXT,
   locale TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

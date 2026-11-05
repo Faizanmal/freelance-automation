@@ -24,6 +24,12 @@ class User(Base):
     )
     locale: Mapped[str | None] = mapped_column(String(16), nullable=True, default="en")
     hashed_password: Mapped[str] = mapped_column(String(256), nullable=False)
+    google_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True, index=True
+    )
+    github_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True, index=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

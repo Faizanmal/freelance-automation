@@ -20,7 +20,7 @@ import { cn } from "@/lib/cn";
 
 export default function PricingPage() {
   const router = useRouter();
-  const [authed, setAuthed] = useState(() => (typeof window !== "undefined" ? Boolean(getToken()) : false));
+  const [authed] = useState(() => (typeof window !== "undefined" ? Boolean(getToken()) : false));
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [devActivateAllowed, setDevActivateAllowed] = useState(false);

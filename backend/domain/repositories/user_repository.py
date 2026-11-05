@@ -7,6 +7,12 @@ class IUserRepository:
     async def get_by_email(self, email: str) -> User | None:
         raise NotImplementedError
 
+    async def get_by_google_id(self, google_id: str) -> User | None:
+        raise NotImplementedError
+
+    async def get_by_github_id(self, github_id: str) -> User | None:
+        raise NotImplementedError
+
     async def get_by_id(self, user_id: str) -> User | None:
         raise NotImplementedError
 

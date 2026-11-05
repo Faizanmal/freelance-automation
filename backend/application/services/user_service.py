@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from uuid import uuid4
 
 import bcrypt
@@ -42,6 +43,116 @@ class UserService:
         if not user.is_active:
             return None
         return user
+
+    async def get_by_google_id(self, google_id: str) -> User | None:
+        return await self.user_repository.get_by_google_id(google_id)
+
+    async def authenticate_or_create_google_user(
+        self,
+        google_id: str,
+        email: str,
+        full_name: str | None = None,
+    ) -> tuple[User, bool]:
+        """
+        Authenticate an existing user by Google ID or email, or create a new user.
+        Returns (user, is_new_user).
+        """
+        normalized_email = email.strip().lower()
+
+        # 1. Lookup by google_id
+        user = await self.user_repository.get_by_google_id(google_id)
+        if user:
+            updated = False
+            if not user.is_verified:
+                user.is_verified = True
+                updated = True
+            if not user.full_name and full_name:
+                user.full_name = full_name
+                updated = True
+            if updated:
+                await self.user_repository.update(user)
+            return user, False
+
+        # 2. Lookup by email to link Google account to existing user
+        user = await self.user_repository.get_by_email(normalized_email)
+        if user:
+            user.google_id = google_id
+            if not user.is_verified:
+                user.is_verified = True
+            if not user.full_name and full_name:
+                user.full_name = full_name
+            await self.user_repository.update(user)
+            return user, False
+
+        # 3. Create a brand new user
+        random_password = secrets.token_urlsafe(32)
+        hashed_password = self.hash_password(random_password)
+        new_user = User(
+            id=str(uuid4()),
+            email=normalized_email,
+            full_name=full_name,
+            hashed_password=hashed_password,
+            google_id=google_id,
+            is_verified=True,
+            is_active=True,
+        )
+        created_user = await self.user_repository.create(new_user)
+        return created_user, True
+
+    async def get_by_github_id(self, github_id: str) -> User | None:
+        return await self.user_repository.get_by_github_id(github_id)
+
+    async def authenticate_or_create_github_user(
+        self,
+        github_id: str,
+        email: str,
+        full_name: str | None = None,
+    ) -> tuple[User, bool]:
+        """
+        Authenticate an existing user by GitHub ID or email, or create a new user.
+        Returns (user, is_new_user).
+        """
+        normalized_email = email.strip().lower()
+
+        # 1. Lookup by github_id
+        user = await self.user_repository.get_by_github_id(github_id)
+        if user:
+            updated = False
+            if not user.is_verified:
+                user.is_verified = True
+                updated = True
+            if not user.full_name and full_name:
+                user.full_name = full_name
+                updated = True
+            if updated:
+                await self.user_repository.update(user)
+            return user, False
+
+        # 2. Lookup by email to link GitHub account to existing user
+        user = await self.user_repository.get_by_email(normalized_email)
+        if user:
+            user.github_id = github_id
+            if not user.is_verified:
+                user.is_verified = True
+            if not user.full_name and full_name:
+                user.full_name = full_name
+            await self.user_repository.update(user)
+            return user, False
+
+        # 3. Create a brand new user
+        random_password = secrets.token_urlsafe(32)
+        hashed_password = self.hash_password(random_password)
+        new_user = User(
+            id=str(uuid4()),
+            email=normalized_email,
+            full_name=full_name,
+            hashed_password=hashed_password,
+            github_id=github_id,
+            is_verified=True,
+            is_active=True,
+        )
+        created_user = await self.user_repository.create(new_user)
+        return created_user, True
 
     @staticmethod
     def hash_password(password: str) -> str:

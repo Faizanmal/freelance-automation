@@ -19,6 +19,18 @@ class SQLAlchemyUserRepository(IUserRepository):
         result = await self.session.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
+    async def get_by_google_id(self, google_id: str) -> User | None:
+        result = await self.session.execute(
+            select(User).where(User.google_id == google_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_github_id(self, github_id: str) -> User | None:
+        result = await self.session.execute(
+            select(User).where(User.github_id == github_id)
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_id(self, user_id: str) -> User | None:
         result = await self.session.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()

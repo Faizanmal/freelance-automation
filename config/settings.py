@@ -88,6 +88,16 @@ class Settings(BaseSettings):
         "python OR fastapi OR react", alias="UPWORK_SEARCH_QUERY"
     )
 
+    # Google OAuth 2.0
+    google_client_id: str | None = Field(None, alias="GOOGLE_CLIENT_ID")
+    google_client_secret: str | None = Field(None, alias="GOOGLE_CLIENT_SECRET")
+    google_redirect_uri: str | None = Field(None, alias="GOOGLE_REDIRECT_URI")
+
+    # GitHub OAuth 2.0
+    github_client_id: str | None = Field(None, alias="GITHUB_CLIENT_ID")
+    github_client_secret: str | None = Field(None, alias="GITHUB_CLIENT_SECRET")
+    github_redirect_uri: str | None = Field(None, alias="GITHUB_REDIRECT_URI")
+
     # Freelancer.com official API
     freelancer_oauth_token: str | None = Field(None, alias="FREELANCER_OAUTH_TOKEN")
     freelancer_search_query: str = Field("python", alias="FREELANCER_SEARCH_QUERY")

@@ -22,6 +22,8 @@ class UserRead(UserBase):
     is_verified: bool = False
     is_superuser: bool = False
     is_totp_enabled: bool = False
+    google_id: str | None = None
+    github_id: str | None = None
     plan: str = "free"
     subscription_status: str = "inactive"
     created_at: datetime
@@ -60,3 +62,28 @@ class Setup2FAResponse(BaseModel):
 
 class Verify2FARequest(BaseModel):
     code: str
+
+
+class GoogleAuthRequest(BaseModel):
+    code: str | None = None
+    state: str | None = None
+    redirect_uri: str | None = None
+    id_token: str | None = None
+    totp_code: str | None = None
+
+
+class GoogleAuthUrlResponse(BaseModel):
+    url: str
+    state: str
+
+
+class GitHubAuthRequest(BaseModel):
+    code: str
+    state: str | None = None
+    redirect_uri: str | None = None
+    totp_code: str | None = None
+
+
+class GitHubAuthUrlResponse(BaseModel):
+    url: str
+    state: str

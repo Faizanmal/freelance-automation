@@ -26,6 +26,7 @@ PUBLIC_EMAIL_APPLY = {
     "serpapi_companies",
     "serpapi_maps",
     "hn_hiring",
+    "github_bounties",
 }
 
 

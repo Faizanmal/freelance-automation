@@ -619,6 +619,48 @@ function LeadsPageInner() {
 
   ];
 
+  const handleExportCsv = () => {
+    if (!visibleItems.length) return;
+    const headers = [
+      "Job ID",
+      "Title",
+      "Company",
+      "Source",
+      "Match Score",
+      "Reasons",
+      "Status",
+      "URL",
+      "Posted At",
+    ];
+    const escapeCsv = (val: string | number | null | undefined) => {
+      const str = String(val ?? "");
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+    const rows = visibleItems.map((item) => [
+      item.job_id,
+      escapeCsv(item.title),
+      escapeCsv(item.company),
+      escapeCsv(item.source_label || item.source_name),
+      Math.round((item.score || 0) * 100),
+      escapeCsv([item.why, ...(item.matched_keywords || [])].filter(Boolean).join("; ")),
+      escapeCsv(item.user_status),
+      escapeCsv(item.url),
+      escapeCsv(item.posted_at),
+    ]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      encodeURIComponent([headers.join(","), ...rows.map((r) => r.join(","))].join("\n"));
+    const link = document.createElement("a");
+    link.setAttribute("href", csvContent);
+    link.setAttribute(
+      "download",
+      `signal-desk-leads-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
 
 
   return (
@@ -648,6 +690,12 @@ function LeadsPageInner() {
               {pending ? "Working…" : "Refresh leads"}
 
             </Button>
+
+            {visibleItems.length > 0 ? (
+              <Button type="button" variant="outline" onClick={handleExportCsv} title="Export filtered leads to CSV">
+                Export CSV
+              </Button>
+            ) : null}
 
             {authed ? (
 
