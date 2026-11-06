@@ -31,6 +31,13 @@ services:
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       SCRAPE_ON_STARTUP: "true"
       SCRAPE_SOURCES: serpapi_freelance,serpapi_jobs,serpapi_companies
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       PYTHONPATH: /app/fastapi:/app
     depends_on:
       - db
