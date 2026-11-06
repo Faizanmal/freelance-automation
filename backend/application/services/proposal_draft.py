@@ -27,6 +27,7 @@ PUBLIC_EMAIL_APPLY = {
     "serpapi_maps",
     "hn_hiring",
     "github_bounties",
+    "reddit_hiring",
 }
 
 
@@ -79,11 +80,15 @@ class ProposalDraftService:
                 provider = llm_provider
 
         draft_text = str(form_fields.get("proposal") or "")
+        apply_email = extract_apply_email(job)
+        email_subject = f"Contract inquiry: {job.title}"
         return {
             "job_id": job.id,
             "title": job.title,
             "source_name": job.source_name,
             "source_url": job.url,
+            "apply_email": apply_email,
+            "email_subject": email_subject,
             "provider": provider,
             "draft": draft_text,
             "form_fields": form_fields,
@@ -132,6 +137,7 @@ class ProposalDraftService:
             "Milestone 3: Revisions & final handoff (20%)."
         )
 
+        apply_email = extract_apply_email(job)
         return {
             "proposal": proposal,
             "bid_amount": bid_amount,
@@ -144,6 +150,8 @@ class ProposalDraftService:
             "project_url": job.url,
             "submit_mode": submit_mode_for_job(job),
             "apply_url": job.url,
+            "apply_email": apply_email,
+            "email_subject": f"Contract inquiry: {job.title}",
         }
 
     async def _maybe_llm_form_fields(

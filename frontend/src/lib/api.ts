@@ -540,6 +540,10 @@ export type ApplyFormFields = {
 
   submit_mode?: string;
 
+  apply_email?: string | null;
+
+  email_subject?: string | null;
+
 };
 
 
@@ -553,6 +557,10 @@ export type ProposalDraftResponse = {
   source_name: string;
 
   source_url: string;
+
+  apply_email?: string | null;
+
+  email_subject?: string | null;
 
   provider: string;
 
@@ -686,6 +694,8 @@ export type LeadFinding = {
 
   apply_url?: string | null;
 
+  apply_email?: string | null;
+
   description_excerpt?: string | null;
 
   score: number;
@@ -810,6 +820,71 @@ export async function setLeadAction(jobId: number, status: "save" | "skip" | "pi
 
   );
 
+}
+
+export type PipelineStats = {
+  saved_count: number;
+  pitched_count: number;
+  won_count: number;
+  skipped_count: number;
+  total_engaged: number;
+  pitch_rate: number;
+  win_rate: number;
+  saved_value: number;
+  pitched_value: number;
+  won_value: number;
+  active_pipeline_value: number;
+};
+
+export async function getPipelineStats() {
+  return request<PipelineStats>("/preferences/pipeline-stats", { auth: true });
+}
+
+export type SeoSkillCategory = {
+  slug: string;
+  label: string;
+  headline: string;
+  description: string;
+  job_count: number;
+};
+
+export type SeoJobTeaser = {
+  id: number;
+  title: string;
+  company_masked: string;
+  location: string;
+  source_name: string;
+  source_attribution: string;
+  tags: string[];
+  budget_label?: string | null;
+  posted_at?: string | null;
+  description_excerpt: string;
+};
+
+export type SeoDirectoryIndexResponse = {
+  total_active: number;
+  categories: SeoSkillCategory[];
+  recent: SeoJobTeaser[];
+};
+
+export type SeoSkillDirectoryResponse = {
+  slug: string;
+  label: string;
+  headline: string;
+  description: string;
+  total_matched: number;
+  items: SeoJobTeaser[];
+  related_skills: { slug: string; label: string }[];
+};
+
+export async function getSeoDirectory() {
+  return request<SeoDirectoryIndexResponse>("/jobs/directory");
+}
+
+export async function getSeoSkillDirectory(skillSlug: string, limit = 24) {
+  return request<SeoSkillDirectoryResponse>(
+    `/jobs/directory/${encodeURIComponent(skillSlug)}?limit=${limit}`,
+  );
 }
 
 

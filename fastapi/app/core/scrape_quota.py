@@ -38,26 +38,31 @@ class DailyScrapeQuota:
 
         client = await get_redis()
         if client:
-            count = await client.incr(redis_key)
-            if count == 1:
-                # Expire slightly after end of UTC day.
-                await client.expire(redis_key, 60 * 60 * 36)
-            if count > limit:
-                await client.decr(redis_key)
-                raise HTTPException(
-                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                    detail={
-                        "message": (
-                            f"Daily manual hunt limit reached ({limit}/day on "
-                            f"{limits.name} plan). Upgrade to Pro for higher density."
-                        ),
-                        "code": "daily_scrape_quota",
-                        "limit": limit,
-                        "used": limit,
-                        "upgrade": "/pricing",
-                    },
-                )
-            return int(count)
+            try:
+                count = await client.incr(redis_key)
+                if count == 1:
+                    # Expire slightly after end of UTC day.
+                    await client.expire(redis_key, 60 * 60 * 36)
+                if count > limit:
+                    await client.decr(redis_key)
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail={
+                            "message": (
+                                f"Daily manual hunt limit reached ({limit}/day on "
+                                f"{limits.name} plan). Upgrade to Pro for higher density."
+                            ),
+                            "code": "daily_scrape_quota",
+                            "limit": limit,
+                            "used": limit,
+                            "upgrade": "/pricing",
+                        },
+                    )
+                return int(count)
+            except HTTPException:
+                raise
+            except (OSError, RuntimeError, TimeoutError, ValueError):
+                pass
 
         mem_key = self._memory_key(user_id)
         with self._lock:

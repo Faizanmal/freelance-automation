@@ -28,6 +28,8 @@ from backend.application.services.listing_presentation import make_excerpt
 
 from backend.application.services.matching import JobMatch, MatchingService
 
+from backend.application.services.proposal_draft import extract_apply_email
+
 from database.models.job import JobRecord
 
 from database.models.preference import UserPreferences
@@ -552,6 +554,20 @@ class LeadFindingsService:
 
                 benefits.insert(0, "Local outreach lead")
 
+        elif source in {"hn_hiring", "github_bounties", "reddit_hiring"}:
+
+            fit += 0.35
+
+            label = (
+                "Direct founder/community post"
+                if source != "github_bounties"
+                else "Open-source bounty / contract"
+            )
+
+            if label not in benefits:
+
+                benefits.insert(0, label)
+
         elif source in {
 
             "remoteok",
@@ -831,6 +847,8 @@ class LeadFindingsService:
             "url": job.url,
 
             "apply_url": job.url,
+
+            "apply_email": extract_apply_email(job),
 
             "description_excerpt": make_excerpt(job.description or ""),
 

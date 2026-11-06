@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from app.api.dependencies import get_current_user
 from pydantic import BaseModel, EmailStr, Field
@@ -343,6 +343,83 @@ async def set_lead_action(
     await session.commit()
     await session.refresh(row)
     return {"job_id": job_id, "status": row.status}
+
+
+def _estimate_job_value(
+    job: JobRecord | None, bid_amount: float | None
+) -> float:
+    if bid_amount is not None and bid_amount > 0:
+        return float(bid_amount)
+    if job is None:
+        return 0.0
+    b_min = float(job.budget_min) if job.budget_min and job.budget_min > 0 else 0.0
+    b_max = float(job.budget_max) if job.budget_max and job.budget_max > 0 else 0.0
+    if b_min > 0 and b_max > 0:
+        return round((b_min + b_max) / 2.0, 2)
+    return b_max or b_min
+
+
+@router.get("/pipeline-stats")
+async def get_pipeline_stats(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """Compute lead conversion funnel metrics and estimated pipeline value in O(N)."""
+    actions_res = await session.execute(
+        select(UserLeadAction, JobRecord)
+        .outerjoin(JobRecord, UserLeadAction.job_id == JobRecord.id)
+        .where(UserLeadAction.user_id == user.id)
+    )
+    apps_res = await session.execute(
+        select(JobApplication)
+        .where(JobApplication.user_id == user.id)
+        .order_by(JobApplication.created_at.desc())
+    )
+    bid_by_job: dict[int, float] = {}
+    for app in apps_res.scalars().all():
+        if app.job_id not in bid_by_job and app.bid_amount is not None:
+            bid_by_job[app.job_id] = float(app.bid_amount)
+
+    saved_count = 0
+    pitched_count = 0
+    won_count = 0
+    skipped_count = 0
+    saved_value = 0.0
+    pitched_value = 0.0
+    won_value = 0.0
+
+    for action, job in actions_res.all():
+        est = _estimate_job_value(job, bid_by_job.get(action.job_id))
+        if action.status == "save":
+            saved_count += 1
+            saved_value += est
+        elif action.status == "pitched":
+            pitched_count += 1
+            pitched_value += est
+        elif action.status == "won":
+            won_count += 1
+            won_value += est
+        elif action.status == "skip":
+            skipped_count += 1
+
+    total_engaged = saved_count + pitched_count + won_count
+    total_pitched = pitched_count + won_count
+    pitch_rate = round(total_pitched / total_engaged, 3) if total_engaged > 0 else 0.0
+    win_rate = round(won_count / total_pitched, 3) if total_pitched > 0 else 0.0
+
+    return {
+        "saved_count": saved_count,
+        "pitched_count": pitched_count,
+        "won_count": won_count,
+        "skipped_count": skipped_count,
+        "total_engaged": total_engaged,
+        "pitch_rate": pitch_rate,
+        "win_rate": win_rate,
+        "saved_value": round(saved_value, 2),
+        "pitched_value": round(pitched_value, 2),
+        "won_value": round(won_value, 2),
+        "active_pipeline_value": round(saved_value + pitched_value, 2),
+    }
 
 
 @router.get("/demo-findings")

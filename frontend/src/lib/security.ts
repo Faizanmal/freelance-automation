@@ -78,3 +78,61 @@ export function stripHtml(value?: string | null): string {
   // 4. Collapse whitespace
   return clean.replace(/\s+/g, " ").trim();
 }
+
+const SAFE_EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+/**
+ * Validates and normalizes an email address to prevent CRLF / header injection.
+ */
+export function sanitizeEmailAddress(email?: string | null): string {
+  if (!email) return "";
+  const trimmed = email.trim();
+  if (!trimmed || trimmed.length > 254 || !SAFE_EMAIL_RE.test(trimmed)) {
+    return "";
+  }
+  return trimmed;
+}
+
+/**
+ * Builds a safe Gmail compose URL with optional recipient, subject, and body.
+ */
+export function buildGmailComposeUrl(params: {
+  to?: string | null;
+  subject?: string | null;
+  body?: string | null;
+}): string {
+  const url = new URL("https://mail.google.com/mail/");
+  url.searchParams.set("view", "cm");
+  url.searchParams.set("fs", "1");
+  const safeTo = sanitizeEmailAddress(params.to);
+  if (safeTo) {
+    url.searchParams.set("to", safeTo);
+  }
+  if (params.subject?.trim()) {
+    url.searchParams.set("su", params.subject.trim().slice(0, 200));
+  }
+  if (params.body?.trim()) {
+    url.searchParams.set("body", params.body.trim().slice(0, 6000));
+  }
+  return url.toString();
+}
+
+/**
+ * Builds a safe mailto: URI with URI-encoded subject and body.
+ */
+export function buildSafeMailtoUrl(params: {
+  to?: string | null;
+  subject?: string | null;
+  body?: string | null;
+}): string {
+  const safeTo = sanitizeEmailAddress(params.to);
+  const queryParts: string[] = [];
+  if (params.subject?.trim()) {
+    queryParts.push(`subject=${encodeURIComponent(params.subject.trim().slice(0, 200))}`);
+  }
+  if (params.body?.trim()) {
+    queryParts.push(`body=${encodeURIComponent(params.body.trim().slice(0, 6000))}`);
+  }
+  const query = queryParts.length > 0 ? `?${queryParts.join("&")}` : "";
+  return `mailto:${safeTo}${query}`;
+}

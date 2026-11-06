@@ -7,6 +7,7 @@ import {
   getAuthFindings,
   getAuthServerSnapshot,
   getAuthSnapshot,
+  getPipelineStats,
   getPreferences,
   getToken,
   healthLive,
@@ -16,6 +17,7 @@ import {
   subscribeAuth,
   type Job,
   type LeadFinding,
+  type PipelineStats,
   type Preferences,
   type User,
 } from "@/lib/api";
@@ -70,6 +72,7 @@ export default function HomePage() {
     total_findings: number;
     generated_at?: string;
   } | null>(null);
+  const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
   const [greeting] = useState(() => greetingForHour());
   const [, startTransition] = useTransition();
 
@@ -79,12 +82,15 @@ export default function HomePage() {
         setError(null);
         setLoading(true);
         if (isAuthed) {
-          const [health, data, currentUser, currentPrefs, leadData] = await Promise.all([
+          const [health, data, currentUser, currentPrefs, leadData, pStats] = await Promise.all([
             healthLive(),
             listJobs({ limit: 8 }),
             me().catch(() => null),
             getPreferences().catch(() => null),
             getAuthFindings(8, true).catch(() => null),
+            Promise.resolve(typeof getPipelineStats === "function" ? getPipelineStats() : null).catch(
+              () => null,
+            ),
           ]);
           setApiStatus(health.status);
           setJobs(data.items);
@@ -97,6 +103,7 @@ export default function HomePage() {
               ? { total_findings: leadData.total_findings, generated_at: leadData.generated_at }
               : null,
           );
+          setPipelineStats(pStats);
           return;
         }
         const data = await listJobs({ limit: 8 });
@@ -107,6 +114,7 @@ export default function HomePage() {
         setPrefs(null);
         setFindings([]);
         setFindingsMeta(null);
+        setPipelineStats(null);
       } catch (err) {
         setApiStatus("offline");
         setError(err instanceof Error ? err.message : "API unavailable");
@@ -347,6 +355,46 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+
+          <div className="mt-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold tracking-wider text-[var(--accent)] uppercase">
+                  Contract Directory by Skill
+                </p>
+                <h3 className="mt-1 text-lg font-semibold text-[var(--text)]">
+                  Explore live freelance & contract roles by specialty
+                </h3>
+              </div>
+              <Link
+                href="/freelance-jobs"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--accent)] hover:underline"
+              >
+                All skill directories
+                <ArrowRight className="size-3.5" />
+              </Link>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                { slug: "python", label: "Python Contracts" },
+                { slug: "react", label: "React & Next.js" },
+                { slug: "fastapi", label: "FastAPI" },
+                { slug: "typescript", label: "TypeScript" },
+                { slug: "ai-ml", label: "AI & LLM Engineering" },
+                { slug: "devops", label: "DevOps & Cloud" },
+                { slug: "golang", label: "Golang" },
+                { slug: "nodejs", label: "Node.js" },
+              ].map((cat) => (
+                <Link
+                  key={cat.slug}
+                  href={`/freelance-jobs/${cat.slug}`}
+                  className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-3.5 py-2 text-xs font-medium text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                >
+                  {cat.label}
+                </Link>
+              ))}
+            </div>
+          </div>
         </section>
       </div>
     );
@@ -454,6 +502,73 @@ export default function HomePage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
+        <Card className="p-5 lg:col-span-3" data-testid="pipeline-analytics-card">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-[var(--text)]">Pipeline & Win-Rate Analytics</h2>
+              <p className="text-xs text-[var(--text-muted)]">
+                Your conversion funnel from saved opportunities to pitched and won contracts
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Link
+                href="/leads?filter=saved"
+                className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              >
+                Saved ({pipelineStats?.saved_count ?? savedCount})
+              </Link>
+              <Link
+                href="/leads?filter=pitched"
+                className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              >
+                Pitched ({pipelineStats?.pitched_count ?? 0})
+              </Link>
+              <Link
+                href="/leads?filter=won"
+                className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              >
+                Won ({pipelineStats?.won_count ?? 0})
+              </Link>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+              <p className="text-xs text-[var(--text-muted)]">Pitch conversion rate</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--text)]">
+                {Math.round((pipelineStats?.pitch_rate ?? 0) * 100)}%
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched of{" "}
+                {pipelineStats?.total_engaged ?? 0} engaged
+              </p>
+            </div>
+            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+              <p className="text-xs text-[var(--text-muted)]">Win rate</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--success)]">
+                {Math.round((pipelineStats?.win_rate ?? 0) * 100)}%
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                {pipelineStats?.won_count ?? 0} won of{" "}
+                {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched
+              </p>
+            </div>
+            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+              <p className="text-xs text-[var(--text-muted)]">Active pipeline value</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--text)]">
+                ${(pipelineStats?.active_pipeline_value ?? 0).toLocaleString()}
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">Estimated across saved & pitched</p>
+            </div>
+            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+              <p className="text-xs text-[var(--text-muted)]">Won contract value</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--accent)]">
+                ${(pipelineStats?.won_value ?? 0).toLocaleString()}
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">Closed freelance revenue</p>
+            </div>
+          </div>
+        </Card>
+
         <Card className="p-5 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>

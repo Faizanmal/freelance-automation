@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated
+import re
+from typing import Annotated, Any
 
 from app.api.dependencies import rate_limit_api
 from app.core.logging.logger import get_logger
@@ -161,6 +162,202 @@ async def list_jobs(
     return result
 
 
+SEO_SKILL_CATALOG: dict[str, dict[str, Any]] = {
+    "python": {
+        "slug": "python",
+        "label": "Python",
+        "headline": "Remote Python Freelance & Contract Jobs",
+        "description": "Verified Python backend, automation, data, and AI contract opportunities from direct client postings and company boards.",
+        "keywords": ("python", "django", "flask", "fastapi", "pydantic", "celery"),
+    },
+    "react": {
+        "slug": "react",
+        "label": "React",
+        "headline": "Remote React & Frontend Contract Jobs",
+        "description": "Live React, Next.js, and TypeScript contract roles sourced outside crowded bidding marketplaces.",
+        "keywords": ("react", "reactjs", "react.js", "next.js", "nextjs", "frontend"),
+    },
+    "fastapi": {
+        "slug": "fastapi",
+        "label": "FastAPI",
+        "headline": "FastAPI & Async Python Contract Opportunities",
+        "description": "High-intent FastAPI, microservice, and API architecture freelance projects.",
+        "keywords": ("fastapi", "starlette", "pydantic", "uvicorn", "python api"),
+    },
+    "typescript": {
+        "slug": "typescript",
+        "label": "TypeScript",
+        "headline": "Remote TypeScript Freelance & Contract Roles",
+        "description": "Full-stack and frontend TypeScript contract work from startups and direct hiring posts.",
+        "keywords": ("typescript", "ts", "node.js", "nodejs", "nextjs", "react"),
+    },
+    "ai-ml": {
+        "slug": "ai-ml",
+        "label": "AI & LLM Engineering",
+        "headline": "AI, LLM & Machine Learning Contract Jobs",
+        "description": "Contract roles in LLM orchestration, RAG pipelines, agents, PyTorch, and applied AI.",
+        "keywords": ("ai", "llm", "machine learning", "openai", "langchain", "rag", "pytorch", "ml"),
+    },
+    "devops": {
+        "slug": "devops",
+        "label": "DevOps & Cloud",
+        "headline": "DevOps, Kubernetes & Cloud Infrastructure Contracts",
+        "description": "Fractional DevOps, AWS/GCP, Terraform, Docker, and CI/CD consulting engagements.",
+        "keywords": ("devops", "kubernetes", "k8s", "terraform", "aws", "gcp", "docker", "sre"),
+    },
+    "golang": {
+        "slug": "golang",
+        "label": "Go (Golang)",
+        "headline": "Remote Golang Backend & Systems Contract Jobs",
+        "description": "High-performance Go backend, distributed systems, and cloud-native freelance roles.",
+        "keywords": ("golang", "go ", "goroutines", "grpc"),
+    },
+    "nodejs": {
+        "slug": "nodejs",
+        "label": "Node.js",
+        "headline": "Remote Node.js Backend & Full-Stack Contracts",
+        "description": "Contract Node.js, Express, NestJS, and GraphQL engineering opportunities.",
+        "keywords": ("node.js", "nodejs", "nestjs", "express", "backend"),
+    },
+}
+
+_SKILL_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]?$")
+
+
+def _job_haystack(job: Any) -> str:
+    enrichment = job.enrichment if isinstance(getattr(job, "enrichment", None), dict) else {}
+    skills = enrichment.get("skills") or []
+    tags = job.tags if isinstance(getattr(job, "tags", None), list) else []
+    return " ".join(
+        [
+            str(getattr(job, "title", "") or ""),
+            str(getattr(job, "description", "") or ""),
+            " ".join(str(t) for t in tags),
+            " ".join(str(s) for s in skills),
+        ]
+    ).lower()
+
+
+def _matches_keywords(haystack: str, keywords: tuple[str, ...]) -> bool:
+    return any(kw in haystack for kw in keywords)
+
+
+def _anonymize_company(company: str | None) -> str:
+    if not company or not company.strip():
+        return "Verified Direct Client"
+    clean = company.strip()
+    if len(clean) <= 3:
+        return "Verified Client"
+    return f"{clean[:2]}••• ({clean.split()[0][:1]}*)"
+
+
+def _to_public_teaser(candidate_dict: dict[str, Any]) -> dict[str, Any]:
+    from backend.application.services.budget_parser import describe_budget
+
+    budget_label = describe_budget(
+        candidate_dict.get("budget_min"),
+        candidate_dict.get("budget_max"),
+        candidate_dict.get("enrichment"),
+    )
+    return {
+        "id": candidate_dict["id"],
+        "title": candidate_dict["title"],
+        "company_masked": _anonymize_company(candidate_dict.get("company")),
+        "location": candidate_dict.get("location") or "Remote",
+        "source_name": candidate_dict["source_name"],
+        "source_attribution": candidate_dict.get("source_attribution") or candidate_dict["source_name"],
+        "tags": (candidate_dict.get("tags") or [])[:6],
+        "budget_label": budget_label,
+        "posted_at": candidate_dict.get("posted_at") or candidate_dict.get("created_at"),
+        "description_excerpt": (candidate_dict.get("description_excerpt") or "")[:220],
+    }
+
+
+@router.get("/directory", response_model=dict)
+async def list_seo_directory(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """Public programmatic SEO directory index with per-skill counts and recent teasers."""
+    repo = SQLAlchemyJobRepository(session)
+    jobs = await repo.list_recent(limit=250)
+    active_jobs = [j for j in jobs if not getattr(j, "is_expired", False)]
+
+    haystacks = [(j, _job_haystack(j)) for j in active_jobs]
+    categories: list[dict[str, Any]] = []
+    for slug, meta in SEO_SKILL_CATALOG.items():
+        kws = tuple(k.lower() for k in meta["keywords"])
+        count = sum(1 for _, h in haystacks if _matches_keywords(h, kws))
+        categories.append(
+            {
+                "slug": slug,
+                "label": meta["label"],
+                "headline": meta["headline"],
+                "description": meta["description"],
+                "job_count": count,
+            }
+        )
+
+    recent_teasers: list[dict[str, Any]] = []
+    for job in active_jobs[:12]:
+        c_dict = await repo.to_candidate_dict(job)
+        recent_teasers.append(_to_public_teaser(c_dict))
+
+    return {
+        "total_active": len(active_jobs),
+        "categories": categories,
+        "recent": recent_teasers,
+    }
+
+
+@router.get("/directory/{skill_slug}", response_model=dict)
+async def get_seo_skill_directory(
+    skill_slug: str,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(24, ge=1, le=60),
+) -> dict[str, Any]:
+    """Public programmatic SEO landing data for a specific skill slug."""
+    normalized = skill_slug.strip().lower()
+    if not _SKILL_SLUG_RE.match(normalized):
+        raise HTTPException(status_code=400, detail="Invalid skill slug")
+
+    meta = SEO_SKILL_CATALOG.get(normalized)
+    if meta is None:
+        term = normalized.replace("-", " ")
+        label = term.title()
+        meta = {
+            "slug": normalized,
+            "label": label,
+            "headline": f"Remote {label} Freelance & Contract Jobs",
+            "description": f"Curated {label} freelance and contract opportunities from direct clients and remote boards.",
+            "keywords": (term, normalized),
+        }
+
+    repo = SQLAlchemyJobRepository(session)
+    jobs = await repo.list_recent(limit=300)
+    active_jobs = [j for j in jobs if not getattr(j, "is_expired", False)]
+    kws = tuple(k.lower() for k in meta["keywords"])
+
+    matched_jobs = [j for j in active_jobs if _matches_keywords(_job_haystack(j), kws)]
+    teasers: list[dict[str, Any]] = []
+    for job in matched_jobs[:limit]:
+        c_dict = await repo.to_candidate_dict(job)
+        teasers.append(_to_public_teaser(c_dict))
+
+    return {
+        "slug": meta["slug"],
+        "label": meta["label"],
+        "headline": meta["headline"],
+        "description": meta["description"],
+        "total_matched": len(matched_jobs),
+        "items": teasers,
+        "related_skills": [
+            {"slug": s, "label": m["label"]}
+            for s, m in SEO_SKILL_CATALOG.items()
+            if s != normalized
+        ][:6],
+    }
+
+
 @router.get("/{job_id}", response_model=JobOut)
 async def get_job(
     job_id: int,

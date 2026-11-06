@@ -49,6 +49,21 @@ vi.mock('@/lib/api', () => ({
       items: [],
     }),
   ),
+  getPipelineStats: vi.fn(() =>
+    Promise.resolve({
+      saved_count: 1,
+      pitched_count: 1,
+      won_count: 0,
+      skipped_count: 0,
+      total_engaged: 2,
+      pitch_rate: 0.5,
+      win_rate: 0,
+      saved_value: 1000,
+      pitched_value: 2000,
+      won_value: 0,
+      active_pipeline_value: 3000,
+    }),
+  ),
 }))
 
 vi.mock('@/components/activation-checklist', () => ({

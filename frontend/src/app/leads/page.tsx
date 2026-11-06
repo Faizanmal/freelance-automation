@@ -49,11 +49,16 @@ import { PageHeader } from "@/components/ui/page-header";
 
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { ExternalLink, Filter } from "lucide-react";
+import { Check, Copy, ExternalLink, Filter, Mail } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 
-import { openSafeExternalUrl } from "@/lib/security";
+import {
+  buildGmailComposeUrl,
+  buildSafeMailtoUrl,
+  openSafeExternalUrl,
+  sanitizeEmailAddress,
+} from "@/lib/security";
 
 
 
@@ -73,7 +78,7 @@ const ACTION_LABEL: Record<LeadFinding["action"], string> = {
 
 
 
-type StatusFilter = "all" | "new" | "high" | "saved" | "pitched" | "skipped";
+type StatusFilter = "all" | "new" | "high" | "saved" | "pitched" | "won" | "skipped";
 
 
 
@@ -113,7 +118,15 @@ function LeadsPageInner() {
 
     const raw = searchParams.get("filter");
 
-    if (raw === "saved" || raw === "pitched" || raw === "skipped" || raw === "new" || raw === "high" || raw === "all") {
+    if (
+      raw === "saved" ||
+      raw === "pitched" ||
+      raw === "won" ||
+      raw === "skipped" ||
+      raw === "new" ||
+      raw === "high" ||
+      raw === "all"
+    ) {
 
       return raw;
 
@@ -134,6 +147,8 @@ function LeadsPageInner() {
   const [draftMeta, setDraftMeta] = useState<ProposalDraftResponse | null>(null);
 
   const [form, setForm] = useState<ApplyFormFields>(emptyForm());
+
+  const [copiedPitch, setCopiedPitch] = useState(false);
 
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
 
@@ -227,6 +242,7 @@ function LeadsPageInner() {
     if (
       filterParam === "saved" ||
       filterParam === "pitched" ||
+      filterParam === "won" ||
       filterParam === "skipped" ||
       filterParam === "new" ||
       filterParam === "high" ||
@@ -286,7 +302,16 @@ function LeadsPageInner() {
 
             submit_mode: response.form_fields.submit_mode || "unsupported",
 
+            apply_email: response.form_fields.apply_email ?? response.apply_email ?? null,
+
+            email_subject:
+              response.form_fields.email_subject ||
+              response.email_subject ||
+              `Contract inquiry: ${response.title}`,
+
           });
+
+          setCopiedPitch(false);
 
         } catch (err) {
 
@@ -557,6 +582,8 @@ function LeadsPageInner() {
 
       if (statusFilter === "pitched" && item.user_status !== "pitched" && item.user_status !== "won") return false;
 
+      if (statusFilter === "won" && item.user_status !== "won") return false;
+
       if (statusFilter === "skipped" && item.user_status !== "skip") return false;
 
       if (statusFilter === "high" && item.score < 0.7) return false;
@@ -615,9 +642,53 @@ function LeadsPageInner() {
 
     { id: "pitched", label: "Pitched" },
 
+    { id: "won", label: "Won" },
+
     { id: "skipped", label: "Skipped" },
 
   ];
+
+  const handleCopyPitch = async () => {
+    const text = (form.proposal || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedPitch(true);
+      setTimeout(() => setCopiedPitch(false), 2500);
+    } catch {
+      setSubmitMessage("Could not access clipboard — select and copy text manually.");
+    }
+  };
+
+  const handleOpenGmail = () => {
+    const to = draftMeta?.apply_email || form.apply_email || null;
+    const subject =
+      form.email_subject ||
+      draftMeta?.email_subject ||
+      (draftMeta?.title ? `Contract inquiry: ${draftMeta.title}` : "Contract inquiry");
+    const gmailUrl = buildGmailComposeUrl({
+      to,
+      subject,
+      body: form.proposal,
+    });
+    openSafeExternalUrl(gmailUrl);
+  };
+
+  const handleOpenMailApp = () => {
+    const to = draftMeta?.apply_email || form.apply_email || null;
+    const subject =
+      form.email_subject ||
+      draftMeta?.email_subject ||
+      (draftMeta?.title ? `Contract inquiry: ${draftMeta.title}` : "Contract inquiry");
+    const mailtoUri = buildSafeMailtoUrl({
+      to,
+      subject,
+      body: form.proposal,
+    });
+    if (typeof window !== "undefined") {
+      window.location.href = mailtoUri;
+    }
+  };
 
   const handleExportCsv = () => {
     if (!visibleItems.length) return;
@@ -1213,6 +1284,30 @@ function LeadsPageInner() {
 
                     </Button>
 
+                    <Button
+
+                      variant={finding.user_status === "won" ? "default" : "outline"}
+
+                      size="sm"
+
+                      onClick={() =>
+
+                        updateLeadStatus(
+
+                          finding.job_id,
+
+                          finding.user_status === "won" ? "clear" : "won",
+
+                        )
+
+                      }
+
+                    >
+
+                      {finding.user_status === "won" ? "Won ✓" : "Mark won"}
+
+                    </Button>
+
                     <Button variant="ghost" size="sm" onClick={() => updateLeadStatus(finding.job_id, "skip")}>
 
                       Skip
@@ -1544,6 +1639,32 @@ function LeadsPageInner() {
               <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
 
                 <p className="text-sm text-[var(--text-secondary)]">{draftMeta?.disclaimer}</p>
+
+                {sanitizeEmailAddress(draftMeta?.apply_email || form.apply_email) ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--accent)]/30 bg-[var(--accent-muted)] px-3 py-2 text-xs">
+                    <span className="font-medium text-[var(--text)]">
+                      Direct contact detected:{" "}
+                      <span className="font-semibold text-[var(--accent)]">
+                        {sanitizeEmailAddress(draftMeta?.apply_email || form.apply_email)}
+                      </span>
+                    </span>
+                    <span className="text-[var(--text-muted)]">1-click email pre-fill ready</span>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={handleCopyPitch}>
+                    {copiedPitch ? <Check className="size-3.5 text-[var(--success)]" /> : <Copy className="size-3.5" />}
+                    {copiedPitch ? "Pitch copied!" : "Copy pitch"}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={handleOpenGmail}>
+                    <Mail className="size-3.5" />
+                    Open in Gmail
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={handleOpenMailApp}>
+                    Open Mail App
+                  </Button>
+                </div>
 
                 <label className="sd-label">
 
