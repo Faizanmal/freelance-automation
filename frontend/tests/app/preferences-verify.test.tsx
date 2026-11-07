@@ -121,6 +121,8 @@ test("displays consistent match score (95%) once findings settle", async () => {
         title: "API Engineer",
         url: "https://www.freelancer.com/projects/42",
         source_name: "freelancer",
+        source_id: "42",
+        description: "Build FastAPI services",
         company: "Client",
         match_score: 0.95,
         matched_keywords: ["python"],
