@@ -62,7 +62,7 @@ export default function HelpCenterPage() {
   ];
 
   return (
-    <motion.main
+    <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="flex flex-1 flex-col gap-8 max-w-4xl mx-auto w-full pt-12"
@@ -141,6 +141,6 @@ export default function HelpCenterPage() {
           </motion.div>
         ))}
       </div>
-    </motion.main>
+    </motion.div>
   );
 }

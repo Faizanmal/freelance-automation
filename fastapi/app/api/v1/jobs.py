@@ -124,7 +124,7 @@ async def list_jobs(
     include_expired: bool = Query(False),
 ) -> dict:
     redis_client = await get_redis()
-    cache_key = f"jobs_cache:{limit}:{offset}:{source or 'all'}:{search or 'none'}"
+    cache_key = f"jobs_cache:v2:{limit}:{offset}:{source or 'all'}:{search or 'none'}:{int(include_expired)}"
 
     if redis_client:
         try:

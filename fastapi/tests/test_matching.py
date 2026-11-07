@@ -138,6 +138,18 @@ class MatchingServiceTests(unittest.TestCase):
         self.assertLessEqual(match.freshness_score, 0.25)
         self.assertNotIn("fresh posting", match.reasons)
 
+    def test_exclude_keywords_filters_source_company_and_url_substrings(self) -> None:
+        self.prefs.exclude_keywords = ["freelancer"]
+        by_company = _job(company="Freelancer Global", url="https://example.com/job/1")
+        by_url = _job(company="Acme", url="https://www.freelancer.in/projects/python/1")
+        by_source = _job(source_name="freelancer", company="Acme")
+        allowed = _job(company="Acme Labs", url="https://acmelabs.example/jobs/1")
+
+        self.assertIsNone(self.service.score_job(by_company, self.prefs))
+        self.assertIsNone(self.service.score_job(by_url, self.prefs))
+        self.assertIsNone(self.service.score_job(by_source, self.prefs))
+        self.assertIsNotNone(self.service.score_job(allowed, self.prefs))
+
     def test_missing_posted_at_uses_neutral_freshness(self) -> None:
         unknown_age_job = _job(posted_at=None)
         match = self.service.score_job(unknown_age_job, self.prefs)

@@ -178,6 +178,44 @@ export default function HomePage() {
     () => findings.filter((item) => item.score >= 0.7).length,
     [findings],
   );
+  const visibleJobs = useMemo(() => {
+    const marketplacePattern = /(freelancer|upwork|fiverr|peopleperhour|guru\.com|truelancer)/i;
+    const excludes = (prefs?.exclude_keywords || [])
+      .map((kw) => kw.trim().toLowerCase())
+      .filter(Boolean);
+    const allowedSources = (prefs?.sources || [])
+      .map((src) => src.trim().toLowerCase())
+      .filter(Boolean);
+
+    return jobs.filter((job) => {
+      const source = (job.source_name || "").toLowerCase();
+      const company = (job.company || "").toLowerCase();
+      const url = (job.url || "").toLowerCase();
+      const title = (job.title || "").toLowerCase();
+      const description = (job.description || "").toLowerCase();
+
+      if (
+        marketplacePattern.test(source) ||
+        marketplacePattern.test(company) ||
+        marketplacePattern.test(url)
+      ) {
+        return false;
+      }
+
+      if (allowedSources.length > 0 && source && !allowedSources.includes(source)) {
+        return false;
+      }
+
+      if (excludes.length > 0) {
+        const haystack = `${title} ${description} ${company} ${source} ${url}`;
+        if (excludes.some((kw) => haystack.includes(kw))) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [jobs, prefs]);
   const firstName = user?.full_name?.split(" ")[0] || user?.email?.split("@")[0] || "there";
   const digestLine = formatDigestSummary(prefs);
 
@@ -270,7 +308,7 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {jobs.length === 0 ? (
+          {visibleJobs.length === 0 ? (
             <EmptyState
               title="No public sample listings yet"
               description="Start free, verify email, set Hunt Rules — then open Leads when the desk has fits."
@@ -279,7 +317,7 @@ export default function HomePage() {
             />
           ) : (
             <div className="divide-y divide-[var(--border)] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-sm">
-              {jobs.map((job) => (
+              {visibleJobs.map((job) => (
                 <div
                   key={job.id}
                   className="flex flex-col gap-2 p-5 transition-colors hover:bg-[var(--surface-hover)] sm:flex-row sm:items-center sm:justify-between"
@@ -687,7 +725,7 @@ export default function HomePage() {
             </Link>
           </div>
         </div>
-        {jobs.length === 0 ? (
+        {visibleJobs.length === 0 ? (
           <EmptyState
             title="Inventory is empty right now"
             description="Set Hunt Rules, then Refresh inventory. Background hunters also fill the shared pool on a schedule — this is normal after a pause or a fresh deploy."
@@ -698,7 +736,7 @@ export default function HomePage() {
           />
         ) : (
           <div className="divide-y divide-[var(--border)] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
-            {jobs.map((job) => (
+            {visibleJobs.map((job) => (
               <a
                 key={job.id}
                 href={job.url}

@@ -37,7 +37,7 @@ export default function JobsPage() {
   }, [load]);
 
   return (
-    <motion.main 
+    <motion.div 
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       className="flex flex-1 flex-col gap-8"
@@ -176,6 +176,6 @@ export default function JobsPage() {
         )}
         </AnimatePresence>
       </motion.div>
-    </motion.main>
+    </motion.div>
   );
 }

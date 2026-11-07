@@ -267,6 +267,21 @@ class EmailAdapter:
     def __init__(self) -> None:
         self.channel = NotificationChannel.EMAIL
 
+    @staticmethod
+    def _cfg(env_key: str, attr_name: str, default: str | None = None) -> str | None:
+        val = os.getenv(env_key)
+        if val is not None and val.strip():
+            return val.strip()
+        try:
+            from config.settings import get_settings
+
+            s_val = getattr(get_settings(), attr_name, None)
+            if s_val is not None and str(s_val).strip():
+                return str(s_val).strip()
+        except Exception:
+            pass
+        return default
+
     def _send_sync(
         self,
         smtp_host: str,
@@ -278,16 +293,23 @@ class EmailAdapter:
         title: str,
         body: str,
     ) -> None:
-        message = f"Subject: {title}\n\n{body}"
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        msg = MIMEMultipart("alternative")
+        msg["From"] = from_address
+        msg["To"] = to_address
+        msg["Subject"] = title
+        msg.attach(MIMEText(body, "plain"))
         if smtp_port == 465:
             with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as smtp:
                 smtp.login(username, password)
-                smtp.sendmail(from_address, [to_address], message)
+                smtp.send_message(msg)
         else:
             with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as smtp:
                 smtp.starttls()
                 smtp.login(username, password)
-                smtp.sendmail(from_address, [to_address], message)
+                smtp.send_message(msg)
 
     def _send_resend_sync(
         self,
@@ -296,13 +318,14 @@ class EmailAdapter:
         to_address: str,
         title: str,
         body: str,
-    ) -> str:
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        app_url = (os.getenv("PUBLIC_APP_URL") or "http://localhost:3000").rstrip("/")
-        payload = json.dumps({
+    ) -> tuple[int, str]:
+        import httpx
+
+        app_url = (
+            self._cfg("PUBLIC_APP_URL", "public_app_url", "http://localhost:3000")
+            or "http://localhost:3000"
+        ).rstrip("/")
+        payload = {
             "from": from_address,
             "to": [to_address],
             "subject": title,
@@ -311,29 +334,38 @@ class EmailAdapter:
                 "List-Unsubscribe": f"<{app_url}/preferences>",
                 "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
             },
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=payload,
-            headers=headers,
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return str(resp.status)
+        }
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            return resp.status_code, resp.text
 
     async def send(self, envelope: NotificationEnvelope) -> NotificationResult:
-        resend_key = os.getenv("RESEND_API_KEY")
-        from_address = os.getenv("EMAIL_FROM") or "Signal Desk <notifications@signaldesk.com>"
+        resend_key = self._cfg("RESEND_API_KEY", "resend_api_key")
+        from_address = (
+            self._cfg("EMAIL_FROM", "email_from")
+            or "Signal Desk <notifications@signaldesk.com>"
+        )
         to_address = (
-            _destinations(envelope).get("email") or os.getenv("EMAIL_TO") or os.getenv("EMAIL_USERNAME")
+            _destinations(envelope).get("email")
+            or os.getenv("EMAIL_TO")
+            or self._cfg("EMAIL_USERNAME", "email_username")
         )
         if not to_address:
             return NotificationResult(
                 channel=self.channel, delivered=False, error="provider_not_configured"
             )
 
+        resend_error: str | None = None
         if resend_key:
             try:
-                status = await asyncio.to_thread(
+                status_code, resp_text = await asyncio.to_thread(
                     self._send_resend_sync,
                     resend_key,
                     from_address,
@@ -341,21 +373,25 @@ class EmailAdapter:
                     envelope.title,
                     envelope.body,
                 )
-                if int(status) < 400:
+                if 200 <= status_code < 300:
                     return NotificationResult(
-                        channel=self.channel, delivered=True, message_id=f"resend-{status}"
+                        channel=self.channel,
+                        delivered=True,
+                        message_id=f"resend-{status_code}",
                     )
-            except Exception:
-                # Fall through to SMTP if configured
-                pass
+                resend_error = f"resend_http_{status_code}: {resp_text[:160]}"
+            except Exception as exc:
+                resend_error = f"resend_error: {exc}"
 
-        smtp_host = os.getenv("EMAIL_SMTP_HOST")
-        smtp_port = int(os.getenv("EMAIL_SMTP_PORT", "587"))
-        username = os.getenv("EMAIL_USERNAME")
-        password = os.getenv("EMAIL_PASSWORD")
+        smtp_host = self._cfg("EMAIL_SMTP_HOST", "email_smtp_host")
+        smtp_port = int(self._cfg("EMAIL_SMTP_PORT", "email_smtp_port", "587") or "587")
+        username = self._cfg("EMAIL_USERNAME", "email_username")
+        password = self._cfg("EMAIL_PASSWORD", "email_password")
         if not (smtp_host and username and password and from_address and to_address):
             return NotificationResult(
-                channel=self.channel, delivered=False, error="provider_not_configured"
+                channel=self.channel,
+                delivered=False,
+                error=resend_error or "provider_not_configured",
             )
         try:
             await asyncio.to_thread(

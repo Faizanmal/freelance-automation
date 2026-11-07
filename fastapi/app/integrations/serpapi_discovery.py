@@ -43,9 +43,19 @@ DEFAULT_COMPANY_CAREER_SITES: tuple[str, ...] = (
     "scig.oorwin.ai",
 )
 
-# High-traffic job aggregators — never accept as company careers hits.
+# High-traffic job aggregators and crowded marketplaces — never accept as web/company discovery hits.
 # ATS platforms are intentional V1 spine targets (see ATS_DISCOVERY_SITES).
 HIGH_TRAFFIC_HOST_MARKERS: tuple[str, ...] = (
+    "freelancer.com",
+    "freelancer.in",
+    "freelancer.co.uk",
+    "freelancer.ca",
+    "freelancer.com.au",
+    "upwork.com",
+    "fiverr.com",
+    "peopleperhour.com",
+    "guru.com",
+    "truelancer.com",
     "linkedin.com",
     "dice.com",
     "simplyhired.com",
@@ -79,6 +89,15 @@ HIGH_TRAFFIC_HOST_MARKERS: tuple[str, ...] = (
     "careerbuilder.com",
     "lensa.com",
     "snagajob.com",
+)
+
+MARKETPLACE_BRAND_MARKERS: tuple[str, ...] = (
+    "freelancer",
+    "upwork",
+    "fiverr",
+    "peopleperhour",
+    "guru.com",
+    "truelancer",
 )
 
 # Public ATS hosts used for SerpAPI site: discovery (contract/freelance keywords).
@@ -185,6 +204,9 @@ def _hostname(url: str) -> str | None:
 def _host_matches(host: str | None, markers: tuple[str, ...] | list[str]) -> bool:
     if not host:
         return False
+    host_labels = set(host.lower().split("."))
+    if "freelancer.com" in markers and host_labels & {"freelancer", "upwork", "fiverr", "peopleperhour", "truelancer"}:
+        return True
     for marker in markers:
         marker_host = normalize_company_host(marker)
         if not marker_host:
@@ -634,6 +656,11 @@ async def _search_google_jobs(
         if not link:
             # Stable fallback so ingest still has a URL-like identity.
             link = f"https://www.google.com/search?q={re.sub(r'\s+', '+', title)}"
+        if _host_matches(_hostname(link), HIGH_TRAFFIC_HOST_MARKERS):
+            continue
+        brand_blob = f"{company or ''} {item.get('via') or ''}".lower()
+        if any(brand in brand_blob for brand in MARKETPLACE_BRAND_MARKERS):
+            continue
         location_label = None
         locations = item.get("location") or item.get("locations")
         if isinstance(locations, str):

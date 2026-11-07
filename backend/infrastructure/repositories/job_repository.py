@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.listing_presentation import public_job_payload
@@ -95,7 +95,24 @@ class DomainJobRepository(IJobRepository):
         return [self._to_domain(r) for r in records]
 
 
-class SQLAlchemyJobRepository:
+class SQLAlchemyJobRepository:
+    MARKETPLACE_PATTERNS = (
+        "%freelancer%",
+        "%upwork%",
+        "%fiverr%",
+        "%peopleperhour%",
+        "%guru.com%",
+        "%truelancer%",
+    )
+
+    @classmethod
+    def _exclude_marketplace_clause(cls):
+        clauses = []
+        for pattern in cls.MARKETPLACE_PATTERNS:
+            clauses.append(func.coalesce(JobRecord.source_name, "").ilike(pattern))
+            clauses.append(func.coalesce(JobRecord.company, "").ilike(pattern))
+            clauses.append(func.coalesce(JobRecord.url, "").ilike(pattern))
+        return not_(or_(*clauses))
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
@@ -137,7 +154,9 @@ class SQLAlchemyJobRepository:
         if not include_expired:
             query = query.where(JobRecord.is_expired == False)
         if source:
-            query = query.where(JobRecord.source_name == source)
+            query = query.where(JobRecord.source_name == source)
+        else:
+            query = query.where(self._exclude_marketplace_clause())
         if search:
             like = f"%{search}%"
             query = query.where(
@@ -163,7 +182,9 @@ class SQLAlchemyJobRepository:
         if not include_expired:
             query = query.where(JobRecord.is_expired == False)
         if source:
-            query = query.where(JobRecord.source_name == source)
+            query = query.where(JobRecord.source_name == source)
+        else:
+            query = query.where(self._exclude_marketplace_clause())
         if search:
             like = f"%{search}%"
             query = query.where(
@@ -179,7 +200,12 @@ class SQLAlchemyJobRepository:
     async def list_recent(
         self, limit: int = 200, include_expired: bool = False
     ) -> list[JobRecord]:
-        query = select(JobRecord).order_by(desc(JobRecord.created_at)).limit(limit)
+        query = (
+            select(JobRecord)
+            .where(self._exclude_marketplace_clause())
+            .order_by(desc(JobRecord.created_at))
+            .limit(limit)
+        )
         if not include_expired:
             query = query.where(JobRecord.is_expired == False)
         result = await self.session.execute(query)

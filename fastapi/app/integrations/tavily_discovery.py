@@ -24,8 +24,18 @@ logger = get_logger(__name__)
 TAVILY_URL = "https://api.tavily.com/search"
 COMPANY_DOMAIN_BATCH_SIZE = 20
 
-# Aggregators Tavily should skip for company/freelance discovery noise.
+# Aggregators and crowded marketplaces Tavily should skip for company/freelance discovery noise.
 DEFAULT_EXCLUDE_DOMAINS: tuple[str, ...] = (
+    "freelancer.com",
+    "freelancer.in",
+    "freelancer.co.uk",
+    "freelancer.ca",
+    "freelancer.com.au",
+    "upwork.com",
+    "fiverr.com",
+    "peopleperhour.com",
+    "guru.com",
+    "truelancer.com",
     "linkedin.com",
     "indeed.com",
     "glassdoor.com",
@@ -131,7 +141,7 @@ async def search_discovery(
         limit=limit,
         mode="jobs",
         search_depth=settings.tavily_search_depth,
-        exclude_domains=["youtube.com", "wikipedia.org"],
+        exclude_domains=list(DEFAULT_EXCLUDE_DOMAINS),
     )
 
 

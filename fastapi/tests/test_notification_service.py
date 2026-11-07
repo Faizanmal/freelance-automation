@@ -51,3 +51,41 @@ class NotificationServiceTests(unittest.TestCase):
         self.assertTrue(digest.digest)
         self.assertIn("Daily digest", digest.title)
         self.assertIn("AI summary", digest.ai_summary or "")
+
+    def test_email_adapter_delivers_via_resend_httpx(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        service = NotificationService()
+        payload = NotificationPayload(
+            user_id="user-1",
+            title="Signal Desk test alert",
+            body="Outbound email test.",
+            channels=[NotificationChannel.EMAIL],
+            priority=NotificationPriority.NORMAL,
+            destinations={"email": "user@example.com"},
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value.post.return_value = mock_response
+
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "RESEND_API_KEY": "re_test_key",
+                    "EMAIL_FROM": "Signal Desk <noreply@mail.faizanmalik.me>",
+                },
+                clear=False,
+            ),
+            patch(
+                "httpx.Client",
+                return_value=mock_client,
+            ),
+        ):
+            results = asyncio.run(service.dispatch(payload))
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].delivered)
+        self.assertIsNone(results[0].error)

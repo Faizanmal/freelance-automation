@@ -77,6 +77,8 @@ class MatchingService:
                 job.description or "",
                 job.company or "",
                 job.location or "",
+                job.source_name or "",
+                job.url or "",
                 " ".join(job.tags or []),
                 " ".join((job.enrichment or {}).get("skills") or []),
                 job.analysis_summary or "",
@@ -85,7 +87,14 @@ class MatchingService:
         ).lower()
 
         for exclude in excludes:
-            if self._contains_keyword(haystack, exclude):
+            if self._contains_keyword(haystack, exclude) or (
+                len(exclude) >= 4
+                and (
+                    exclude in (job.source_name or "").lower()
+                    or exclude in (job.company or "").lower()
+                    or exclude in (job.url or "").lower()
+                )
+            ):
                 return None
 
         job_period = stored_period(job.enrichment, job.budget_min, job.budget_max)

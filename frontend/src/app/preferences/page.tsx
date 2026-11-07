@@ -704,7 +704,7 @@ function PreferencesPageInner() {
                       });
                       if (response.status === "failed" || response.status === "partial") {
                         setEmailWarning(
-                          "Settings are saved separately — this test alert could not be delivered. Check EMAIL_SMTP_* on the API.",
+                          "Settings are saved separately — this test alert could not be delivered. Check RESEND_API_KEY or EMAIL_SMTP_* on the API.",
                         );
                       } else {
                         setMessage("Test alert sent");

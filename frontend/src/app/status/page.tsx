@@ -52,7 +52,7 @@ export default function StatusPage() {
   };
 
   return (
-    <motion.main 
+    <motion.div 
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       className="flex flex-1 flex-col gap-8 max-w-3xl mx-auto w-full pt-12"
@@ -104,6 +104,6 @@ export default function StatusPage() {
       <p className="text-center text-sm text-[var(--mute)] mt-4">
         Checks are automatically performed every 30 seconds.
       </p>
-    </motion.main>
+    </motion.div>
   );
 }

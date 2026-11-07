@@ -172,27 +172,32 @@ class DigestService:
         self, user: User, prefs: UserPreferences
     ) -> bool:
         cap = clamp_digest_limit(user, getattr(prefs, "max_per_digest", 5))
-        keywords_str = ",".join(prefs.keywords or [])
-        findings_service = LeadFindingsService(self.session)
-        freelance_focus = bool(getattr(prefs, "freelance_focus", True))
-        findings = await findings_service.generate(
-            keywords_str or "freelance,remote",
-            limit=cap * 2,
-            freelance_focus=freelance_focus,
-            user_id=str(user.id),
-        )
+        repo = SQLAlchemyJobRepository(self.session)
+        jobs = await repo.list_recent(limit=300)
+        feedback_service = MatchFeedbackService(self.session)
+        skill_weights = await feedback_service.skill_weights(str(user.id))
 
         actions_res = await self.session.execute(
-            select(UserLeadAction.job_id).where(
-                UserLeadAction.user_id == str(user.id),
-                UserLeadAction.status.in_(["skip", "saved", "pitched"]),
-            )
+            select(UserLeadAction).where(UserLeadAction.user_id == str(user.id))
         )
-        handled_ids = set(actions_res.scalars().all())
+        lead_actions = {row.job_id: row.status for row in actions_res.scalars().all()}
+        handled_ids = {
+            jid for jid, st in lead_actions.items() if st in {"skip", "save", "saved", "pitched", "won"}
+        }
+
+        freelance_focus = bool(getattr(prefs, "freelance_focus", True))
+        findings = LeadFindingsService().build(
+            jobs,
+            prefs,
+            limit=cap * 2,
+            freelance_focus=freelance_focus,
+            lead_actions=lead_actions,
+            skill_weights=skill_weights,
+        )
 
         leads: list[dict] = []
         for item in findings.get("items", []):
-            jid = item.get("id")
+            jid = item.get("job_id") or item.get("id")
             if jid in handled_ids:
                 continue
             leads.append(item)
@@ -202,14 +207,11 @@ class DigestService:
         if not leads:
             return False
 
-        feedback_service = MatchFeedbackService(self.session)
-        leads = await feedback_service.rerank_leads(str(user.id), leads)
-
         lead_lines = []
         for idx, lead in enumerate(leads, start=1):
             title = lead.get("title", "Untitled")
             company = lead.get("company") or "Unknown"
-            url = lead.get("url") or "#"
+            url = lead.get("apply_url") or lead.get("url") or "#"
             score = int((lead.get("score") or 0) * 100)
             lead_lines.append(
                 f"{idx}. {title} ({company}) — Match {score}%\n   View: {url}"
@@ -236,4 +238,4 @@ class DigestService:
                 destinations=destinations,
             )
         )
-        return any(o.delivered for o in outcomes)
+        return int(outcomes.get("delivered_count") or 0) > 0

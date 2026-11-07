@@ -259,6 +259,44 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]["url"], "https://northwind.example")
         self.assertIn("outreach", rows[0]["tags"])
 
+    async def test_jobs_and_freelance_exclude_freelancer_and_upwork_domains(self) -> None:
+        jobs_payload = {
+            "jobs_results": [
+                {
+                    "title": "Python Contractor",
+                    "company_name": "Freelancer.com",
+                    "description": "Build scripts",
+                    "job_id": "fl1",
+                    "via": "via Freelancer",
+                    "apply_options": [{"link": "https://www.freelancer.in/projects/python/1"}],
+                },
+                {
+                    "title": "FastAPI Contractor",
+                    "company_name": "Direct Studio",
+                    "description": "Build APIs",
+                    "job_id": "ds1",
+                    "apply_options": [{"link": "https://directstudio.example/jobs/1"}],
+                },
+            ]
+        }
+        with (
+            _DISABLE_TAVILY,
+            patch("app.integrations.serpapi_discovery.get_settings") as settings,
+            patch(
+                "app.integrations.serpapi_discovery._get_json",
+                new=AsyncMock(return_value=jobs_payload),
+            ),
+        ):
+            settings.return_value.serpapi_api_key = "test-key"
+            settings.return_value.serpapi_jobs_query = "python contractor"
+            settings.return_value.serpapi_location = ""
+            settings.return_value.serpapi_gl = "us"
+            settings.return_value.serpapi_hl = "en"
+            rows = await serpapi_discovery.search_discovery(mode="jobs", limit=5)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["company"], "Direct Studio")
+
 
 if __name__ == "__main__":
     unittest.main()

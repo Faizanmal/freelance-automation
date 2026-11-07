@@ -83,7 +83,7 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <motion.main 
+    <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="flex flex-1 flex-col gap-8 max-w-6xl mx-auto w-full pt-12 pb-16"
@@ -220,6 +220,6 @@ export default function AdminDashboardPage() {
           </tbody>
         </table>
       </Card>
-    </motion.main>
+    </motion.div>
   );
 }
