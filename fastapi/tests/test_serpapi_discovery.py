@@ -297,6 +297,29 @@ class SerpApiDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["company"], "Direct Studio")
 
+    def test_looks_useful_freelance_rejects_blogs_listicles_and_tenders(self) -> None:
+        self.assertFalse(
+            serpapi_discovery._looks_useful_freelance(
+                "Top 15 Freelance Python Websites in 2026",
+                "Compare the best freelance platforms for remote contractors.",
+                "https://example.com/articles/top-freelance-sites",
+            )
+        )
+        self.assertFalse(
+            serpapi_discovery._looks_useful_freelance(
+                "Tender Notice: Request for Proposal for FastAPI Backend",
+                "Government tender invitation for bids.",
+                "https://example.com/tenders/rfp-2026",
+            )
+        )
+        self.assertTrue(
+            serpapi_discovery._looks_useful_freelance(
+                "Looking for a freelance Python & FastAPI contractor",
+                "We need a remote contractor for a 6-week API build.",
+                "https://acmelabs.example/jobs/python-contractor",
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

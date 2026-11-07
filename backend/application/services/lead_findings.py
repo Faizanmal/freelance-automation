@@ -26,7 +26,11 @@ from backend.application.services.budget_parser import (
 
 from backend.application.services.listing_presentation import make_excerpt
 
-from backend.application.services.matching import JobMatch, MatchingService
+from backend.application.services.matching import (
+    JobMatch,
+    MatchingService,
+    is_non_opportunity_noise,
+)
 
 from backend.application.services.proposal_draft import extract_apply_email
 
@@ -177,12 +181,18 @@ class LeadFindingsService:
         include_expired: bool = False,
 
         skill_weights: dict[str, float] | None = None,
+        total_indexed: int | None = None,
 
     ) -> dict[str, Any]:
 
         if not include_expired:
 
             jobs = [j for j in jobs if not getattr(j, "is_expired", False)]
+        jobs = [
+            j
+            for j in jobs
+            if not is_non_opportunity_noise(j.title, j.description, j.url, j.company)
+        ]
 
         actions_map = lead_actions or {}
 
@@ -333,6 +343,7 @@ class LeadFindingsService:
             "generated_at": datetime.now(UTC).isoformat(),
 
             "total_scanned": len(jobs),
+            "total_indexed": total_indexed if total_indexed is not None else len(jobs),
 
             "total_matched": len(matches),
 

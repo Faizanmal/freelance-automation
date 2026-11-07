@@ -220,25 +220,99 @@ def _looks_useful_freelance(title: str, snippet: str, link: str) -> bool:
     host = _hostname(link)
     if _host_matches(host, HIGH_TRAFFIC_HOST_MARKERS):
         return False
+    if any(
+        marker in link.lower()
+        for marker in ("/blog/", "/blogs/", "/article/", "/articles/", "/news/", "/guide/", "/guides/", "/tender/", "/tenders/", "/procurement/")
+    ):
+        return False
+    if re.search(
+        r"\btop\s+\d+\b|\b\d+\s+best\b|\be-?tenders?\b|\btender\s+(?:no|number|id|notice|for|document)\b|\brequest\s+for\s+(?:proposals?|quotations?|tenders?)\b",
+        f"{title} {snippet}".lower(),
+    ):
+        return False
 
     blob = f"{title} {snippet} {link}".lower()
+    url_noise = (
+        "/blog/",
+        "/blogs/",
+        "/article/",
+        "/articles/",
+        "/news/",
+        "/guide/",
+        "/guides/",
+        "/tutorial/",
+        "/tutorials/",
+        "/insights/",
+        "/resources/",
+        "/tender/",
+        "/tenders/",
+        "/procurement/",
+        "/rfp/",
+        "tendersontime.com",
+        "tendertiger.com",
+        "biddetail.com",
+        "globaltenders.com",
+        "dgmarket.com",
+        "ted.europa.eu",
+        "etenders.gov.in",
+        "gem.gov.in",
+        "dev.to/",
+        "freecodecamp.org",
+        "hackernoon.com",
+    )
+    if any(marker in link.lower() for marker in url_noise):
+        return False
+
     noise = (
         "salary guide",
         "how to become",
+        "how to hire",
+        "how to find",
+        "how to get",
+        "ultimate guide",
+        "complete guide",
+        "step-by-step guide",
+        "beginner's guide",
         "course",
         "tutorial",
         "what is a freelancer",
-        "best freelance websites",
+        "best freelance",
+        "best remote",
+        "best websites",
+        "best platforms",
         "jobs in ",
         "openings in ",
         "browse jobs",
         "find jobs",
         "top 10 ",
         "top 5 ",
+        "top 15 ",
+        "top 20 ",
+        "top 25 ",
         "interview questions",
         "resume template",
+        "min read",
+        "minute read",
+        "tender notice",
+        "e-tender",
+        "etender",
+        "invitation to tender",
+        "invitation for bids",
+        "request for proposal",
+        "request for quotation",
+        "public procurement",
+        "government tender",
+        "earnest money",
+        "bid bond",
+        "sealed bid",
+        "procurement notice",
     )
     if any(token in blob for token in noise):
+        return False
+    if re.search(
+        r"\btop\s+\d+\b|\b\d+\s+best\b|\be-?tenders?\b|\btender\s+(?:no|number|id|notice|for|document)\b|\b(?:rfp|rfq|rft|ifb)\s*(?:#|no|number|notice|submission)\b",
+        blob,
+    ):
         return False
 
     # Check for aggregator dumps of multiple listings
@@ -274,6 +348,16 @@ def _looks_like_company_careers(
 ) -> bool:
     host = _hostname(link)
     if _host_matches(host, HIGH_TRAFFIC_HOST_MARKERS):
+        return False
+    if any(
+        marker in link.lower()
+        for marker in ("/blog/", "/blogs/", "/article/", "/articles/", "/news/", "/guide/", "/guides/", "/tender/", "/tenders/", "/procurement/")
+    ):
+        return False
+    if re.search(
+        r"\btop\s+\d+\b|\b\d+\s+best\b|\be-?tenders?\b|\btender\s+(?:no|number|id|notice|for|document)\b|\brequest\s+for\s+(?:proposals?|quotations?|tenders?)\b",
+        f"{title} {snippet}".lower(),
+    ):
         return False
     if _host_matches(host, ATS_DISCOVERY_SITES):
         return True

@@ -744,6 +744,8 @@ export type LeadFindingsResponse = {
 
   total_scanned: number;
 
+  total_indexed?: number;
+
   total_matched: number;
 
   total_findings: number;

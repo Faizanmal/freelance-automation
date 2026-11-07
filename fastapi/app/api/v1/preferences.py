@@ -301,6 +301,7 @@ async def list_findings(
 
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
+    total_indexed = await repo.count_jobs()
     skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
     return LeadFindingsService().build(
         jobs,
@@ -311,6 +312,7 @@ async def list_findings(
         applications=applications,
         include_skipped=include_skipped,
         skill_weights=skill_weights,
+        total_indexed=total_indexed,
     )
 
 
@@ -438,6 +440,7 @@ async def demo_findings(
     """Unauthenticated lead findings digest for the desk demo."""
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
+    total_indexed = await repo.count_jobs()
     prefs = UserPreferences(
         user_id="demo",
         keywords=[part.strip() for part in keywords.split(",") if part.strip()],
@@ -448,7 +451,7 @@ async def demo_findings(
     )
     # Empty inventory is a normal state — return an empty digest, not a 404.
     return LeadFindingsService().build(
-        jobs, prefs, limit=limit, freelance_focus=freelance_focus
+        jobs, prefs, limit=limit, freelance_focus=freelance_focus, total_indexed=total_indexed
     )
 
 
@@ -461,6 +464,7 @@ async def demo_matches(
     """Unauthenticated matching for the demo dashboard."""
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
+    total_indexed = await repo.count_jobs()
     prefs = UserPreferences(
         user_id="demo",
         keywords=[part.strip() for part in keywords.split(",") if part.strip()],

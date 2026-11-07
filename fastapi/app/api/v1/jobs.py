@@ -93,7 +93,7 @@ class JobOut(BaseModel):
     budget_min: float | None = None
     budget_max: float | None = None
     posted_at: str | None = None
-    source_count: int = 1
+    source_count: int | None = 1
     duplicate_confidence: float | None = None
     seniority: str | None = None
     analysis_summary: str | None = None
@@ -124,14 +124,14 @@ async def list_jobs(
     include_expired: bool = Query(False),
 ) -> dict:
     redis_client = await get_redis()
-    cache_key = f"jobs_cache:v2:{limit}:{offset}:{source or 'all'}:{search or 'none'}:{int(include_expired)}"
+    cache_key = f"jobs_cache:v3:{limit}:{offset}:{source or 'all'}:{search or 'none'}:{int(include_expired)}"
 
     if redis_client:
         try:
             cached = await redis_client.get(cache_key)
             if cached:
                 return json.loads(cached)
-        except json.JSONDecodeError as e:
+        except Exception as e:
             import logging
 
             logging.getLogger(__name__).debug("Cache retrieval failed: %s", e)
@@ -154,7 +154,7 @@ async def list_jobs(
     if redis_client:
         try:
             await redis_client.setex(cache_key, 60, json.dumps(result))
-        except json.JSONDecodeError as e:
+        except Exception as e:
             import logging
 
             logging.getLogger(__name__).debug("Cache storage failed: %s", e)

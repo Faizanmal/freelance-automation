@@ -70,6 +70,8 @@ export default function HomePage() {
   const [findings, setFindings] = useState<LeadFinding[]>([]);
   const [findingsMeta, setFindingsMeta] = useState<{
     total_findings: number;
+    total_scanned?: number;
+    total_indexed?: number;
     generated_at?: string;
   } | null>(null);
   const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
@@ -94,13 +96,25 @@ export default function HomePage() {
           ]);
           setApiStatus(health.status);
           setJobs(data.items);
-          setTotal(data.total);
+          setTotal(
+            Math.max(
+              data.total,
+              leadData?.total_indexed ?? 0,
+              leadData?.total_scanned ?? 0,
+              data.items.length,
+            ),
+          );
           setUser(currentUser);
           setPrefs(currentPrefs);
           setFindings(leadData?.items || []);
           setFindingsMeta(
             leadData
-              ? { total_findings: leadData.total_findings, generated_at: leadData.generated_at }
+              ? {
+                  total_findings: leadData.total_findings,
+                  total_scanned: leadData.total_scanned,
+                  total_indexed: leadData.total_indexed,
+                  generated_at: leadData.generated_at,
+                }
               : null,
           );
           setPipelineStats(pStats);
@@ -108,7 +122,7 @@ export default function HomePage() {
         }
         const data = await listJobs({ limit: 8 });
         setJobs(data.items);
-        setTotal(data.total);
+        setTotal(Math.max(data.total, data.items.length));
         setApiStatus("ok");
         setUser(null);
         setPrefs(null);
@@ -151,11 +165,23 @@ export default function HomePage() {
           getAuthFindings(8).catch(() => null),
         ]);
         setJobs(data.items);
-        setTotal(data.total);
+        setTotal(
+          Math.max(
+            data.total,
+            leadData?.total_indexed ?? 0,
+            leadData?.total_scanned ?? 0,
+            data.items.length,
+          ),
+        );
         setFindings(leadData?.items || []);
         setFindingsMeta(
           leadData
-            ? { total_findings: leadData.total_findings, generated_at: leadData.generated_at }
+            ? {
+                total_findings: leadData.total_findings,
+                total_scanned: leadData.total_scanned,
+                total_indexed: leadData.total_indexed,
+                generated_at: leadData.generated_at,
+              }
             : null,
         );
       } catch (err) {
@@ -180,6 +206,10 @@ export default function HomePage() {
   );
   const visibleJobs = useMemo(() => {
     const marketplacePattern = /(freelancer|upwork|fiverr|peopleperhour|guru\.com|truelancer)/i;
+    const nonOpportunityUrlPattern =
+      /(\/blogs?\/|\/articles?\/|\/guides?\/|\/tutorials?\/|\/tenders?\/|\/procurement\/|\/rfp\/|tendersontime\.com|tendertiger\.com|biddetail\.com|globaltenders\.com|dgmarket\.com)/i;
+    const nonOpportunityTextPattern =
+      /(\btop\s+\d+\b|\b\d+\s+best\b|\bbest\s+(?:freelance|remote)\b|\bhow\s+to\s+(?:become|hire|find|get)\b|\b(?:ultimate|complete)\s+guide\b|\be-?tenders?\b|\btender\s+(?:notice|no\.?|number|id|document|for)\b|\binvitation\s+(?:to|for)\s+(?:tender|bids?)\b|\brequest\s+for\s+(?:proposals?|quotations?|tenders?)\b|\bpublic\s+procurement\b|\bgovernment\s+tender\b)/i;
     const excludes = (prefs?.exclude_keywords || [])
       .map((kw) => kw.trim().toLowerCase())
       .filter(Boolean);
@@ -198,6 +228,13 @@ export default function HomePage() {
         marketplacePattern.test(source) ||
         marketplacePattern.test(company) ||
         marketplacePattern.test(url)
+      ) {
+        return false;
+      }
+
+      if (
+        nonOpportunityUrlPattern.test(url) ||
+        nonOpportunityTextPattern.test(`${title} ${description}`)
       ) {
         return false;
       }
@@ -296,7 +333,11 @@ export default function HomePage() {
                 Recent opportunities from our shared hunt pool
               </h2>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
-                {total} contract opportunities indexed across direct client posts, ATS boards, and developer communities.
+                {loading
+                  ? "Loading live contract opportunities from our shared hunt pool…"
+                  : total > 0
+                    ? `${total} contract opportunities indexed in the shared pool (latest ${Math.min(total, 300)} scanned per hunt) across direct client posts, ATS boards, and developer communities.`
+                    : "Contract opportunities sourced across direct client posts, ATS boards, and developer communities."}
               </p>
             </div>
             <Link
@@ -308,7 +349,12 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {visibleJobs.length === 0 ? (
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
+          ) : visibleJobs.length === 0 ? (
             <EmptyState
               title="No public sample listings yet"
               description="Start free, verify email, set Hunt Rules — then open Leads when the desk has fits."
@@ -515,7 +561,9 @@ export default function HomePage() {
             label: "Opportunities stored",
             value: total,
             icon: Radar,
-            hint: "Shared hunt inventory",
+            hint: findingsMeta?.total_scanned
+              ? `Shared pool (${findingsMeta.total_scanned} recent scanned)`
+              : "Shared hunt inventory",
           },
         ].map((kpi) => (
           <Card key={kpi.label} className="p-4">
@@ -693,9 +741,15 @@ export default function HomePage() {
                 <dd className="text-[var(--text)] capitalize">{apiStatus}</dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-[var(--text-muted)]">Inventory</dt>
-                <dd className="text-[var(--text)]">{total} stored</dd>
+                <dt className="text-[var(--text-muted)]">Shared pool</dt>
+                <dd className="text-[var(--text)]">{total} indexed</dd>
               </div>
+              {findingsMeta?.total_scanned ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--text-muted)]">Recent scan window</dt>
+                  <dd className="text-[var(--text)]">{findingsMeta.total_scanned} scanned</dd>
+                </div>
+              ) : null}
               <div className="flex justify-between gap-3">
                 <dt className="text-[var(--text-muted)]">Hunt clock</dt>
                 <dd className="text-[var(--text)]">System schedule</dd>

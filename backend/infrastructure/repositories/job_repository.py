@@ -104,6 +104,46 @@ class SQLAlchemyJobRepository:
         "%guru.com%",
         "%truelancer%",
     )
+    NON_OPPORTUNITY_URL_PATTERNS = (
+        "%/blog/%",
+        "%/blogs/%",
+        "%/article/%",
+        "%/articles/%",
+        "%/guide/%",
+        "%/guides/%",
+        "%/tutorial/%",
+        "%/tutorials/%",
+        "%/tender/%",
+        "%/tenders/%",
+        "%/procurement/%",
+        "%/rfp/%",
+        "%tendersontime.com%",
+        "%tendertiger.com%",
+        "%biddetail.com%",
+        "%globaltenders.com%",
+        "%dgmarket.com%",
+    )
+    NON_OPPORTUNITY_TITLE_PATTERNS = (
+        "%top 10%",
+        "%top 15%",
+        "%top 20%",
+        "%top 25%",
+        "%top 5 %",
+        "%best freelance%",
+        "%best remote%",
+        "%how to become%",
+        "%how to hire%",
+        "%how to find%",
+        "%ultimate guide%",
+        "%complete guide%",
+        "%tender notice%",
+        "%e-tender%",
+        "%invitation to tender%",
+        "%request for proposal%",
+        "%request for quotation%",
+        "%public procurement%",
+        "%government tender%",
+    )
 
     @classmethod
     def _exclude_marketplace_clause(cls):
@@ -112,6 +152,10 @@ class SQLAlchemyJobRepository:
             clauses.append(func.coalesce(JobRecord.source_name, "").ilike(pattern))
             clauses.append(func.coalesce(JobRecord.company, "").ilike(pattern))
             clauses.append(func.coalesce(JobRecord.url, "").ilike(pattern))
+        for url_pat in cls.NON_OPPORTUNITY_URL_PATTERNS:
+            clauses.append(func.coalesce(JobRecord.url, "").ilike(url_pat))
+        for title_pat in cls.NON_OPPORTUNITY_TITLE_PATTERNS:
+            clauses.append(func.coalesce(JobRecord.title, "").ilike(title_pat))
         return not_(or_(*clauses))
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -266,7 +310,7 @@ class SQLAlchemyJobRepository:
             "budget_min": job.budget_min,
             "budget_max": job.budget_max,
             "posted_at": job.posted_at,
-            "source_count": job.source_count,
+            "source_count": job.source_count or 1,
             "duplicate_confidence": job.duplicate_confidence,
             "seniority": job.seniority,
             "analysis_summary": job.analysis_summary,

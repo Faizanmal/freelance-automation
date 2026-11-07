@@ -150,6 +150,30 @@ class MatchingServiceTests(unittest.TestCase):
         self.assertIsNone(self.service.score_job(by_source, self.prefs))
         self.assertIsNotNone(self.service.score_job(allowed, self.prefs))
 
+    def test_blogs_listicles_and_tenders_are_rejected(self) -> None:
+        blog_job = _job(
+            title="How to Hire a Python & FastAPI Developer in 2026",
+            url="https://example.com/blog/hire-python-developer",
+        )
+        listicle_job = _job(
+            title="Top 15 Freelance Websites for Python & FastAPI Contractors",
+            url="https://example.com/top-15-freelance-sites",
+        )
+        tender_job = _job(
+            title="Tender Notice: Request for Proposal (RFP) for Python API Portal",
+            description="Public procurement invitation to tender with earnest money deposit.",
+            url="https://tendersontime.com/tender/python-api-123",
+        )
+        valid_contract = _job(
+            title="Senior Python & FastAPI Contract Engineer (3-Month Project)",
+            url="https://boards.greenhouse.io/acme/jobs/123",
+        )
+
+        self.assertIsNone(self.service.score_job(blog_job, self.prefs))
+        self.assertIsNone(self.service.score_job(listicle_job, self.prefs))
+        self.assertIsNone(self.service.score_job(tender_job, self.prefs))
+        self.assertIsNotNone(self.service.score_job(valid_contract, self.prefs))
+
     def test_missing_posted_at_uses_neutral_freshness(self) -> None:
         unknown_age_job = _job(posted_at=None)
         match = self.service.score_job(unknown_age_job, self.prefs)

@@ -495,8 +495,36 @@ function LeadsPageInner() {
           ? { ...item, user_status: status === "clear" ? null : status }
           : item,
       );
-      const nonSkipped = updatedItems.filter((item) => item.user_status !== "skip");
-      const skippedCount = updatedItems.filter((item) => item.user_status === "skip").length;
+      const allNonSkipped = updatedItems.filter((item) => item.user_status !== "skip");
+      const skippedItems = updatedItems.filter((item) => item.user_status === "skip");
+      const maxActive = authed ? 25 : 10;
+      const nonSkipped =
+        allNonSkipped.length > maxActive
+          ? [...allNonSkipped]
+              .sort((a, b) => {
+                const aBoost =
+                  a.job_id === jobId && status === "clear"
+                    ? 1.5
+                    : a.user_status === "pitched" || a.user_status === "won"
+                      ? 1.2
+                      : a.user_status === "save"
+                        ? 1.0
+                        : 0;
+                const bBoost =
+                  b.job_id === jobId && status === "clear"
+                    ? 1.5
+                    : b.user_status === "pitched" || b.user_status === "won"
+                      ? 1.2
+                      : b.user_status === "save"
+                        ? 1.0
+                        : 0;
+                if (bBoost !== aBoost) return bBoost - aBoost;
+                return b.score - a.score;
+              })
+              .slice(0, maxActive)
+          : allNonSkipped;
+      const skippedCount = skippedItems.length;
+      const cappedItems = [...nonSkipped, ...skippedItems];
 
       return {
 
@@ -512,7 +540,7 @@ function LeadsPageInner() {
           skip: skippedCount,
         },
 
-        items: updatedItems,
+        items: cappedItems,
 
       };
 
@@ -1056,7 +1084,7 @@ function LeadsPageInner() {
 
             <p>
 
-              <span className="text-[var(--text)]">Scanned {data.total_scanned}</span> · matched {data.total_matched} ·
+              <span className="text-[var(--text)]">Scanned {data.total_scanned} recent listings</span>{data.total_indexed && data.total_indexed > data.total_scanned ? ` (of ${data.total_indexed} indexed)` : ""} · matched {data.total_matched} ·
 
               showing {visibleItems.length}
 

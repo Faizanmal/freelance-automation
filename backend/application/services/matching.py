@@ -48,6 +48,73 @@ class JobMatch:
     red_flags: list[str] | None = None
 
 
+NON_OPPORTUNITY_URL_MARKERS = (
+    "/blog/",
+    "/blogs/",
+    "/article/",
+    "/articles/",
+    "/news/",
+    "/guide/",
+    "/guides/",
+    "/tutorial/",
+    "/tutorials/",
+    "/insights/",
+    "/resources/",
+    "/magazine/",
+    "/tender/",
+    "/tenders/",
+    "/procurement/",
+    "/rfp/",
+    "tendersontime.com",
+    "tendertiger.com",
+    "biddetail.com",
+    "globaltenders.com",
+    "dgmarket.com",
+    "ted.europa.eu",
+    "find-tender.service.gov.uk",
+    "etenders.gov.in",
+    "gem.gov.in",
+    "dev.to/",
+    "hashnode.dev",
+    "freecodecamp.org",
+    "hackernoon.com",
+)
+
+NON_OPPORTUNITY_TEXT_RE = re.compile(
+    r"(?:"
+    r"\btop\s+\d+\b"
+    r"|\b\d+\s+best\s+(?:freelance|remote|python|react|developer|software|web|contract|companies|platforms|sites|tools|agencies)\b"
+    r"|\bbest\s+(?:freelance|remote)\s+(?:websites|platforms|sites|job\s+boards|marketplaces|companies)\b"
+    r"|\bhow\s+to\s+(?:become|hire|find|get|start|land|choose)\b"
+    r"|\b(?:ultimate|complete|definitive|step-by-step|beginner'?s?)\s+guide\b"
+    r"|\b(?:salary\s+guide|interview\s+questions|resume\s+template|cover\s+letter\s+template)\b"
+    r"|\b\d+\s+min(?:ute)?\s+read\b"
+    r"|\be-?tenders?\b"
+    r"|\btender\s+(?:notice|no\.?|number|id|document|invited|invitation|submission|portal|reference|for)\b"
+    r"|\binvitation\s+(?:to|for)\s+(?:tender|bids?|rfp|rfq|eoi)\b"
+    r"|\brequest\s+for\s+(?:proposals?|quotations?|tenders?|bids?|information|qualifications?)\b"
+    r"|\b(?:rfp|rfq|rft|ifb|eoi)\s*(?:#|no\.?|number|notice|submission|document|reference)\b"
+    r"|\b(?:public|government|municipal|ministry)\s+(?:procurement|tender)\b"
+    r"|\b(?:earnest\s+money|bid\s+security|bid\s+bond|sealed\s+bids?|corrigendum|procurement\s+notice)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_non_opportunity_noise(
+    title: str | None,
+    description: str | None = None,
+    url: str | None = None,
+    company: str | None = None,
+) -> bool:
+    """Return True if a listing is a blog post, listicle, or procurement tender rather than a freelance/contract role."""
+    url_lower = (url or "").lower()
+    if any(marker in url_lower for marker in NON_OPPORTUNITY_URL_MARKERS):
+        return True
+    blob = f"{title or ''} {description or ''} {company or ''}"
+    return bool(NON_OPPORTUNITY_TEXT_RE.search(blob))
+
+
 class MatchingService:
     """Score jobs with skills/keywords fit, experience, freshness, and red flags."""
 
@@ -69,6 +136,9 @@ class MatchingService:
         ]
 
         if sources and job.source_name.lower() not in sources:
+            return None
+
+        if is_non_opportunity_noise(job.title, job.description, job.url, job.company):
             return None
 
         haystack = " ".join(

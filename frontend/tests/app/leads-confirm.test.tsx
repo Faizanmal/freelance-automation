@@ -221,3 +221,85 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
   });
 });
 
+test("Restoring a skipped lead when 25 active leads are loaded keeps All at 25 (never 26)", async () => {
+  const activeItems = Array.from({ length: 25 }, (_, i) => ({
+    job_id: i + 1,
+    title: `Active Contract Role ${i + 1}`,
+    company: "Direct Client",
+    source_name: "remoteok",
+    url: `https://example.com/jobs/${i + 1}`,
+    score: 0.9 - i * 0.01,
+    why: "Strong fit",
+    signals: ["Contract"],
+    risks: [],
+    action: "draft_bid" as const,
+    matched_keywords: ["python"],
+    freshness_score: 0.8,
+    client_quality_score: 0.7,
+    red_flags: [],
+    user_status: null,
+  }));
+
+  const skippedItem = {
+    job_id: 99,
+    title: "Restored Contract Role",
+    company: "Acme Corp",
+    source_name: "remoteok",
+    url: "https://example.com/jobs/99",
+    score: 0.85,
+    why: "Strong fit",
+    signals: ["Contract"],
+    risks: [],
+    action: "draft_bid" as const,
+    matched_keywords: ["python"],
+    freshness_score: 0.8,
+    client_quality_score: 0.7,
+    red_flags: [],
+    user_status: "skip" as const,
+  };
+
+  let restored = false;
+  vi.mocked(api.getAuthFindings).mockImplementation(async () => ({
+    generated_at: "2026-10-05T00:00:00Z",
+    total_scanned: 300,
+    total_indexed: 380,
+    total_matched: 40,
+    total_findings: 25,
+    skipped_count: restored ? 0 : 1,
+    freelance_focus: true,
+    action_counts: {
+      draft_bid: 25,
+      watch: 0,
+      skip: restored ? 0 : 1,
+    },
+    keywords: ["python"],
+    items: restored
+      ? [{ ...skippedItem, user_status: null }, ...activeItems.slice(0, 24)]
+      : [...activeItems, skippedItem],
+  }));
+
+  vi.mocked(api.setLeadAction).mockImplementation(async (jobId) => {
+    restored = true;
+    return { job_id: jobId, status: null };
+  });
+
+  render(<LeadsPage />);
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "All (25)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skipped (1)" })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Skipped (1)" }));
+  await waitFor(() => {
+    expect(screen.getByText("Restored Contract Role")).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+
+  // Must remain All (25) immediately and after reload — never All (26)
+  expect(screen.queryByRole("button", { name: "All (26)" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "All (25)" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+});
+
