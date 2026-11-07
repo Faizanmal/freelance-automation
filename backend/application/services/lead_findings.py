@@ -298,7 +298,7 @@ class LeadFindingsService:
         )
         findings = active_findings + skipped_findings
 
-        action_counts = {"draft_bid": 0, "watch": 0, "skip": 0}
+        action_counts = {"draft_bid": 0, "watch": 0, "skip": len(skipped_findings)}
 
         for finding in active_findings:
 

@@ -154,6 +154,10 @@ function LeadsPageInner() {
 
   const [error, setError] = useState<string | null>(null);
 
+  const [loading, setLoading] = useState(true);
+
+  const [focusOverride, setFocusOverride] = useState<boolean | undefined>(undefined);
+
   const [pending, startTransition] = useTransition();
 
   const [authed, setAuthed] = useState(() => {
@@ -163,12 +167,12 @@ function LeadsPageInner() {
 
 
 
-  const load = useCallback((value: string, focus?: boolean) => {
-
+  const load = useCallback((value: string, focus?: boolean, silent = false) => {
     startTransition(async () => {
-
       try {
-
+        if (!silent) {
+          setLoading(true);
+        }
         setError(null);
 
         const token = getToken();
@@ -223,6 +227,8 @@ function LeadsPageInner() {
 
         setData(null);
 
+      } finally {
+        setLoading(false);
       }
 
     });
@@ -460,7 +466,7 @@ function LeadsPageInner() {
       try {
         setError(null);
         await reportJobExpired(jobId, "dead_link");
-        await load(keywords, freelanceFocus);
+        await load(keywords, focusOverride, true);
         setSubmitMessage("Reported as dead/closed link. It will be pruned.");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not report link");
@@ -484,19 +490,29 @@ function LeadsPageInner() {
 
       if (!current) return current;
 
+      const updatedItems = current.items.map((item) =>
+        item.job_id === jobId
+          ? { ...item, user_status: status === "clear" ? null : status }
+          : item,
+      );
+      const nonSkipped = updatedItems.filter((item) => item.user_status !== "skip");
+      const skippedCount = updatedItems.filter((item) => item.user_status === "skip").length;
+
       return {
 
         ...current,
 
-        items: current.items.map((item) =>
+        total_findings: nonSkipped.length,
 
-          item.job_id === jobId
+        skipped_count: skippedCount,
 
-            ? { ...item, user_status: status === "clear" ? null : status }
+        action_counts: {
+          draft_bid: nonSkipped.filter((item) => item.action === "draft_bid").length,
+          watch: nonSkipped.filter((item) => item.action === "watch").length,
+          skip: skippedCount,
+        },
 
-            : item,
-
-        ),
+        items: updatedItems,
 
       };
 
@@ -510,7 +526,7 @@ function LeadsPageInner() {
 
         await setLeadAction(jobId, status);
 
-        await load(keywords, freelanceFocus);
+        await load(keywords, focusOverride, true);
 
         setSubmitMessage(
 
@@ -538,7 +554,7 @@ function LeadsPageInner() {
 
         setError(err instanceof Error ? err.message : "Could not update lead");
 
-        await load(keywords, freelanceFocus);
+        await load(keywords, focusOverride, true);
 
       }
 
@@ -649,6 +665,18 @@ function LeadsPageInner() {
       skipped: items.filter((item) => item.user_status === "skip").length,
     };
   }, [data]);
+
+  const summaryCounts = useMemo(() => {
+    const items = data?.items || [];
+    const nonSkipped = items.filter((item) => item.user_status !== "skip");
+    return {
+      draft_bid: nonSkipped.filter((item) => item.action === "draft_bid").length,
+      watch: nonSkipped.filter((item) => item.action === "watch").length,
+      skip: authed
+        ? statusCounts.skipped
+        : (data?.action_counts.skip ?? items.filter((item) => item.action === "skip").length),
+    };
+  }, [data, authed, statusCounts.skipped]);
 
   const statusTabs: { id: StatusFilter; label: string; count: number }[] = [
 
@@ -776,7 +804,7 @@ function LeadsPageInner() {
 
           <>
 
-            <Button type="button" variant="outline" onClick={() => load(keywords, freelanceFocus)} disabled={pending}>
+            <Button type="button" variant="outline" onClick={() => load(keywords, focusOverride)} disabled={pending}>
 
               {pending ? "Working…" : "Refresh leads"}
 
@@ -897,6 +925,8 @@ function LeadsPageInner() {
                 const next = event.target.checked;
 
                 setFreelanceFocus(next);
+
+                setFocusOverride(next);
 
                 load(keywords, next);
 
@@ -1038,11 +1068,11 @@ function LeadsPageInner() {
 
             <div className="flex flex-wrap gap-2">
 
-              <Badge variant="outline">Draft: {data.action_counts.draft_bid}</Badge>
+              <Badge variant="outline">Draft: {summaryCounts.draft_bid}</Badge>
 
-              <Badge variant="accent">Watch: {data.action_counts.watch}</Badge>
+              <Badge variant="accent">Watch: {summaryCounts.watch}</Badge>
 
-              <Badge variant="danger">Skip: {data.action_counts.skip}</Badge>
+              <Badge variant="danger">Skip: {summaryCounts.skip}</Badge>
 
             </div>
 
@@ -1054,7 +1084,7 @@ function LeadsPageInner() {
 
 
 
-      {pending && !data ? (
+      {loading || (pending && !data) ? (
 
         <div className="grid gap-3">
 
@@ -1072,7 +1102,7 @@ function LeadsPageInner() {
 
         <div className="grid gap-3">
 
-          {visibleItems.map((finding) => (
+          {!loading && visibleItems.map((finding) => (
 
             <Card
 

@@ -79,8 +79,8 @@ export default function HomePage() {
   const refresh = (isAuthed: boolean) => {
     startTransition(async () => {
       try {
-        setError(null);
         setLoading(true);
+        setError(null);
         if (isAuthed) {
           const [health, data, currentUser, currentPrefs, leadData, pStats] = await Promise.all([
             healthLive(),
@@ -583,7 +583,7 @@ export default function HomePage() {
               View all
             </Link>
           </div>
-          {loading ? (
+          {loading || scraping ? (
             <div className="space-y-3">
               <Skeleton className="h-16 w-full" />
               <Skeleton className="h-16 w-full" />

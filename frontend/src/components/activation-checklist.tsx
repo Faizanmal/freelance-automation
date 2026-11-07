@@ -33,7 +33,7 @@ export function ActivationChecklist() {
         const [user, prefs, findings] = await Promise.all([
           me(),
           getPreferences(),
-          getAuthFindings(5, true).catch(() => null),
+          getAuthFindings(5).catch(() => null),
         ]);
         if (cancelled) return;
         const next: ChecklistState = {

@@ -8,7 +8,6 @@ import {
   devVerifyEmail,
   getAuthMatches,
   getBilling,
-  getGoogleAuthUrl,
   getPreferences,
   getToken,
   logout,
@@ -85,6 +84,7 @@ function PreferencesPageInner() {
   const [prefs, setPrefs] = useState<Preferences>(emptyPrefs);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [matches, setMatches] = useState<Job[]>([]);
+  const [matchesLoading, setMatchesLoading] = useState(true);
   const [skillsText, setSkillsText] = useState((emptyPrefs.skills || []).join(", "));
   const [keywordsText, setKeywordsText] = useState("");
   const [excludeText, setExcludeText] = useState("");
@@ -149,6 +149,8 @@ function PreferencesPageInner() {
         setError("Failed to load preferences");
         logout();
         router.push("/auth");
+      } finally {
+        setMatchesLoading(false);
       }
     });
   }, [router]);
@@ -161,6 +163,7 @@ function PreferencesPageInner() {
 
   const onSave = (event: FormEvent) => {
     event.preventDefault();
+    setMatchesLoading(true);
     startTransition(async () => {
       try {
         setError(null);
@@ -192,12 +195,12 @@ function PreferencesPageInner() {
         setMessage(tab === "alerts" ? "Digest settings saved" : "Hunt Rules saved");
         setTimeout(() => setMessage(null), 3500);
 
-        // Fetch matches in background so Save button completes immediately without freezing
-        getAuthMatches()
-          .then((authMatches) => setMatches(authMatches.items))
-          .catch(() => {});
+        const authMatches = await getAuthMatches().catch(() => ({ items: [] as Job[] }));
+        setMatches(authMatches.items);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Save failed");
+      } finally {
+        setMatchesLoading(false);
       }
     });
   };
@@ -297,7 +300,7 @@ function PreferencesPageInner() {
                     } else if (res.email_delivered === false) {
                       setEmailWarning(
                         res.detail ||
-                          "Verification email could not be delivered. Check server mail settings, or click Verify with Google below.",
+                          "Verification email could not be delivered. Check server mail settings, then try Resend again.",
                       );
                     } else {
                       setMessage(res.detail);
@@ -309,29 +312,6 @@ function PreferencesPageInner() {
               }
             >
               Resend verification
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  try {
-                    setError(null);
-                    const redirectUri = `${window.location.origin}/auth/callback/google`;
-                    const { url } = await getGoogleAuthUrl(redirectUri);
-                    window.location.href = url;
-                  } catch (err) {
-                    setError(
-                      err instanceof Error
-                        ? err.message
-                        : "Google verification is unavailable on this server",
-                    );
-                  }
-                })
-              }
-            >
-              Verify with Google
             </Button>
             {allowDevVerify ? (
               <Button
@@ -530,22 +510,28 @@ function PreferencesPageInner() {
               Recent matches
             </h2>
             <div className="space-y-3">
-              {matches.map((job) => (
-                <a key={job.id} href={sanitizeExternalUrl(job.url) || "#"} target="_blank" rel="noopener noreferrer" className="block">
-                  <Card interactive className="p-4">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <h3 className="text-sm font-medium leading-tight">{job.title}</h3>
-                      <span className="shrink-0 rounded-md bg-[var(--accent-muted)] px-1.5 py-0.5 text-xs text-[var(--accent)]">
-                        {Math.round((job.match_score || 0) * 100)}%
-                      </span>
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      {[job.company, job.source_name].filter(Boolean).join(" · ")}
-                    </p>
-                  </Card>
-                </a>
-              ))}
-              {!pending && matches.length === 0 ? (
+              {matchesLoading ? (
+                <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4 text-sm text-[var(--text-muted)]">
+                  Loading matches…
+                </p>
+              ) : (
+                matches.map((job) => (
+                  <a key={job.id} href={sanitizeExternalUrl(job.url) || "#"} target="_blank" rel="noopener noreferrer" className="block">
+                    <Card interactive className="p-4">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <h3 className="text-sm font-medium leading-tight">{job.title}</h3>
+                        <span className="shrink-0 rounded-md bg-[var(--accent-muted)] px-1.5 py-0.5 text-xs text-[var(--accent)]">
+                          {Math.round((job.match_score || 0) * 100)}%
+                        </span>
+                      </div>
+                      <p className="text-xs text-[var(--text-muted)]">
+                        {[job.company, job.source_name].filter(Boolean).join(" · ")}
+                      </p>
+                    </Card>
+                  </a>
+                ))
+              )}
+              {!matchesLoading && !pending && matches.length === 0 ? (
                 <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4 text-sm text-[var(--text-muted)]">
                   No matches yet. Save skills, then open{" "}
                   <Link href="/leads" className="text-[var(--accent)] hover:underline">

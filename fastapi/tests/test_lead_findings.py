@@ -121,8 +121,21 @@ class LeadFindingsServiceTests(unittest.TestCase):
         )
         self.assertEqual(payload["total_findings"], 1)
         self.assertEqual(payload["skipped_count"], 1)
+        self.assertEqual(payload["action_counts"]["skip"], 1)
         statuses = {item["job_id"]: item["user_status"] for item in payload["items"]}
         self.assertEqual(statuses.get(2), "skip")
+
+        restored = self.service.build(
+            [j1, j2],
+            self.prefs,
+            limit=5,
+            freelance_focus=False,
+            lead_actions={},
+            include_skipped=True,
+        )
+        self.assertEqual(restored["total_findings"], 2)
+        self.assertEqual(restored["skipped_count"], 0)
+        self.assertEqual(restored["action_counts"]["skip"], 0)
 
     def test_41_days_old_listing_never_claims_posted_in_last_day(self) -> None:
         stale = _job(

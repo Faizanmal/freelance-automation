@@ -145,3 +145,79 @@ test("confirm submit sends confirm=true to apply API", async () => {
     );
   });
 });
+
+test("Skipped-lead counter matches between Skipped tab and summary Skip badge on skip and restore", async () => {
+  let currentStatus: "save" | "skip" | "pitched" | "won" | null = null;
+
+  vi.mocked(api.getAuthFindings).mockImplementation(async () => {
+    const isSkipped = currentStatus === "skip";
+    return {
+      generated_at: "2026-10-05T00:00:00Z",
+      total_scanned: 1,
+      total_matched: 1,
+      total_findings: isSkipped ? 0 : 1,
+      skipped_count: isSkipped ? 1 : 0,
+      freelance_focus: true,
+      action_counts: {
+        draft_bid: isSkipped ? 0 : 1,
+        watch: 0,
+        skip: isSkipped ? 1 : 0,
+      },
+      keywords: ["python"],
+      items: [
+        {
+          job_id: 42,
+          title: "API Engineer",
+          company: "Client",
+          source_name: "freelancer",
+          url: "https://www.freelancer.com/projects/42",
+          score: 0.95,
+          why: "Strong fit",
+          signals: ["API"],
+          risks: [],
+          action: "draft_bid",
+          matched_keywords: ["python"],
+          freshness_score: 0.8,
+          client_quality_score: 0.7,
+          red_flags: [],
+          user_status: currentStatus,
+        },
+      ],
+    };
+  });
+  vi.mocked(api.setLeadAction).mockImplementation(async (jobId, status) => {
+    currentStatus = status === "clear" ? null : status;
+    return { job_id: jobId, status: currentStatus };
+  });
+
+  render(<LeadsPage />);
+
+  await waitFor(() => {
+    expect(screen.getByText("API Engineer")).toBeInTheDocument();
+  });
+
+  expect(screen.getByText("95%")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+  expect(screen.getByText("Skip: 0")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Skipped (1)" })).toBeInTheDocument();
+    expect(screen.getByText("Skip: 1")).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Skipped (1)" }));
+  await waitFor(() => {
+    expect(screen.getByText("API Engineer")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+    expect(screen.getByText("Skip: 0")).toBeInTheDocument();
+  });
+});
+

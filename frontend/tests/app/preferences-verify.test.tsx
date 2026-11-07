@@ -111,3 +111,28 @@ test("shows auto-verify banner from query param", async () => {
     expect(screen.getAllByText(/local auto-verify applied/i).length).toBeGreaterThan(0);
   });
 });
+
+test("displays consistent match score (95%) once findings settle", async () => {
+  vi.mocked(api.getAuthMatches).mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 42,
+        title: "API Engineer",
+        url: "https://www.freelancer.com/projects/42",
+        source_name: "freelancer",
+        company: "Client",
+        match_score: 0.95,
+        matched_keywords: ["python"],
+      },
+    ],
+  });
+
+  render(<PreferencesPage />);
+
+  await waitFor(() => {
+    expect(screen.getByText("API Engineer")).toBeInTheDocument();
+    expect(screen.getByText("95%")).toBeInTheDocument();
+  });
+});
+

@@ -1383,9 +1383,21 @@ export async function updatePreferences(payload: Preferences) {
 
 
 export async function getAuthMatches() {
-
-  return request<{ total: number; items: Job[] }>("/preferences/matches", { auth: true });
-
+  const findings = await getAuthFindings(25);
+  const items: Job[] = (findings.items || []).map((item) => ({
+    id: item.job_id,
+    source_name: item.source_name,
+    source_id: String(item.job_id),
+    title: item.title,
+    description: item.description_excerpt || "",
+    url: item.apply_url || item.url,
+    company: item.company ?? null,
+    posted_at: item.posted_at ?? null,
+    match_score: item.score,
+    matched_keywords: item.matched_keywords || [],
+    match_reasons: item.signals || [],
+  }));
+  return { total: items.length, items };
 }
 
 
