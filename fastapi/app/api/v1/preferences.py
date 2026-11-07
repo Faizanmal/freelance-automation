@@ -228,8 +228,14 @@ async def list_matches(
     limit: int = 50,
 ) -> dict:
     prefs = await _get_or_create_preferences(session, user)
+    skipped, _ = await _lead_status_sets(session, user.id)
     repo = SQLAlchemyJobRepository(session)
-    jobs = await repo.list_recent(limit=300)
+    raw_jobs = await repo.list_recent(limit=300)
+    jobs = [
+        j
+        for j in raw_jobs
+        if not getattr(j, "is_expired", False) and j.id not in skipped
+    ]
     skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
     matcher = MatchingService()
     findings_service = LeadFindingsService(matcher)
@@ -464,14 +470,16 @@ async def demo_matches(
         match_threshold=0.2,
     )
     matcher = MatchingService()
+    findings_service = LeadFindingsService(matcher)
     matches = matcher.rank_jobs(jobs, prefs)[:limit]
     items = []
     for match in matches:
+        finding = findings_service._from_match(match, freelance_focus=True)
         job_data = await repo.to_candidate_dict(match.job)
         items.append(
             {
                 **job_data,
-                "match_score": match.score,
+                "match_score": finding.score,
                 "matched_keywords": match.matched_keywords,
                 "match_reasons": match.reasons,
                 "freshness_score": match.freshness_score,

@@ -8,6 +8,7 @@ import {
   devVerifyEmail,
   getAuthMatches,
   getBilling,
+  getGoogleAuthUrl,
   getPreferences,
   getToken,
   logout,
@@ -295,9 +296,9 @@ function PreferencesPageInner() {
                       setUser(await me());
                     } else if (res.email_delivered === false) {
                       setEmailWarning(
-                        "Verification email could not be delivered. Check server mail settings, then try Resend again.",
+                        res.detail ||
+                          "Verification email could not be delivered. Check server mail settings, or click Verify with Google below.",
                       );
-                      setMessage(res.detail);
                     } else {
                       setMessage(res.detail);
                     }
@@ -308,6 +309,29 @@ function PreferencesPageInner() {
               }
             >
               Resend verification
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  try {
+                    setError(null);
+                    const redirectUri = `${window.location.origin}/auth/callback/google`;
+                    const { url } = await getGoogleAuthUrl(redirectUri);
+                    window.location.href = url;
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Google verification is unavailable on this server",
+                    );
+                  }
+                })
+              }
+            >
+              Verify with Google
             </Button>
             {allowDevVerify ? (
               <Button

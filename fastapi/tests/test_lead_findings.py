@@ -108,6 +108,32 @@ class LeadFindingsServiceTests(unittest.TestCase):
             self.assertTrue(item["employment_risks"])
             self.assertIn(item["action"], {"watch", "skip"})
 
+    def test_include_skipped_preserves_skipped_leads_for_recovery(self) -> None:
+        j1 = _job(id=1, source_id="1", canonical_id="c1")
+        j2 = _job(id=2, source_id="2", canonical_id="c2", title="Python FastAPI Architect")
+        payload = self.service.build(
+            [j1, j2],
+            self.prefs,
+            limit=5,
+            freelance_focus=False,
+            lead_actions={2: "skip"},
+            include_skipped=True,
+        )
+        self.assertEqual(payload["total_findings"], 1)
+        self.assertEqual(payload["skipped_count"], 1)
+        statuses = {item["job_id"]: item["user_status"] for item in payload["items"]}
+        self.assertEqual(statuses.get(2), "skip")
+
+    def test_41_days_old_listing_never_claims_posted_in_last_day(self) -> None:
+        stale = _job(
+            posted_at="41 days ago",
+            description="Python FastAPI contract role — 41 days old.",
+        )
+        payload = self.service.build([stale], self.prefs, limit=5, freelance_focus=False)
+        item = payload["items"][0]
+        self.assertNotIn("Posted in the last day", item["signals"])
+        self.assertIn("Older posting — competition may be high", item["risks"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from backend.application.services.budget_parser import (
     passes_budget_filter,
@@ -341,22 +342,88 @@ class MatchingService:
                 )
         return flags[:5]
 
+    _RELATIVE_AGE_RE = re.compile(
+        r"\b(?:posted\s+)?(\d+)\+?\s*(minute|min|hour|hr|day|week|wk|month|mo|year|yr)s?\s+(?:ago|old)\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _parse_relative_hours(cls, text: str) -> float | None:
+        lower = text.strip().lower()
+        if not lower:
+            return None
+        if any(tok in lower for tok in ("just now", "moments ago", "today")):
+            return 2.0
+        if "yesterday" in lower:
+            return 24.0
+        m = cls._RELATIVE_AGE_RE.search(lower)
+        if not m:
+            return None
+        value = float(m.group(1))
+        unit = m.group(2).lower()
+        if unit in ("minute", "min"):
+            return max(0.1, value / 60.0)
+        if unit in ("hour", "hr"):
+            return value
+        if unit == "day":
+            return value * 24.0
+        if unit in ("week", "wk"):
+            return value * 168.0
+        if unit in ("month", "mo"):
+            return value * 720.0
+        if unit in ("year", "yr"):
+            return value * 8760.0
+        return None
+
+    @classmethod
+    def _parse_age_hours(cls, job: JobRecord) -> float | None:
+        raw_stamp = str(job.posted_at or "").strip()
+        if raw_stamp:
+            rel_hours = cls._parse_relative_hours(raw_stamp)
+            if rel_hours is not None:
+                return rel_hours
+            for candidate in (raw_stamp, raw_stamp.replace("Z", "+00:00")):
+                try:
+                    parsed = datetime.fromisoformat(candidate)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=UTC)
+                    return max(
+                        0.0,
+                        (datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds()
+                        / 3600.0,
+                    )
+                except ValueError:
+                    pass
+            try:
+                parsed_rfc = parsedate_to_datetime(raw_stamp)
+                if parsed_rfc.tzinfo is None:
+                    parsed_rfc = parsed_rfc.replace(tzinfo=UTC)
+                return max(
+                    0.0,
+                    (datetime.now(UTC) - parsed_rfc.astimezone(UTC)).total_seconds()
+                    / 3600.0,
+                )
+            except (TypeError, ValueError):
+                pass
+            for fmt in ("%b %d, %Y", "%B %d, %Y", "%Y-%m-%d", "%d %b %Y"):
+                try:
+                    parsed_dt = datetime.strptime(raw_stamp, fmt).replace(tzinfo=UTC)
+                    return max(
+                        0.0,
+                        (datetime.now(UTC) - parsed_dt).total_seconds() / 3600.0,
+                    )
+                except ValueError:
+                    continue
+
+        snippet_text = f"{job.title or ''} {job.description or ''}"
+        return cls._parse_relative_hours(snippet_text)
+
     def _freshness_score(self, job: JobRecord) -> float:
-        stamp = job.posted_at or (
-            job.created_at.isoformat() if job.created_at else None
-        )
-        if not stamp:
-            return 0.45
-        try:
-            parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=UTC)
-            age_hours = max(
-                0.0,
-                (datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds() / 3600,
-            )
-        except ValueError:
-            return 0.45
+        age_hours = self._parse_age_hours(job)
+        if age_hours is None:
+            # Never fall back to DB ingestion timestamp (created_at) to claim a job
+            # was "Posted in the last day" when the real post date is unknown.
+            return 0.5
         if age_hours <= 6:
             return 1.0
         if age_hours <= 24:
@@ -364,7 +431,7 @@ class MatchingService:
         if age_hours <= 72:
             return 0.65
         if age_hours <= 168:
-            return 0.4
+            return 0.45
         return 0.2
 
     def _client_quality_score(self, job: JobRecord) -> float:

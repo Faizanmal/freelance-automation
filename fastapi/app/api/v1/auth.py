@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -319,15 +320,52 @@ async def resend_verification(
     user = await repository.get_by_email(payload.email)
     settings = get_settings()
 
-    # Always the same public shape unless DEBUG helpers are explicitly enabled.
+    # Always the same public shape unless DEBUG helpers are explicitly enabled
+    # or the caller is authenticated as that exact user.
     response: dict[str, object] = {"detail": _GENERIC_RESEND_DETAIL}
+
+    is_self_authed = False
+    try:
+        headers = getattr(request, "headers", None)
+        auth_header = headers.get("authorization") if hasattr(headers, "get") else None
+        if isinstance(auth_header, str) and auth_header.lower().startswith("bearer "):
+            jwt_payload = decode_access_token(auth_header.split(" ", 1)[1].strip())
+            if user and str(jwt_payload.get("sub") or "") == str(getattr(user, "id", "")):
+                is_self_authed = True
+    except Exception:
+        is_self_authed = False
+
+    if user and user.is_active and user.is_verified and is_self_authed:
+        return {
+            "detail": "Your email is already verified.",
+            "email_delivered": False,
+            "auto_verified": True,
+        }
 
     if user and user.is_active and not user.is_verified:
         token = create_email_verification_token(user.email)
         if getattr(settings, "email_smtp_host", None) or getattr(settings, "resend_api_key", None):
-            background_tasks.add_task(
-                EmailService.send_verification_email, user.email, token
-            )
+            if is_self_authed:
+                delivered = await asyncio.to_thread(
+                    EmailService.send_verification_email, user.email, token
+                )
+                if delivered:
+                    response = {
+                        "detail": f"Verification link sent to {user.email}. Check your inbox and spam folder.",
+                        "email_delivered": True,
+                    }
+                else:
+                    response = {
+                        "detail": (
+                            "Outbound email delivery failed (Resend/SMTP rejected or unreachable). "
+                            "Tip: Sign in with Google or GitHub using this email to verify your account immediately."
+                        ),
+                        "email_delivered": False,
+                    }
+            else:
+                background_tasks.add_task(
+                    EmailService.send_verification_email, user.email, token
+                )
         elif settings.allow_dev_auth_helpers:
             user.is_verified = True
             session.add(user)
@@ -344,6 +382,14 @@ async def resend_verification(
             logger.warning(
                 "Resend verification skipped for %s — SMTP not configured", user.email
             )
+            if is_self_authed:
+                response = {
+                    "detail": (
+                        "Outbound email (Resend / SMTP) is not configured on this server. "
+                        "Sign in with Google or GitHub using this email to verify your account immediately."
+                    ),
+                    "email_delivered": False,
+                }
 
     return response
 

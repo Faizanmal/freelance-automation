@@ -43,7 +43,7 @@ class GoogleAuthService:
             "scope": "openid email profile",
             "access_type": "offline",
             "state": state,
-            "prompt": "select_account",
+            "prompt": "select_account consent",
         }
         url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
         return url, state

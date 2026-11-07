@@ -30,8 +30,13 @@ function VerifyEmailContent() {
   const resend = async () => {
     try {
       setError(null);
+      setMessage(null);
       const res = await resendVerification(email);
-      setMessage(res.detail || "If that email is unverified, a new link was sent.");
+      if (res.email_delivered === false && !res.auto_verified) {
+        setError(res.detail || "Verification email could not be delivered.");
+      } else {
+        setMessage(res.detail || "If that email is unverified, a new link was sent.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Resend failed");
     }

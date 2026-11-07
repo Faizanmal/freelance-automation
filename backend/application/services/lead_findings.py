@@ -198,6 +198,24 @@ class LeadFindingsService:
 
         )
 
+        preserved_ids = saved | pitched | (skipped if include_skipped else set())
+        matched_ids = {m.job.id for m in matches if m.job.id is not None}
+        for job in jobs:
+            if job.id in preserved_ids and job.id not in matched_ids:
+                matches.append(
+                    JobMatch(
+                        job=job,
+                        score=0.5,
+                        matched_keywords=[],
+                        reasons=["saved_or_actioned_lead"],
+                        freshness_score=round(self.matcher._freshness_score(job), 3),
+                        client_quality_score=round(
+                            self.matcher._client_quality_score(job), 3
+                        ),
+                        red_flags=[],
+                    )
+                )
+
         findings = [
 
             self._from_match(match, freelance_focus=freelance_focus)
@@ -221,6 +239,7 @@ class LeadFindingsService:
                 or finding.job.source_name in MARKETPLACE_SOURCES
 
                 or finding.job.source_name == "serpapi_freelance"
+                or finding.job.id in preserved_ids
 
             ]
 
@@ -268,13 +287,20 @@ class LeadFindingsService:
 
         findings.sort(key=_sort_key, reverse=True)
 
-
-
-        findings = findings[: max(1, min(limit, 25))] if findings else []
+        cap = max(1, min(limit, 50))
+        active_findings = [
+            f for f in findings if f.job.id not in skipped
+        ][:cap]
+        skipped_findings = (
+            [f for f in findings if f.job.id in skipped][:25]
+            if include_skipped
+            else []
+        )
+        findings = active_findings + skipped_findings
 
         action_counts = {"draft_bid": 0, "watch": 0, "skip": 0}
 
-        for finding in findings:
+        for finding in active_findings:
 
             action_counts[finding.action] += 1
 
@@ -310,7 +336,9 @@ class LeadFindingsService:
 
             "total_matched": len(matches),
 
-            "total_findings": len(findings),
+            "total_findings": len(active_findings),
+
+            "skipped_count": len(skipped_findings),
 
             "freelance_focus": freelance_focus,
 

@@ -127,6 +127,25 @@ class MatchingServiceTests(unittest.TestCase):
         assert clean is not None and flagged is not None
         self.assertGreater(clean.score, flagged.score)
 
+    def test_stale_relative_age_is_not_marked_fresh(self) -> None:
+        stale_job = _job(
+            posted_at=None,
+            description="Senior Python FastAPI contract role posted 41 days ago.",
+        )
+        match = self.service.score_job(stale_job, self.prefs)
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertLessEqual(match.freshness_score, 0.25)
+        self.assertNotIn("fresh posting", match.reasons)
+
+    def test_missing_posted_at_uses_neutral_freshness(self) -> None:
+        unknown_age_job = _job(posted_at=None)
+        match = self.service.score_job(unknown_age_job, self.prefs)
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertEqual(match.freshness_score, 0.5)
+        self.assertNotIn("fresh posting", match.reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

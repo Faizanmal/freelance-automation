@@ -87,7 +87,7 @@ export default function HomePage() {
             listJobs({ limit: 8 }),
             me().catch(() => null),
             getPreferences().catch(() => null),
-            getAuthFindings(8, true).catch(() => null),
+            getAuthFindings(8).catch(() => null),
             Promise.resolve(typeof getPipelineStats === "function" ? getPipelineStats() : null).catch(
               () => null,
             ),
@@ -148,7 +148,7 @@ export default function HomePage() {
         );
         const [data, leadData] = await Promise.all([
           listJobs({ limit: 8 }),
-          getAuthFindings(8, true).catch(() => null),
+          getAuthFindings(8).catch(() => null),
         ]);
         setJobs(data.items);
         setTotal(data.total);
@@ -609,7 +609,7 @@ export default function HomePage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="accent">{Math.round(item.score * 100)} fit</Badge>
+                    <Badge variant="accent">{Math.round(item.score * 100)}% fit</Badge>
                     <a
                       href={sanitizeExternalUrl(item.apply_url || item.url) || "#"}
                       target="_blank"

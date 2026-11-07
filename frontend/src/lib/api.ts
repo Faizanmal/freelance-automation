@@ -748,6 +748,8 @@ export type LeadFindingsResponse = {
 
   total_findings: number;
 
+  skipped_count?: number;
+
   freelance_focus?: boolean;
 
   action_counts: {
@@ -786,18 +788,21 @@ export async function getDemoFindings(keywords: string, limit = 10, freelanceFoc
 
 
 
-export async function getAuthFindings(limit = 10, freelanceFocus = true) {
-
+export async function getAuthFindings(
+  limit = 10,
+  freelanceFocus?: boolean,
+  includeSkipped = false,
+) {
   const query = new URLSearchParams({
-
     limit: String(limit),
-
-    freelance_focus: String(freelanceFocus),
-
   });
-
+  if (freelanceFocus !== undefined) {
+    query.set("freelance_focus", String(freelanceFocus));
+  }
+  if (includeSkipped) {
+    query.set("include_skipped", "true");
+  }
   return request<LeadFindingsResponse>(`/preferences/findings?${query}`, { auth: true });
-
 }
 
 
@@ -1501,7 +1506,11 @@ export async function resendVerification(email: string) {
 
     verify_url?: string;
 
-  }>("/auth/resend-verification", { method: "POST", body: JSON.stringify({ email }) });
+  }>("/auth/resend-verification", {
+    method: "POST",
+    auth: Boolean(getToken()),
+    body: JSON.stringify({ email }),
+  });
 
 }
 

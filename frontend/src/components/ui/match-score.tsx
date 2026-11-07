@@ -34,7 +34,7 @@ export function MatchScore({
       )}
       title="Match score is an estimate based on your Hunt Rules — not a verified guarantee"
     >
-      <span className="text-sm font-semibold tabular-nums">{pct}</span>
+      <span className="text-sm font-semibold tabular-nums">{pct}%</span>
       {showLabel ? <span className="text-[11px] font-medium tracking-wide uppercase">{fitLabel(pct)}</span> : null}
     </div>
   );
@@ -46,7 +46,7 @@ export function MatchScoreBar({ score, className }: { score: number; className?:
     <div className={cn("w-full", className)}>
       <div className="mb-1 flex items-center justify-between text-xs text-[var(--text-muted)]">
         <span>Match estimate</span>
-        <span className="tabular-nums text-[var(--text-secondary)]">{pct} · {fitLabel(pct)}</span>
+        <span className="tabular-nums text-[var(--text-secondary)]">{pct}% · {fitLabel(pct)}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-[var(--border)]">
         <div

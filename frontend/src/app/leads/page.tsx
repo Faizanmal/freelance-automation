@@ -163,7 +163,7 @@ function LeadsPageInner() {
 
 
 
-  const load = useCallback((value: string, focus: boolean) => {
+  const load = useCallback((value: string, focus?: boolean) => {
 
     startTransition(async () => {
 
@@ -177,9 +177,13 @@ function LeadsPageInner() {
 
         const response = token
 
-          ? await getAuthFindings(10, focus)
+          ? await getAuthFindings(25, focus, true)
 
-          : await getDemoFindings(value, 10, focus);
+          : await getDemoFindings(value, 10, focus ?? true);
+
+        if (typeof response.freelance_focus === "boolean") {
+          setFreelanceFocus(response.freelance_focus);
+        }
 
         setData(response);
 
@@ -201,7 +205,7 @@ function LeadsPageInner() {
 
             total_findings: 0,
 
-            freelance_focus: focus,
+            freelance_focus: focus ?? true,
 
             action_counts: { draft_bid: 0, watch: 0, skip: 0 },
 
@@ -229,7 +233,7 @@ function LeadsPageInner() {
 
   useEffect(() => {
 
-    load(DEFAULT_KEYWORDS, true);
+    load(DEFAULT_KEYWORDS);
 
   }, [load]);
 
@@ -578,6 +582,8 @@ function LeadsPageInner() {
 
       if (sourceFilter !== "all" && item.source_name !== sourceFilter) return false;
 
+      if (statusFilter !== "skipped" && item.user_status === "skip") return false;
+
       if (statusFilter === "saved" && item.user_status !== "save") return false;
 
       if (statusFilter === "pitched" && item.user_status !== "pitched" && item.user_status !== "won") return false;
@@ -630,21 +636,35 @@ function LeadsPageInner() {
 
 
 
-  const statusTabs: { id: StatusFilter; label: string }[] = [
+  const statusCounts = useMemo(() => {
+    const items = data?.items || [];
+    const nonSkipped = items.filter((item) => item.user_status !== "skip");
+    return {
+      all: nonSkipped.length,
+      new: nonSkipped.filter((item) => !item.user_status).length,
+      high: nonSkipped.filter((item) => item.score >= 0.7).length,
+      saved: items.filter((item) => item.user_status === "save").length,
+      pitched: items.filter((item) => item.user_status === "pitched" || item.user_status === "won").length,
+      won: items.filter((item) => item.user_status === "won").length,
+      skipped: items.filter((item) => item.user_status === "skip").length,
+    };
+  }, [data]);
 
-    { id: "all", label: "All" },
+  const statusTabs: { id: StatusFilter; label: string; count: number }[] = [
 
-    { id: "new", label: "New" },
+    { id: "all", label: "All", count: statusCounts.all },
 
-    { id: "high", label: "High match" },
+    { id: "new", label: "New", count: statusCounts.new },
 
-    { id: "saved", label: "Saved" },
+    { id: "high", label: "High match", count: statusCounts.high },
 
-    { id: "pitched", label: "Pitched" },
+    { id: "saved", label: "Saved", count: statusCounts.saved },
 
-    { id: "won", label: "Won" },
+    { id: "pitched", label: "Pitched", count: statusCounts.pitched },
 
-    { id: "skipped", label: "Skipped" },
+    { id: "won", label: "Won", count: statusCounts.won },
+
+    { id: "skipped", label: "Skipped", count: statusCounts.skipped },
 
   ];
 
@@ -854,7 +874,7 @@ function LeadsPageInner() {
 
             >
 
-              {tab.label}
+              {tab.label} ({tab.count})
 
             </button>
 
@@ -1138,6 +1158,8 @@ function LeadsPageInner() {
 
                   {finding.user_status === "won" ? <Badge variant="success">Won</Badge> : null}
 
+                  {finding.user_status === "skip" ? <Badge variant="danger">Skipped</Badge> : null}
+
                 </div>
 
               </div>
@@ -1308,10 +1330,17 @@ function LeadsPageInner() {
 
                     </Button>
 
-                    <Button variant="ghost" size="sm" onClick={() => updateLeadStatus(finding.job_id, "skip")}>
-
-                      Skip
-
+                    <Button
+                      variant={finding.user_status === "skip" ? "outline" : "ghost"}
+                      size="sm"
+                      onClick={() =>
+                        updateLeadStatus(
+                          finding.job_id,
+                          finding.user_status === "skip" ? "clear" : "skip",
+                        )
+                      }
+                    >
+                      {finding.user_status === "skip" ? "Restore" : "Skip"}
                     </Button>
 
                     <Button
