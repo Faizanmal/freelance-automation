@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any
 
+from urllib.parse import quote
+
 from backend.application.services.budget_parser import describe_budget
 from backend.application.services.llm import any_llm_configured, chat_completion
 from database.models.job import JobRecord
@@ -56,11 +58,44 @@ def submit_mode_for_job(job: JobRecord) -> str:
     return "unsupported"
 
 
+def build_outreach_links(
+    to_email: str | None, subject: str, body: str
+) -> dict[str, str]:
+    safe_to = (to_email or "").strip()
+    safe_subject = (subject or "").strip()[:200]
+    safe_body = (body or "").strip()[:6000]
+
+    gmail_params = ["view=cm", "fs=1"]
+    if safe_to:
+        gmail_params.append(f"to={quote(safe_to)}")
+    if safe_subject:
+        gmail_params.append(f"su={quote(safe_subject)}")
+    if safe_body:
+        gmail_params.append(f"body={quote(safe_body)}")
+
+    gmail_url = f"https://mail.google.com/mail/?{'&'.join(gmail_params)}"
+
+    mailto_parts = []
+    if safe_subject:
+        mailto_parts.append(f"subject={quote(safe_subject)}")
+    if safe_body:
+        mailto_parts.append(f"body={quote(safe_body)}")
+    query = f"?{'&'.join(mailto_parts)}" if mailto_parts else ""
+    mailto_url = f"mailto:{safe_to}{query}"
+
+    return {"gmail": gmail_url, "mailto": mailto_url}
+
+
 class ProposalDraftService:
     """Generate editable tailored outreach pitch & apply form fields. Never auto-submits."""
 
     async def draft(
-        self, *, user: User, preferences: UserPreferences, job: JobRecord
+        self,
+        *,
+        user: User,
+        preferences: UserPreferences,
+        job: JobRecord,
+        kind: str = "initial",
     ) -> dict[str, object]:
         template_fields = self._template_form_fields(
             user=user, preferences=preferences, job=job
@@ -79,9 +114,22 @@ class ProposalDraftService:
                 form_fields = llm_fields
                 provider = llm_provider
 
-        draft_text = str(form_fields.get("proposal") or "")
+        initial_pitch = str(form_fields.get("proposal") or "")
+        followup_pitch = self._template_followup_pitch(user=user, job=job)
+
+        draft_text = followup_pitch if kind == "followup" else initial_pitch
         apply_email = extract_apply_email(job)
-        email_subject = f"Contract inquiry: {job.title}"
+        email_subject = (
+            f"Following up: {job.title}" if kind == "followup" else f"Contract inquiry: {job.title}"
+        )
+
+        initial_links = build_outreach_links(
+            apply_email, f"Contract inquiry: {job.title}", initial_pitch
+        )
+        followup_links = build_outreach_links(
+            apply_email, f"Following up: {job.title}", followup_pitch
+        )
+
         return {
             "job_id": job.id,
             "title": job.title,
@@ -90,12 +138,31 @@ class ProposalDraftService:
             "apply_email": apply_email,
             "email_subject": email_subject,
             "provider": provider,
+            "kind": kind,
             "draft": draft_text,
+            "initial_draft": initial_pitch,
+            "followup_draft": followup_pitch,
+            "outreach_links": {
+                "gmail": initial_links["gmail"],
+                "mailto": initial_links["mailto"],
+                "gmail_followup": followup_links["gmail"],
+                "mailto_followup": followup_links["mailto"],
+            },
             "form_fields": form_fields,
             "disclaimer": (
                 "Review and customize before sending. Signal Desk never auto-applies or contacts clients on your behalf."
             ),
         }
+
+    def _template_followup_pitch(self, *, user: User, job: JobRecord) -> str:
+        name = (user.full_name or user.email.split("@")[0]).strip()
+        return (
+            f"Hi — following up briefly on my earlier message regarding '{job.title}'.\n\n"
+            f"I wanted to confirm whether you're still exploring contractors for this deliverable. "
+            f"I have capacity opening up and can hit the ground running immediately if you're ready to move forward.\n\n"
+            f"Happy to jump on a quick 10-minute sync whenever convenient.\n\n"
+            f"Best regards,\n{name}"
+        )
 
     def _template_form_fields(
         self,

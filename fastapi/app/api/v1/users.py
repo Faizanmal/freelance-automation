@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.application.services.email_service import EmailService
 from backend.application.services.user_service import UserService
 from backend.infrastructure.repositories.user_repository import SQLAlchemyUserRepository
+from config.settings import get_settings
 from database.core.session import get_db
 from database.models.application import JobApplication
 from database.models.lead_action import UserLeadAction
@@ -150,6 +151,16 @@ async def delete_current_user(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
+    settings = get_settings()
+    if settings.stripe_enabled and current_user.stripe_subscription_id:
+        try:
+            import stripe
+
+            stripe.api_key = settings.stripe_secret_key
+            stripe.Subscription.cancel(current_user.stripe_subscription_id)
+        except Exception:
+            pass
+
     EmailService.send_account_alert(
         current_user.email,
         "Your Signal Desk account was deleted",

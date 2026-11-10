@@ -10,6 +10,7 @@ type ReadyStatus = {
   checks?: {
     database?: string;
     redis?: string;
+    workers?: string;
   };
 };
 
@@ -93,10 +94,18 @@ export default function StatusPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold text-[var(--paper)]">Background workers</h2>
-            <p className="text-sm text-[var(--mute)]">Redis scraping & alert queues</p>
+            <p className="text-sm text-[var(--mute)]">Celery tasks & discovery hunters</p>
           </div>
-          <span className={`px-3 py-1 rounded-full text-sm border font-medium ${getStatusColor(readyStatus?.checks?.redis || "Checking...")}`}>
-            {readyStatus?.checks?.redis === "ok" ? "Operational" : readyStatus ? "Degraded" : "Checking..."}
+          <span className={`px-3 py-1 rounded-full text-sm border font-medium ${getStatusColor(readyStatus?.checks?.workers === "ok" ? "Operational" : readyStatus?.checks?.workers === "idle" ? "Checking..." : readyStatus?.checks?.redis === "ok" ? "Operational" : "Down")}`}>
+            {readyStatus?.checks?.workers === "ok"
+              ? "Operational"
+              : readyStatus?.checks?.workers === "idle"
+              ? "Standby / Idle"
+              : readyStatus?.checks?.redis === "ok"
+              ? "Operational"
+              : readyStatus
+              ? "Degraded"
+              : "Checking..."}
           </span>
         </div>
       </Card>

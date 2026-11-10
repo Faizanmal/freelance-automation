@@ -44,6 +44,7 @@ class UserPreferences(Base):
     )
     digest_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     freelance_focus: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    hide_agency_leads: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     location: Mapped[str | None] = mapped_column(String(128), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     digest_days: Mapped[list | None] = mapped_column(JSON, nullable=True)

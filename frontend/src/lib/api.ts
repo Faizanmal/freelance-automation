@@ -116,6 +116,8 @@ export type Preferences = {
 
   freelance_focus?: boolean;
 
+  hide_agency_leads?: boolean;
+
   location?: string | null;
 
   timezone?: string | null;
@@ -564,7 +566,20 @@ export type ProposalDraftResponse = {
 
   provider: string;
 
+  kind?: string | null;
+
   draft: string;
+
+  initial_draft?: string | null;
+
+  followup_draft?: string | null;
+
+  outreach_links?: {
+    gmail?: string | null;
+    mailto?: string | null;
+    gmail_followup?: string | null;
+    mailto_followup?: string | null;
+  } | null;
 
   disclaimer: string;
 
@@ -574,9 +589,9 @@ export type ProposalDraftResponse = {
 
 
 
-export async function draftProposal(jobId: number) {
+export async function draftProposal(jobId: number, kind: "initial" | "followup" = "initial") {
 
-  return request<ProposalDraftResponse>(`/jobs/${jobId}/proposal-draft`, { method: "POST", auth: true });
+  return request<ProposalDraftResponse>(`/jobs/${jobId}/proposal-draft?kind=${kind}`, { method: "POST", auth: true });
 
 }
 
@@ -729,6 +744,17 @@ export type LeadFinding = {
   freelance_benefits_line?: string | null;
 
   employment_risks?: string[];
+
+  client_signal?: {
+    poster_type?: string;
+    poster_label?: string;
+    poster_badge?: string;
+    urgency?: string;
+    urgency_label?: string | null;
+    is_agency?: boolean;
+    score?: number;
+    reasons?: string[];
+  } | null;
 
   user_status?: "save" | "skip" | "pitched" | "won" | null;
 

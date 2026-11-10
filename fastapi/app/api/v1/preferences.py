@@ -49,6 +49,7 @@ class PreferencesPayload(BaseModel):
     )
     digest_mode: bool = True
     freelance_focus: bool = True
+    hide_agency_leads: bool = False
     location: str | None = Field(default=None, max_length=128)
     timezone: str | None = Field(default=None, max_length=64)
     digest_days: list[str] | None = Field(default=None, max_length=7)
@@ -117,6 +118,7 @@ def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
         notification_channels=prefs.notification_channels or [],
         digest_mode=bool(prefs.digest_mode),
         freelance_focus=bool(getattr(prefs, "freelance_focus", True)),
+        hide_agency_leads=bool(getattr(prefs, "hide_agency_leads", False)),
         location=getattr(prefs, "location", None),
         timezone=getattr(prefs, "timezone", None),
         digest_days=(
@@ -153,6 +155,7 @@ async def _get_or_create_preferences(
         match_threshold=0.35,
         digest_mode=True,
         freelance_focus=True,
+        hide_agency_leads=False,
         digest_days=["mon", "tue", "wed", "thu", "fri"],
         digest_time_local="09:00",
         max_per_digest=5,
@@ -204,6 +207,7 @@ async def update_my_preferences(
     prefs.notification_channels = channels
     prefs.digest_mode = payload.digest_mode
     prefs.freelance_focus = payload.freelance_focus
+    prefs.hide_agency_leads = payload.hide_agency_leads
     prefs.location = payload.location
     prefs.timezone = payload.timezone
     prefs.digest_days = payload.digest_days

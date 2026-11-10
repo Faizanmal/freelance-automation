@@ -23,8 +23,7 @@ class EmailService:
         headers: dict[str, str] | None = None,
     ) -> bool:
         """Sends transactional email via Resend HTTPS API if available, falling back to SMTP."""
-        current_settings = get_settings()
-        app_url = (getattr(current_settings, "public_app_url", None) or "http://localhost:3000").rstrip("/")
+        app_url = (getattr(settings, "public_app_url", None) or "http://localhost:3000").rstrip("/")
         default_headers = {
             "List-Unsubscribe": f"<{app_url}/preferences>",
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -32,8 +31,8 @@ class EmailService:
         if headers:
             default_headers.update(headers)
 
-        from_email = getattr(current_settings, "email_from", None) or "Signal Desk <notifications@signaldesk.com>"
-        resend_key = getattr(current_settings, "resend_api_key", None)
+        from_email = getattr(settings, "email_from", None) or "Signal Desk <notifications@signaldesk.com>"
+        resend_key = getattr(settings, "resend_api_key", None)
 
         # 1. Prefer Resend HTTPS API (avoids cloud port 587/465 SMTP firewall restrictions)
         if resend_key:

@@ -45,7 +45,10 @@ class Settings(BaseSettings):
     redis_url: str = Field("redis://localhost:6379/0", alias="REDIS_URL")
     redis_optional: bool = Field(True, alias="REDIS_OPTIONAL")
 
-    jwt_secret_key: str = Field("dev-secret-change-me", alias="JWT_SECRET_KEY")
+    jwt_secret_key: str = Field(
+        "dev-secret-change-me-must-be-at-least-32-chars-long",
+        alias="JWT_SECRET_KEY",
+    )
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(
         60 * 24, alias="ACCESS_TOKEN_EXPIRE_MINUTES"

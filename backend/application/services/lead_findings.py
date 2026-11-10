@@ -24,6 +24,7 @@ from backend.application.services.budget_parser import (
 
 )
 
+from backend.application.services.client_signal import detect_client_signal
 from backend.application.services.listing_presentation import make_excerpt
 
 from backend.application.services.matching import (
@@ -137,6 +138,8 @@ class LeadFinding:
     freelance_benefits: list[str] | None = None
 
     employment_risks: list[str] | None = None
+
+    client_signal: dict[str, Any] | None = None
 
 
 
@@ -297,6 +300,15 @@ class LeadFindingsService:
 
         findings.sort(key=_sort_key, reverse=True)
 
+        hide_agency = bool(getattr(preferences, "hide_agency_leads", False))
+        if hide_agency:
+            findings = [
+                f
+                for f in findings
+                if not (f.client_signal or {}).get("is_agency")
+                or f.job.id in (saved | pitched)
+            ]
+
         cap = max(1, min(limit, 50))
         active_findings = [
             f for f in findings if f.job.id not in skipped
@@ -403,6 +415,22 @@ class LeadFindingsService:
 
 
 
+        client_sig = detect_client_signal(
+            title=match.job.title or "",
+            description=match.job.description or "",
+            company=match.job.company,
+            source_name=match.job.source_name or "",
+            enrichment=match.job.enrichment,
+        )
+        if client_sig.is_agency:
+            risks.insert(0, "Staffing / recruitment intermediary")
+        elif client_sig.poster_type == "direct_founder":
+            signals.insert(0, "Direct founder opportunity")
+        elif client_sig.poster_type == "company_direct":
+            signals.insert(0, "Direct company posting")
+        if client_sig.urgency == "high" and client_sig.urgency_label:
+            signals.insert(0, f"Urgent hiring signal: {client_sig.urgency_label}")
+
         action = self._action(
 
             score,
@@ -448,6 +476,8 @@ class LeadFindingsService:
             freelance_benefits=benefits,
 
             employment_risks=employment_risks,
+
+            client_signal=client_sig.to_dict(),
 
         )
 
@@ -922,6 +952,8 @@ class LeadFindingsService:
             "freelance_benefits_line": " · ".join(benefits[:4]) if benefits else None,
 
             "employment_risks": finding.employment_risks or [],
+
+            "client_signal": finding.client_signal or {},
 
             "is_expired": bool(getattr(job, "is_expired", False)),
 

@@ -211,6 +211,8 @@ async def stripe_webhook(
         "checkout.session.completed",
         "customer.subscription.updated",
         "customer.subscription.created",
+        "customer.subscription.resumed",
+        "invoice.payment_succeeded",
     }:
         await _apply_subscription_event(session, data_object, active=True)
     elif event_type in {"customer.subscription.deleted"}:

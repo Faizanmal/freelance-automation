@@ -151,6 +151,48 @@ class StripeWebhookGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(user.plan, "free")
         self.assertEqual(user.subscription_status, "past_due")
 
+    async def test_webhook_handles_invoice_payment_succeeded_restores_pro(self) -> None:
+        from app.api.v1.billing import stripe_webhook
+
+        settings = MagicMock()
+        settings.stripe_enabled = True
+        settings.stripe_webhook_secret = "whsec_test"
+        request = MagicMock()
+        request.body = AsyncMock(return_value=b'{"type": "invoice.payment_succeeded"}')
+        request.headers = {"stripe-signature": "sig_test"}
+
+        mock_stripe = MagicMock()
+        mock_stripe.Webhook.construct_event.return_value = {
+            "type": "invoice.payment_succeeded",
+            "data": {
+                "object": {
+                    "customer": "cus_123",
+                    "status": "active",
+                    "subscription": "sub_456",
+                }
+            },
+        }
+
+        user = MagicMock()
+        user.plan = "free"
+        user.subscription_status = "past_due"
+
+        session = AsyncMock()
+        session.add = MagicMock()
+        user_res = MagicMock()
+        user_res.scalar_one_or_none.return_value = user
+        session.execute = AsyncMock(return_value=user_res)
+
+        with (
+            patch("app.api.v1.billing.get_settings", return_value=settings),
+            patch.dict("sys.modules", {"stripe": mock_stripe}),
+        ):
+            resp = await stripe_webhook(request=request, session=session)
+
+        self.assertEqual(resp, {"status": "ok"})
+        self.assertEqual(user.plan, "pro")
+        self.assertEqual(user.subscription_status, "active")
+
 
 if __name__ == "__main__":
     unittest.main()

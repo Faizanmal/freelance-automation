@@ -150,6 +150,10 @@ function LeadsPageInner() {
 
   const [copiedPitch, setCopiedPitch] = useState(false);
 
+  const [pitchKind, setPitchKind] = useState<"initial" | "followup">("initial");
+
+  const [hideAgenciesFilter, setHideAgenciesFilter] = useState(false);
+
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
@@ -287,6 +291,8 @@ function LeadsPageInner() {
           const response = await draftProposal(jobId);
 
           setActiveJobId(jobId);
+
+          setPitchKind("initial");
 
           setDraftMeta(response);
 
@@ -640,6 +646,8 @@ function LeadsPageInner() {
 
       if (statusFilter === "new" && item.user_status) return false;
 
+      if (hideAgenciesFilter && item.client_signal?.is_agency) return false;
+
       if (query) {
 
         const haystack = [item.title, item.company, item.source_name, item.why, ...(item.matched_keywords || [])]
@@ -658,7 +666,7 @@ function LeadsPageInner() {
 
     });
 
-  }, [data, sourceFilter, statusFilter, search]);
+  }, [data, sourceFilter, statusFilter, search, hideAgenciesFilter]);
 
 
 
@@ -968,6 +976,24 @@ function LeadsPageInner() {
 
           </label>
 
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-[var(--text)]">
+
+            <input
+
+              type="checkbox"
+
+              checked={hideAgenciesFilter}
+
+              onChange={(event) => setHideAgenciesFilter(event.target.checked)}
+
+              className="size-4 rounded accent-[var(--accent)]"
+
+            />
+
+            Hide staffing agencies
+
+          </label>
+
           <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
 
             Source
@@ -1171,6 +1197,22 @@ function LeadsPageInner() {
                 <div className="flex flex-wrap items-center gap-2">
 
                   <MatchScore score={finding.score} />
+
+                  {finding.client_signal?.poster_type === "direct_founder" ? (
+                    <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-400">
+                      Direct Founder
+                    </Badge>
+                  ) : finding.client_signal?.poster_type === "agency_recruiter" ? (
+                    <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-400">
+                      Staffing Agency
+                    </Badge>
+                  ) : null}
+
+                  {finding.client_signal?.urgency === "high" && finding.client_signal.urgency_label ? (
+                    <Badge variant="outline" className="border-rose-500/40 bg-rose-500/10 text-rose-400 font-semibold">
+                      ⚡ {finding.client_signal.urgency_label}
+                    </Badge>
+                  ) : null}
 
                   {finding.budget_label ? (
 
@@ -1739,18 +1781,67 @@ function LeadsPageInner() {
                   </div>
                 ) : null}
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={handleCopyPitch}>
-                    {copiedPitch ? <Check className="size-3.5 text-[var(--success)]" /> : <Copy className="size-3.5" />}
-                    {copiedPitch ? "Pitch copied!" : "Copy pitch"}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={handleOpenGmail}>
-                    <Mail className="size-3.5" />
-                    Open in Gmail
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={handleOpenMailApp}>
-                    Open Mail App
-                  </Button>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPitchKind("initial");
+                        if (draftMeta?.initial_draft) {
+                          setForm((curr) => ({
+                            ...curr,
+                            proposal: draftMeta.initial_draft || curr.proposal,
+                            email_subject: draftMeta.email_subject || curr.email_subject,
+                          }));
+                        }
+                      }}
+                      className={cn(
+                        "rounded-md px-3 py-1 text-xs font-semibold transition-all",
+                        pitchKind === "initial"
+                          ? "bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm"
+                          : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                      )}
+                    >
+                      Initial Pitch
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPitchKind("followup");
+                        if (draftMeta?.followup_draft) {
+                          setForm((curr) => ({
+                            ...curr,
+                            proposal: draftMeta.followup_draft || curr.proposal,
+                            email_subject: draftMeta.title
+                              ? `Following up: ${draftMeta.title}`
+                              : "Following up",
+                          }));
+                        }
+                      }}
+                      className={cn(
+                        "rounded-md px-3 py-1 text-xs font-semibold transition-all",
+                        pitchKind === "followup"
+                          ? "bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm"
+                          : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                      )}
+                    >
+                      Follow-Up Bump
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={handleCopyPitch}>
+                      {copiedPitch ? <Check className="size-3.5 text-[var(--success)]" /> : <Copy className="size-3.5" />}
+                      {copiedPitch ? "Pitch copied!" : "Copy pitch"}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={handleOpenGmail}>
+                      <Mail className="size-3.5" />
+                      Open in Gmail
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={handleOpenMailApp}>
+                      Open Mail App
+                    </Button>
+                  </div>
                 </div>
 
                 <label className="sd-label">

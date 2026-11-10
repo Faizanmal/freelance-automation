@@ -42,6 +42,14 @@ async def readiness() -> dict[str, object]:
     if checks["redis"] == "down":
         return {"status": "degraded", "checks": checks}
 
+    try:
+        from workers.availability import celery_workers_online
+
+        workers_online = celery_workers_online(timeout=0.25)
+        checks["workers"] = "ok" if workers_online else "idle"
+    except Exception:
+        checks["workers"] = "skipped"
+
     return {"status": "ok", "checks": checks}
 
 
