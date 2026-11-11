@@ -21,7 +21,7 @@ PRO_MAX_DIGEST = 25
 FREE_DAILY_SCRAPE_RUNS = 3
 PRO_DAILY_SCRAPE_RUNS = 50
 FREE_CHANNELS = {"email"}
-PRO_CHANNELS = {"email", "slack", "telegram", "discord", "whatsapp"}
+PRO_CHANNELS = {"email", "slack", "telegram", "discord", "whatsapp", "webhook"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +126,7 @@ def destinations_from_preferences(prefs) -> dict[str, str]:
             "telegram_chat_id": prefs.telegram_chat_id,
             "discord_webhook_url": prefs.discord_webhook_url,
             "whatsapp_to": prefs.whatsapp_to,
+            "custom_webhook_url": getattr(prefs, "custom_webhook_url", None),
         }.items()
         if value
     }

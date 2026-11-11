@@ -6,11 +6,12 @@ export function Badge({
   children,
   className,
   variant = "default",
+  ...props
 }: {
   children: React.ReactNode;
   className?: string;
   variant?: BadgeVariant;
-}) {
+} & React.HTMLAttributes<HTMLSpanElement>) {
   const variants: Record<BadgeVariant, string> = {
     default: "bg-[var(--surface-hover)] text-[var(--text-secondary)] border-[var(--border)]",
     accent: "bg-[var(--accent-muted)] text-[var(--accent)] border-transparent",
@@ -28,6 +29,7 @@ export function Badge({
         variants[variant],
         className,
       )}
+      {...props}
     >
       {children}
     </span>

@@ -140,6 +140,8 @@ export type Preferences = {
 
   whatsapp_to?: string | null;
 
+  custom_webhook_url?: string | null;
+
 };
 
 
@@ -754,6 +756,12 @@ export type LeadFinding = {
     is_agency?: boolean;
     score?: number;
     reasons?: string[];
+  } | null;
+
+  smart_match?: {
+    is_boosted: boolean;
+    is_penalized: boolean;
+    reason?: string | null;
   } | null;
 
   user_status?: "save" | "skip" | "pitched" | "won" | null;
@@ -1688,4 +1696,39 @@ export async function adminTriggerStaleSweep() {
     method: "POST",
     auth: true,
   });
+}
+
+export type LearnedAffinitiesResponse = {
+  total_actions: number;
+  saved_count: number;
+  pitched_count: number;
+  skipped_count: number;
+  learning_active: boolean;
+  positive_skills: Array<{
+    skill: string;
+    weight: number;
+    saved_count: number;
+    pitched_count: number;
+  }>;
+  negative_skills: Array<{
+    skill: string;
+    weight: number;
+    skipped_count: number;
+  }>;
+  summary: string;
+};
+
+export async function getLearnedAffinities() {
+  return request<LearnedAffinitiesResponse>("/preferences/learned-affinities", { auth: true });
+}
+
+export async function testWebhook(webhookUrl?: string) {
+  return request<{ success: boolean; message?: string; error?: string; status_code?: string }>(
+    "/preferences/test-webhook",
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ webhook_url: webhookUrl }),
+    }
+  );
 }

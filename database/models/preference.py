@@ -59,6 +59,7 @@ class UserPreferences(Base):
     telegram_chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     discord_webhook_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     whatsapp_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    custom_webhook_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
     )

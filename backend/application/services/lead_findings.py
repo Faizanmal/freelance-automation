@@ -141,6 +141,8 @@ class LeadFinding:
 
     client_signal: dict[str, Any] | None = None
 
+    smart_match: dict[str, Any] | None = None
+
 
 
 
@@ -431,6 +433,25 @@ class LeadFindingsService:
         if client_sig.urgency == "high" and client_sig.urgency_label:
             signals.insert(0, f"Urgent hiring signal: {client_sig.urgency_label}")
 
+        smart_match_data = None
+        for reason in (match.reasons or []):
+            if "saved-skill boost" in reason:
+                smart_match_data = {
+                    "is_boosted": True,
+                    "is_penalized": False,
+                    "reason": reason,
+                }
+                signals.insert(0, f"Learned fit: {reason.split(':', 1)[-1].strip()}")
+                break
+            elif "skipped-skill penalty" in reason:
+                smart_match_data = {
+                    "is_boosted": False,
+                    "is_penalized": True,
+                    "reason": reason,
+                }
+                risks.insert(0, f"Deprioritized: {reason.split(':', 1)[-1].strip()}")
+                break
+
         action = self._action(
 
             score,
@@ -478,6 +499,8 @@ class LeadFindingsService:
             employment_risks=employment_risks,
 
             client_signal=client_sig.to_dict(),
+
+            smart_match=smart_match_data,
 
         )
 
@@ -954,6 +977,12 @@ class LeadFindingsService:
             "employment_risks": finding.employment_risks or [],
 
             "client_signal": finding.client_signal or {},
+
+            "smart_match": finding.smart_match or {
+                "is_boosted": False,
+                "is_penalized": False,
+                "reason": None,
+            },
 
             "is_expired": bool(getattr(job, "is_expired", False)),
 

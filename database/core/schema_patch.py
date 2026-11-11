@@ -138,6 +138,10 @@ PREFERENCE_COLUMNS = {
         "ALTER TABLE user_preferences ADD COLUMN min_hourly_rate FLOAT",
         "ALTER TABLE user_preferences ADD COLUMN min_hourly_rate FLOAT",
     ),
+    "custom_webhook_url": (
+        "ALTER TABLE user_preferences ADD COLUMN custom_webhook_url VARCHAR(1024)",
+        "ALTER TABLE user_preferences ADD COLUMN custom_webhook_url VARCHAR(1024)",
+    ),
 }
 
 

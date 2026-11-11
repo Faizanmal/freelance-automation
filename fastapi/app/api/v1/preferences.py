@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
+import random
+import urllib.parse
 
 from app.api.dependencies import get_current_user
 from pydantic import BaseModel, EmailStr, Field
@@ -15,6 +17,12 @@ from backend.application.services.billing import (
 from backend.application.services.lead_findings import LeadFindingsService
 from backend.application.services.match_feedback import MatchFeedbackService
 from backend.application.services.matching import MatchingService
+from backend.application.services.notification_service import (
+    CustomWebhookAdapter,
+    NotificationChannel,
+    NotificationEnvelope,
+    NotificationPriority,
+)
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.core.session import get_db
 from database.models.application import JobApplication
@@ -61,6 +69,7 @@ class PreferencesPayload(BaseModel):
     telegram_chat_id: str | None = Field(default=None, max_length=128)
     discord_webhook_url: str | None = Field(default=None, max_length=1024)
     whatsapp_to: str | None = Field(default=None, max_length=64)
+    custom_webhook_url: str | None = Field(default=None, max_length=1024)
 
 
 class PreferencesOut(PreferencesPayload):
@@ -132,6 +141,7 @@ def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
         telegram_chat_id=prefs.telegram_chat_id,
         discord_webhook_url=prefs.discord_webhook_url,
         whatsapp_to=prefs.whatsapp_to,
+        custom_webhook_url=getattr(prefs, "custom_webhook_url", None),
     )
 
 
@@ -219,6 +229,7 @@ async def update_my_preferences(
     prefs.telegram_chat_id = payload.telegram_chat_id
     prefs.discord_webhook_url = payload.discord_webhook_url
     prefs.whatsapp_to = payload.whatsapp_to
+    prefs.custom_webhook_url = payload.custom_webhook_url
     session.add(prefs)
     await session.commit()
     await session.refresh(prefs)
@@ -496,3 +507,74 @@ async def demo_matches(
             }
         )
     return {"total": len(items), "keywords": prefs.keywords, "items": items}
+
+
+class TestWebhookPayload(BaseModel):
+    webhook_url: str | None = Field(default=None, max_length=1024)
+
+
+@router.get("/learned-affinities")
+async def get_my_learned_affinities(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, object]:
+    """Inspect learned skill affinities derived automatically from Save/Skip history."""
+    return await MatchFeedbackService(session).get_affinity_profile(user.id)
+
+
+@router.post("/test-webhook")
+async def test_user_webhook(
+    payload: TestWebhookPayload,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, object]:
+    """Send a test verification ping to the custom webhook URL."""
+    url = (payload.webhook_url or "").strip()
+    if not url:
+        prefs = await _get_or_create_preferences(session, user)
+        url = (getattr(prefs, "custom_webhook_url", None) or "").strip()
+    if not url:
+        raise HTTPException(
+            status_code=400,
+            detail="No webhook URL provided or configured in preferences.",
+        )
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(
+            status_code=400,
+            detail="Webhook URL must begin with http:// or https://",
+        )
+
+    parsed = urllib.parse.urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname in {"169.254.169.254", "metadata.google.internal"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Forbidden destination host.",
+        )
+
+    test_envelope = NotificationEnvelope(
+        id=f"test-{random.randint(1, 100000)}",
+        user_id=user.id,
+        title="⚡ Freelance Automation Webhook Test",
+        body="Verification ping from your Freelance Automation lead engine. Integration successful!",
+        channels=[NotificationChannel.WEBHOOK],
+        priority=NotificationPriority.NORMAL,
+        digest=False,
+        ai_summary="Webhook verification ping",
+        actions=[],
+        destinations={"custom_webhook_url": url},
+        metadata={"event_type": "test_ping", "user_email": user.email},
+    )
+
+    adapter = CustomWebhookAdapter(endpoint=url)
+    result = await adapter.send(test_envelope)
+    if result.delivered:
+        return {
+            "success": True,
+            "message": "Webhook test delivered successfully.",
+            "status_code": result.message_id,
+        }
+    return {
+        "success": False,
+        "error": result.error or "Failed to deliver webhook payload.",
+    }

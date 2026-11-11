@@ -63,6 +63,8 @@ vi.mock("@/lib/api", () => ({
   resendVerification: vi.fn(),
   sendNotification: vi.fn(),
   devVerifyEmail: vi.fn(),
+  getLearnedAffinities: vi.fn().mockResolvedValue(null),
+  testWebhook: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 beforeEach(() => {

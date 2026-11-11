@@ -722,6 +722,13 @@ class UpworkBrowserSource:
             await engine.stop()
 
 
+from app.ingestion.direct_ats import (
+    AshbySource,
+    DirectATSSource,
+    GreenhouseSource,
+    LeverSource,
+)
+
 SOURCE_REGISTRY = {
     RemoteOKSource.name: RemoteOKSource,
     RemotiveSource.name: RemotiveSource,
@@ -742,7 +749,13 @@ SOURCE_REGISTRY = {
     GitHubBountiesSource.name: GitHubBountiesSource,
     LinkedInBrowserSource.name: LinkedInBrowserSource,
     UpworkBrowserSource.name: UpworkBrowserSource,
+    GreenhouseSource.name: GreenhouseSource,
+    LeverSource.name: LeverSource,
+    AshbySource.name: AshbySource,
+    DirectATSSource.name: DirectATSSource,
 }
+
+DIRECT_ATS_SOURCES = ("greenhouse", "lever", "ashby", "ats_direct")
 
 PUBLIC_SOURCES = (
     "remoteok",
@@ -751,7 +764,7 @@ PUBLIC_SOURCES = (
     "weworkremotely",
     "himalayas",
     "jobicy",
-)
+) + DIRECT_ATS_SOURCES
 MARKETPLACE_SOURCES = ("upwork", "freelancer", "peopleperhour", "guru")
 DISCOVERY_SOURCES = (
     "serpapi_freelance",
@@ -785,6 +798,7 @@ COMMERCIAL_FREE_SOURCES = (
         "jobicy",
     )
     + POST_V1_HUNTERS
+    + DIRECT_ATS_SOURCES
 )
 # Browser/Playwright sources stay registered for local experiments but are not
 # sold as Pro until a dedicated worker image + session auth path ships.
@@ -816,4 +830,8 @@ SOURCE_ATTRIBUTION = {
     "github_bounties": "GitHub Bounties & Contracts",
     "linkedin_browser": "LinkedIn (Playwright)",
     "upwork_browser": "Upwork (Playwright)",
+    "greenhouse": "Greenhouse ATS",
+    "lever": "Lever ATS",
+    "ashby": "Ashby ATS",
+    "ats_direct": "Direct Tech ATS Boards",
 }

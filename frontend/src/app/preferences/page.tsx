@@ -16,9 +16,12 @@ import {
   resendVerification,
   sendNotification,
   startCheckout,
+  testWebhook,
+  getLearnedAffinities,
   updatePreferences,
   type BillingStatus,
   type Job,
+  type LearnedAffinitiesResponse,
   type Preferences,
   type User,
 } from "@/lib/api";
@@ -52,6 +55,7 @@ const emptyPrefs: Preferences = {
   telegram_chat_id: "",
   discord_webhook_url: "",
   whatsapp_to: "",
+  custom_webhook_url: "",
 };
 
 type PrefTab = "matching" | "alerts" | "billing" | "security";
@@ -85,6 +89,7 @@ function PreferencesPageInner() {
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [matches, setMatches] = useState<Job[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(true);
+  const [affinities, setAffinities] = useState<LearnedAffinitiesResponse | null>(null);
   const [skillsText, setSkillsText] = useState((emptyPrefs.skills || []).join(", "));
   const [keywordsText, setKeywordsText] = useState("");
   const [excludeText, setExcludeText] = useState("");
@@ -113,15 +118,17 @@ function PreferencesPageInner() {
     }
     startTransition(async () => {
       try {
-        const [currentUser, currentPrefs, authMatches, currentBilling] = await Promise.all([
+        const [currentUser, currentPrefs, authMatches, currentBilling, learnedAffinities] = await Promise.all([
           me(),
           getPreferences(),
           getAuthMatches(),
-          getBilling(),
+          typeof getBilling === "function" ? getBilling().catch(() => null) : Promise.resolve(null),
+          typeof getLearnedAffinities === "function" ? getLearnedAffinities().catch(() => null) : Promise.resolve(null),
         ]);
         setUser(currentUser);
         setPrefs(currentPrefs);
         setBilling(currentBilling);
+        setAffinities(learnedAffinities);
         const rawSkills =
           currentPrefs.skills?.length
             ? currentPrefs.skills
@@ -541,6 +548,48 @@ function PreferencesPageInner() {
                 </p>
               ) : null}
             </div>
+
+            {affinities && affinities.total_actions > 0 ? (
+              <div className="mt-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-[var(--text)] flex items-center gap-1.5">
+                    <span>🧠</span> Learned Affinities
+                  </h3>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {affinities.total_actions} actions analyzed
+                  </span>
+                </div>
+                <p className="mb-3 text-xs text-[var(--text-muted)]">
+                  {affinities.summary}
+                </p>
+                {affinities.positive_skills.length > 0 ? (
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-medium text-emerald-400">Boosting:</span>
+                    {affinities.positive_skills.slice(0, 5).map((item) => (
+                      <span
+                        key={item.skill}
+                        className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400 font-medium"
+                      >
+                        +{Math.round(item.weight * 100)}% {item.skill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {affinities.negative_skills.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-medium text-rose-400">Demoting:</span>
+                    {affinities.negative_skills.slice(0, 3).map((item) => (
+                      <span
+                        key={item.skill}
+                        className="rounded-full bg-rose-500/10 px-2 py-0.5 text-xs text-rose-400"
+                      >
+                        {Math.round(item.weight * 100)}% {item.skill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -680,6 +729,15 @@ function PreferencesPageInner() {
                     className={inputClass}
                   />
                 </label>
+                <label className="sd-label">
+                  <span className="text-[var(--accent)]">Custom Webhook URL (Zapier / Make / n8n / Custom)</span>
+                  <input
+                    value={prefs.custom_webhook_url || ""}
+                    onChange={(e) => setPrefs((current) => ({ ...current, custom_webhook_url: e.target.value }))}
+                    placeholder="https://hooks.zapier.com/hooks/catch/..."
+                    className={inputClass}
+                  />
+                </label>
               </div>
             </details>
             <div className="flex flex-wrap gap-3">
@@ -722,6 +780,32 @@ function PreferencesPageInner() {
               >
                 Send test email
               </Button>
+              {prefs.custom_webhook_url ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      try {
+                        setError(null);
+                        setEmailWarning(null);
+                        const res = await testWebhook(prefs.custom_webhook_url || undefined);
+                        if (res.success) {
+                          setMessage("Custom webhook verified successfully!");
+                          setTimeout(() => setMessage(null), 3000);
+                        } else {
+                          setEmailWarning(`Webhook ping failed: ${res.error || "Delivery error"}`);
+                        }
+                      } catch (err) {
+                        setEmailWarning(err instanceof Error ? err.message : "Webhook ping failed");
+                      }
+                    })
+                  }
+                >
+                  Test webhook
+                </Button>
+              ) : null}
               <Link href="/notifications" className="self-center text-sm text-[var(--accent)] hover:underline">
                 Alert history
               </Link>

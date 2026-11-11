@@ -21,6 +21,7 @@ class NotificationChannel(str, Enum):
     DISCORD = "discord"
     EMAIL = "email"
     SLACK = "slack"
+    WEBHOOK = "webhook"
 
 
 class NotificationPriority(str, Enum):
@@ -204,6 +205,69 @@ class DiscordAdapter(WebhookAdapter):
             os.getenv("DISCORD_WEBHOOK_URL"),
             NotificationChannel.DISCORD,
             "discord_webhook_url",
+        )
+
+
+class CustomWebhookAdapter:
+    """Dispatches generic structured lead event alerts to Zapier, Make, n8n, or custom endpoints."""
+
+    def __init__(self, endpoint: str | None = None) -> None:
+        self.endpoint = endpoint
+        self.channel = NotificationChannel.WEBHOOK
+
+    def _resolve_endpoint(self, envelope: NotificationEnvelope) -> str | None:
+        return _destinations(envelope).get("custom_webhook_url") or self.endpoint
+
+    def _send_sync(self, endpoint: str, payload: bytes) -> str:
+        request = urllib.request.Request(
+            endpoint,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "FreelanceIntelligence-Webhook/1.0",
+                "X-Freelance-Event": "lead.alert",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return str(response.status)
+
+    async def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+        endpoint = self._resolve_endpoint(envelope)
+        if not endpoint:
+            return NotificationResult(
+                channel=self.channel, delivered=False, error="provider_not_configured"
+            )
+        try:
+            body_dict = {
+                "event": "lead.alert",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "user_id": envelope.user_id,
+                "title": envelope.title,
+                "body": envelope.body,
+                "priority": (
+                    envelope.priority.value
+                    if hasattr(envelope.priority, "value")
+                    else str(envelope.priority)
+                ),
+                "metadata": envelope.metadata or {},
+            }
+            payload = json.dumps(body_dict).encode("utf-8")
+            status = await asyncio.to_thread(self._send_sync, endpoint, payload)
+            if int(status) < 400:
+                return NotificationResult(
+                    channel=self.channel, delivered=True, message_id=status
+                )
+        except (
+            TimeoutError,
+            ValueError,
+            OSError,
+            ConnectionError,
+        ) as exc:  # pragma: no cover - network path
+            return NotificationResult(
+                channel=self.channel, delivered=False, error=str(exc)
+            )
+        return NotificationResult(
+            channel=self.channel, delivered=False, error="provider_error"
         )
 
 
@@ -435,6 +499,7 @@ class NotificationService:
             NotificationChannel.DISCORD: DiscordAdapter(),
             NotificationChannel.EMAIL: EmailAdapter(),
             NotificationChannel.SLACK: SlackAdapter(),
+            NotificationChannel.WEBHOOK: CustomWebhookAdapter(),
         }
         self._retry_queue: list[NotificationEnvelope] = []
         self._history: list[NotificationEnvelope] = []

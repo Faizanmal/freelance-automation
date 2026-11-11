@@ -1214,6 +1214,16 @@ function LeadsPageInner() {
                     </Badge>
                   ) : null}
 
+                  {finding.smart_match?.is_boosted ? (
+                    <Badge
+                      variant="outline"
+                      className="border-violet-500/40 bg-violet-500/10 text-violet-400 font-medium"
+                      title={finding.smart_match.reason || "Learned preference boost"}
+                    >
+                      🧠 Learned fit
+                    </Badge>
+                  ) : null}
+
                   {finding.budget_label ? (
 
                     <Badge variant="outline">{finding.budget_label}</Badge>
