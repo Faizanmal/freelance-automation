@@ -22,9 +22,16 @@ def _run_async(coro):
 
 
 import json
+import logging
+import uuid
 from datetime import UTC
 
 from celery import Task
+
+from workers.app import retry_countdown
+from workers.locks import overlap_lock
+
+logger = logging.getLogger(__name__)
 
 
 class DLQTask(Task):
@@ -51,13 +58,23 @@ class DLQTask(Task):
                 dlq_entry = {
                     "task_id": task_id,
                     "task_name": self.name,
+                    "run_id": (kwargs or {}).get("run_id"),
                     "args": args,
-                    "kwargs": kwargs,
+                    "kwargs": {
+                        k: v
+                        for k, v in (kwargs or {}).items()
+                        if k not in {"password", "token", "secret"}
+                    },
                     "exception": str(exc),
                     "traceback": str(einfo),
                     "failed_at": dt.datetime.now(dt.UTC).isoformat(),
                 }
                 await redis_client.lpush("celery_dlq", json.dumps(dlq_entry))
+                logger.error(
+                    "Task %s failed permanently; queued to DLQ run_id=%s",
+                    self.name,
+                    dlq_entry.get("run_id"),
+                )
 
         _run_async(push_to_dlq())
 
@@ -94,14 +111,30 @@ async def _scrape_jobs_async(
     default_retry_delay=60,
 )
 def scrape_jobs_task(
-    self, sources: list[str], limit: int, notify_matches: bool, query: str | None = None
+    self,
+    sources: list[str],
+    limit: int,
+    notify_matches: bool,
+    query: str | None = None,
+    run_id: str | None = None,
 ):
-    """Background task to run scrapers."""
-    try:
-        result = _run_async(_scrape_jobs_async(sources, limit, notify_matches, query))
-        return result
-    except (RuntimeError, TimeoutError) as exc:
-        raise self.retry(exc=exc)
+    """Background task to run scrapers (overlap-locked; idempotent per run_id)."""
+    run_id = run_id or str(uuid.uuid4())
+    with overlap_lock("scrape_jobs", ttl_seconds=max(300, limit * 15)) as acquired:
+        if not acquired:
+            logger.info("scrape_jobs skipped (overlap lock) run_id=%s", run_id)
+            return {"status": "skipped", "reason": "overlap_lock", "run_id": run_id}
+        try:
+            result = _run_async(
+                _scrape_jobs_async(sources, limit, notify_matches, query)
+            )
+            if isinstance(result, dict):
+                result = {**result, "run_id": run_id}
+            return result
+        except (RuntimeError, TimeoutError) as exc:
+            raise self.retry(
+                exc=exc, countdown=retry_countdown(60, self.request.retries)
+            )
 
 
 async def _enrich_job_async(job_id: int):
@@ -201,12 +234,14 @@ async def _send_notification_async(payload_dict: dict[str, Any]):
     max_retries=3,
     default_retry_delay=60,
 )
-def send_notification_task(self, payload_dict: dict[str, Any]):
+def send_notification_task(self, payload_dict: dict[str, Any], run_id: str | None = None):
     """Background task to send a notification via Celery."""
+    run_id = run_id or str(uuid.uuid4())
+    payload = {**(payload_dict or {}), "run_id": run_id}
     try:
-        return _run_async(_send_notification_async(payload_dict))
+        return _run_async(_send_notification_async(payload))
     except (RuntimeError, TimeoutError) as exc:
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc, countdown=retry_countdown(60, self.request.retries))
 
 
 DRIP_STEPS = (
@@ -280,12 +315,22 @@ async def _process_drip_campaign_async():
     max_retries=3,
     default_retry_delay=60,
 )
-def process_drip_campaign_task(self):
+def process_drip_campaign_task(self, run_id: str | None = None):
     """Daily sequence for free users: day 1, day 3, and day 7."""
-    try:
-        return _run_async(_process_drip_campaign_async())
-    except (RuntimeError, TimeoutError) as exc:
-        raise self.retry(exc=exc)
+    run_id = run_id or str(uuid.uuid4())
+    with overlap_lock("process_drip_campaign", ttl_seconds=3600) as acquired:
+        if not acquired:
+            return {"status": "skipped", "reason": "overlap_lock", "run_id": run_id}
+        try:
+            from workers.heartbeat import touch_beat
+
+            touch_beat()
+            result = _run_async(_process_drip_campaign_async())
+            return {"result": result, "run_id": run_id}
+        except (RuntimeError, TimeoutError) as exc:
+            raise self.retry(
+                exc=exc, countdown=retry_countdown(60, self.request.retries)
+            )
 
 
 async def _process_lead_digests_async():
@@ -312,12 +357,22 @@ async def _process_lead_digests_async():
     max_retries=3,
     default_retry_delay=60,
 )
-def process_lead_digests_task(self):
+def process_lead_digests_task(self, run_id: str | None = None):
     """Show-clock digests: send when user local day/time window matches."""
-    try:
-        return _run_async(_process_lead_digests_async())
-    except (RuntimeError, TimeoutError) as exc:
-        raise self.retry(exc=exc)
+    run_id = run_id or str(uuid.uuid4())
+    with overlap_lock("process_lead_digests", ttl_seconds=840) as acquired:
+        if not acquired:
+            return {"status": "skipped", "reason": "overlap_lock", "run_id": run_id}
+        try:
+            from workers.heartbeat import touch_beat
+
+            touch_beat()
+            result = _run_async(_process_lead_digests_async())
+            return {"result": result, "run_id": run_id}
+        except (RuntimeError, TimeoutError) as exc:
+            raise self.retry(
+                exc=exc, countdown=retry_countdown(60, self.request.retries)
+            )
 
 
 async def _sweep_stale_jobs_async(max_stale_days: int = 45, limit: int = 200) -> int:
@@ -347,11 +402,20 @@ async def _sweep_stale_jobs_async(max_stale_days: int = 45, limit: int = 200) ->
     max_retries=3,
     default_retry_delay=60,
 )
-def sweep_stale_jobs_task(self, max_stale_days: int = 45, limit: int = 200):
+def sweep_stale_jobs_task(
+    self, max_stale_days: int = 45, limit: int = 200, run_id: str | None = None
+):
     """Background task to sweep and expire jobs exceeding TTL."""
-    try:
-        return _run_async(
-            _sweep_stale_jobs_async(max_stale_days=max_stale_days, limit=limit)
-        )
-    except (RuntimeError, TimeoutError) as exc:
-        raise self.retry(exc=exc)
+    run_id = run_id or str(uuid.uuid4())
+    with overlap_lock("sweep_stale_jobs", ttl_seconds=1800) as acquired:
+        if not acquired:
+            return {"status": "skipped", "reason": "overlap_lock", "run_id": run_id}
+        try:
+            expired = _run_async(
+                _sweep_stale_jobs_async(max_stale_days=max_stale_days, limit=limit)
+            )
+            return {"expired": expired, "run_id": run_id}
+        except (RuntimeError, TimeoutError) as exc:
+            raise self.retry(
+                exc=exc, countdown=retry_countdown(60, self.request.retries)
+            )

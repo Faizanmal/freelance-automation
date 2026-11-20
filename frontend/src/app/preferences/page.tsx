@@ -154,8 +154,7 @@ function PreferencesPageInner() {
         setMatches(authMatches.items);
       } catch {
         setError("Failed to load preferences");
-        logout();
-        router.push("/auth");
+        void logout().then(() => router.push("/auth"));
       } finally {
         setMatchesLoading(false);
       }
@@ -259,8 +258,7 @@ function PreferencesPageInner() {
             type="button"
             className="text-[var(--text-muted)] transition hover:text-[var(--danger)]"
             onClick={() => {
-              logout();
-              router.push("/auth");
+              void logout().then(() => router.push("/auth"));
             }}
           >
             Sign out

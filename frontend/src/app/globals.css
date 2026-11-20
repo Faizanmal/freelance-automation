@@ -21,7 +21,17 @@
   --warning-muted: rgba(245, 158, 11, 0.14);
   --danger: #ef4444;
   --danger-muted: rgba(239, 68, 68, 0.14);
+  /* Lead signal tones — color + label; never color-only meaning */
+  --fit: #38bdf8;
+  --trust: #34d399;
+  --fresh: #fbbf24;
   --radius: 0.625rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
   --sidebar-width: 15.5rem;
@@ -38,10 +48,8 @@
   --mute: var(--text-muted);
   --panel: var(--surface);
   --background: var(--bg);
-  --bg-gradient:
-    radial-gradient(900px 480px at 8% -8%, rgba(59, 130, 246, 0.09), transparent 55%),
-    radial-gradient(700px 400px at 100% 0%, rgba(39, 39, 42, 0.55), transparent 50%),
-    linear-gradient(180deg, #09090b 0%, #0c0c0f 100%);
+  /* Quiet atmosphere — avoid decorative multi-layer marketing gradients */
+  --bg-gradient: linear-gradient(180deg, #09090b 0%, #0c0c0f 100%);
 }
 
 [data-theme="light"] {
@@ -64,6 +72,9 @@
   --warning-muted: rgba(217, 119, 6, 0.1);
   --danger: #dc2626;
   --danger-muted: rgba(220, 38, 38, 0.1);
+  --fit: #0284c7;
+  --trust: #059669;
+  --fresh: #d97706;
   --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.06);
   --shadow-md: 0 8px 24px rgba(24, 24, 27, 0.08);
 
@@ -76,9 +87,7 @@
   --mute: var(--text-muted);
   --panel: var(--surface);
   --background: var(--bg);
-  --bg-gradient:
-    radial-gradient(900px 480px at 8% -8%, rgba(37, 99, 235, 0.06), transparent 55%),
-    linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
+  --bg-gradient: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
 }
 
 @theme inline {
@@ -136,6 +145,23 @@ select {
   outline-offset: 2px;
 }
 
+.sd-skip-link {
+  position: absolute;
+  left: var(--space-4);
+  top: -100px;
+  z-index: 100;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.sd-skip-link:focus {
+  top: var(--space-4);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -143,6 +169,7 @@ select {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

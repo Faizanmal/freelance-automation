@@ -37,6 +37,8 @@ const SUGGESTED_RATES = [
   { label: "$150/hr+", value: 150 },
 ];
 
+const ONBOARD_STEP_KEY = "signaldesk_onboard_step";
+
 export function OnboardingWizard() {
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState(0);
@@ -106,6 +108,12 @@ export function OnboardingWizard() {
         if (typeof existing.min_hourly_rate === "number") {
           setMinRate(existing.min_hourly_rate);
         }
+        try {
+          const saved = Number(localStorage.getItem(ONBOARD_STEP_KEY) || "0");
+          if (Number.isFinite(saved) && saved >= 0 && saved <= 2) setStep(saved);
+        } catch {
+          /* ignore */
+        }
         const timer = setTimeout(() => setIsOpen(true), 1200);
         return () => clearTimeout(timer);
       })
@@ -114,7 +122,17 @@ export function OnboardingWizard() {
 
   const dismissOnboarding = () => {
     localStorage.setItem("signaldesk_onboarded", "true");
+    localStorage.removeItem(ONBOARD_STEP_KEY);
     setIsOpen(false);
+  };
+
+  const persistStep = (next: number) => {
+    setStep(next);
+    try {
+      localStorage.setItem(ONBOARD_STEP_KEY, String(next));
+    } catch {
+      /* ignore quota */
+    }
   };
 
   const toggleSkill = (skill: string) => {
@@ -162,12 +180,13 @@ export function OnboardingWizard() {
 
       await updatePreferences(payload);
       localStorage.setItem("signaldesk_onboarded", "true");
+      localStorage.removeItem(ONBOARD_STEP_KEY);
       setIsOpen(false);
       router.push("/leads");
     } catch {
-      // If saving fails, fallback to standard dismiss
-      dismissOnboarding();
-      router.push("/leads");
+      // Do not mark complete on failure — keep wizard open for retry.
+      setSaving(false);
+      return;
     } finally {
       setSaving(false);
     }
@@ -269,7 +288,7 @@ export function OnboardingWizard() {
 
                 <div className="mt-8 flex justify-end gap-3 border-t border-white/10 pt-4">
                   <Button
-                    onClick={() => setStep(1)}
+                    onClick={() => persistStep(1)}
                     disabled={selectedSkills.length === 0}
                     className="gap-2"
                   >
@@ -347,10 +366,10 @@ export function OnboardingWizard() {
                 </div>
 
                 <div className="mt-8 flex justify-between gap-3 border-t border-white/10 pt-4">
-                  <Button variant="outline" onClick={() => setStep(0)}>
+                  <Button variant="outline" onClick={() => persistStep(0)}>
                     Back
                   </Button>
-                  <Button onClick={() => setStep(2)} className="gap-2">
+                  <Button onClick={() => persistStep(2)} className="gap-2">
                     <span>Next: Digest Schedule</span>
                     <ArrowRight className="size-4" />
                   </Button>
@@ -410,7 +429,7 @@ export function OnboardingWizard() {
                 </div>
 
                 <div className="mt-8 flex justify-between gap-3 border-t border-white/10 pt-4">
-                  <Button variant="outline" onClick={() => setStep(1)} disabled={saving}>
+                  <Button variant="outline" onClick={() => persistStep(1)} disabled={saving}>
                     Back
                   </Button>
                   <Button

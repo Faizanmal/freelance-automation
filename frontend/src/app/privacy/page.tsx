@@ -62,8 +62,9 @@ export default function PrivacyPage() {
         <section>
           <h2 className="mb-3 text-xl font-semibold">6. Cookies and analytics</h2>
           <p>
-            We use essential cookies for session/auth and optional analytics only after consent where
-            required. See the in-app cookie banner for controls.
+            Sign-in uses a Bearer token stored in your browser (local storage), not an HttpOnly
+            session cookie. Optional analytics cookies run only after consent where required. See
+            the in-app cookie banner for controls.
           </p>
         </section>
 

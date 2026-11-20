@@ -20,16 +20,20 @@ from app.api.v1 import (
     preferences,
     roadmap,
     telemetry,
+    trust,
     users,
 )
+from app.core.errors import error_envelope
 from app.core.exceptions import AppException
 from app.core.logging.logger import get_logger
+from app.core.middleware import RequestIdMiddleware, get_request_id
 from backend.application.services.scrape_service import ScrapeService
 from config.settings import get_settings
 from database.core.base import Base
 from database.core.schema_patch import ensure_missing_columns
 from database.core.session import get_engine, get_session
 from database.models import (  # noqa: F401
+    AuditEvent,
     CancellationFeedback,
     JobApplication,
     JobRecord,
@@ -38,13 +42,24 @@ from database.models import (  # noqa: F401
     NotificationRecord,
     RoadmapVote,
     User,
+    UserConsent,
     UserLeadAction,
     UserPreferences,
+)
+from database.models.listing_report import (  # noqa: F401
+    ListingReport,
+    ListingReportCorrection,
 )
 from fastapi import FastAPI
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+# Fail fast on clearly unsafe production config (values never logged).
+if settings.is_production:
+    logger.info(
+        "Starting in production; optional integrations disabled when credentials absent"
+    )
 
 if settings.sentry_dsn:
     import sentry_sdk
@@ -168,12 +183,15 @@ def create_app() -> FastAPI:
         )
         return response
 
+    app.add_middleware(RequestIdMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-Id"],
     )
 
     app.include_router(auth.router, prefix="/api/v1")
@@ -188,6 +206,7 @@ def create_app() -> FastAPI:
     app.include_router(roadmap.router, prefix="/api/v1")
     app.include_router(feedback.router, prefix="/api/v1")
     app.include_router(telemetry.router, prefix="/api/v1")
+    app.include_router(trust.router, prefix="/api/v1")
 
     app.include_router(auth.router)
     app.include_router(billing.router)
@@ -201,6 +220,7 @@ def create_app() -> FastAPI:
     app.include_router(roadmap.router)
     app.include_router(feedback.router)
     app.include_router(telemetry.router)
+    app.include_router(trust.router)
 
     @app.get("/")
     async def root() -> dict[str, object]:
@@ -217,23 +237,60 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request, exc):
-        logger.warning("HTTP exception: %s", exc.detail)
-        return _json_error(request, {"detail": exc.detail}, exc.status_code)
+        rid = get_request_id(request)
+        logger.warning("HTTP exception: %s request_id=%s", exc.detail, rid)
+        return _json_error(
+            request,
+            error_envelope(
+                detail=exc.detail,
+                code=f"http_{exc.status_code}",
+                request_id=rid,
+            ),
+            exc.status_code,
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc):
-        logger.warning("Validation error: %s", exc.errors())
-        return _json_error(request, {"detail": exc.errors()}, 422)
+        rid = get_request_id(request)
+        logger.warning("Validation error: %s request_id=%s", exc.errors(), rid)
+        return _json_error(
+            request,
+            error_envelope(
+                detail=exc.errors(),
+                code="validation_error",
+                request_id=rid,
+                errors=exc.errors(),
+            ),
+            422,
+        )
 
     @app.exception_handler(AppException)
     async def app_exception_handler(request, exc):
-        logger.error("App exception: %s", exc.message)
-        return _json_error(request, {"detail": exc.message}, exc.status_code)
+        rid = get_request_id(request)
+        logger.error("App exception: %s request_id=%s", exc.message, rid)
+        return _json_error(
+            request,
+            error_envelope(
+                detail=exc.message,
+                code="app_error",
+                request_id=rid,
+            ),
+            exc.status_code,
+        )
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(request, exc):
-        logger.exception("Unhandled exception")
-        return _json_error(request, {"detail": "Internal server error"}, 500)
+        rid = get_request_id(request)
+        logger.exception("Unhandled exception request_id=%s", rid)
+        return _json_error(
+            request,
+            error_envelope(
+                detail="Internal server error",
+                code="internal_error",
+                request_id=rid,
+            ),
+            500,
+        )
 
     return app
 

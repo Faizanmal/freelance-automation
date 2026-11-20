@@ -79,6 +79,7 @@ class QAFlowsTests(unittest.IsolatedAsyncioTestCase):
                 return_value="verify-tok",
             ),
             patch("app.api.v1.auth.get_settings", return_value=settings),
+            patch("app.api.v1.auth.record_audit", new=AsyncMock()),
         ):
             res = await register(
                 request=MagicMock(),
@@ -91,8 +92,9 @@ class QAFlowsTests(unittest.IsolatedAsyncioTestCase):
                 background_tasks=MagicMock(),
             )
 
-        self.assertEqual(res.email, "qa-isolated@example.com")
-        self.assertFalse(res.is_verified)
+        self.assertTrue(res.created)
+        self.assertEqual(res.user.email, "qa-isolated@example.com")
+        self.assertFalse(res.user.is_verified)
         self.assertFalse(res.verification_email_sent)
 
     async def test_password_reset_completion_and_login_with_new_password(self) -> None:
@@ -159,6 +161,7 @@ class QAFlowsTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await login(
                     request=MagicMock(),
+                    response=MagicMock(),
                     session=session,
                     form_data=form_data,  # type: ignore[arg-type]
                     totp_code=None,
@@ -167,22 +170,28 @@ class QAFlowsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ctx.exception.detail, "TOTP_REQUIRED")
 
             # 4. Login with valid TOTP code succeeds
-            token_res = await login(
-                request=MagicMock(),
-                session=session,
-                form_data=form_data,  # type: ignore[arg-type]
-                totp_code=totp.now(),
-            )
+            with patch("app.api.v1.auth.record_audit", new=AsyncMock()):
+                token_res = await login(
+                    request=MagicMock(cookies={}),
+                    response=MagicMock(),
+                    session=session,
+                    form_data=form_data,  # type: ignore[arg-type]
+                    totp_code=totp.now(),
+                )
             self.assertTrue(token_res.access_token)
 
             # 5. Logout blocklists the token
-            with patch(
-                "app.api.v1.auth.blocklist.block_token", new=AsyncMock()
-            ) as mock_block:
+            with (
+                patch("app.api.v1.auth.blocklist.block_token", new=AsyncMock()) as mock_block,
+                patch("app.api.v1.auth.record_audit", new=AsyncMock()),
+            ):
                 await logout(
+                    request=MagicMock(cookies={}),
+                    response=MagicMock(),
                     credentials=HTTPAuthorizationCredentials(
                         scheme="Bearer", credentials=token_res.access_token
-                    )
+                    ),
+                    session=session,
                 )
                 mock_block.assert_awaited_once()
 

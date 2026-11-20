@@ -116,15 +116,18 @@ class GitHubAuthTests(unittest.IsolatedAsyncioTestCase):
             payload = GitHubAuthRequest(code="gh-code-123", state="gh-state-123")
             token_resp = await github_auth(
                 request=MagicMock(),
+                response=MagicMock(),
                 payload=payload,
                 session=session,
             )
 
         self.assertTrue(token_resp.access_token)
-        session.add.assert_called_once()  # UserPreferences created
+        self.assertGreaterEqual(session.add.call_count, 1)  # prefs (+ audit)
         session.commit.assert_called()
 
-    async def test_github_auth_links_existing_user(self) -> None:
+    async def test_github_auth_rejects_unverified_email_link(self) -> None:
+        from fastapi import HTTPException
+
         github_info = {
             "sub": "github-456",
             "email": "existing@example.com",
@@ -147,8 +150,10 @@ class GitHubAuthTests(unittest.IsolatedAsyncioTestCase):
 
         settings = SimpleNamespace(
             access_token_expire_minutes=60,
+            refresh_token_expire_minutes=60 * 24 * 14,
             jwt_secret_key="dev-secret-key-32-chars-long-test-1234",
             jwt_algorithm="HS256",
+            is_production=False,
         )
 
         with (
@@ -160,16 +165,15 @@ class GitHubAuthTests(unittest.IsolatedAsyncioTestCase):
             patch("app.core.security.jwt.get_settings", return_value=settings),
         ):
             payload = GitHubAuthRequest(code="gh-code-123")
-            token_resp = await github_auth(
-                request=MagicMock(),
-                payload=payload,
-                session=session,
-            )
-
-        self.assertTrue(token_resp.access_token)
-        self.assertEqual(existing_user.github_id, "github-456")
-        self.assertTrue(existing_user.is_verified)
-        self.assertEqual(existing_user.full_name, "Octo User")
+            with self.assertRaises(HTTPException) as ctx:
+                await github_auth(
+                    request=MagicMock(),
+                    response=MagicMock(),
+                    payload=payload,
+                    session=session,
+                )
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIsNone(existing_user.github_id)
 
     async def test_github_auth_totp_enforcement(self) -> None:
         totp_secret = pyotp.random_base32()
@@ -210,6 +214,7 @@ class GitHubAuthTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await github_auth(
                     request=MagicMock(),
+                    response=MagicMock(),
                     payload=GitHubAuthRequest(code="code"),
                     session=session,
                 )
@@ -220,6 +225,7 @@ class GitHubAuthTests(unittest.IsolatedAsyncioTestCase):
             valid_code = pyotp.TOTP(totp_secret).now()
             token_resp = await github_auth(
                 request=MagicMock(),
+                response=MagicMock(),
                 payload=GitHubAuthRequest(code="code", totp_code=valid_code),
                 session=session,
             )

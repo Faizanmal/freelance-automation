@@ -21,12 +21,23 @@ jobs:
             fastapi/requirements-dev.txt
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m compileall -q app
+      - name: Alembic migration heads check
+        run: |
+          cd ..
+          python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; c=Config('database/alembic.ini'); s=ScriptDirectory.from_config(c); heads=s.get_heads(); assert len(heads)==1, heads; print('alembic head', heads[0])"
       - run: python -m pytest tests -q
       - run: |
           if [ -d "../workers/tests" ]; then
             # Repo root must be on PYTHONPATH so `import workers` resolves
             # (fastapi/pytest.ini pythonpath is not applied to ../workers/tests).
             PYTHONPATH="..${PYTHONPATH:+:$PYTHONPATH}" python -m pytest ../workers/tests -q
+          fi
+      - name: Uptime checker fail-closed (missing URL)
+        run: |
+          unset UPTIME_URL || true
+          if python ../scripts/uptime_check.py; then
+            echo "uptime_check should fail when UPTIME_URL is unset" >&2
+            exit 1
           fi
 
   frontend:

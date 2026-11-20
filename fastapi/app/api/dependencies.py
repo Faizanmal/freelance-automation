@@ -65,6 +65,26 @@ async def get_current_active_superuser(
     return current_user
 
 
+def require_roles(*roles: str):
+    """Server-side role gate (account_role). Superusers always pass."""
+
+    async def _checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
+        if current_user.is_superuser:
+            return current_user
+        role = (getattr(current_user, "account_role", None) or "freelancer").lower()
+        allowed = {r.lower() for r in roles}
+        if role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient role for this action",
+            )
+        return current_user
+
+    return _checker
+
+
 async def rate_limit_api(user: Annotated[User, Depends(get_current_user)]) -> User:
     from app.core.security.rate_limit import api_rate_limiter
 

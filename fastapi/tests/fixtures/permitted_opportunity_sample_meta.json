@@ -1,0 +1,22 @@
+{
+  "count": 200,
+  "obtainable": true,
+  "nature": "synthetic_labeled_permitted_fixtures",
+  "reason": "Live commercial dumps not redistributed; 200 authorized synthetic records with work_type labels for classifier/dedup precision tests.",
+  "live_sources_authorized_verified": [
+    "remoteok (public API)",
+    "arbeitnow (public API)",
+    "himalayas (public API)",
+    "jobicy (public API)",
+    "greenhouse/lever/ashby (official ATS feeds when board token configured)",
+    "serpapi_* / tavily (permitted search providers when API keys present)"
+  ],
+  "live_sources_not_authorized_default_off": [
+    "remotive",
+    "weworkremotely",
+    "peopleperhour",
+    "guru",
+    "linkedin_browser",
+    "upwork_browser"
+  ]
+}

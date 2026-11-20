@@ -12,6 +12,7 @@ import {
 
   draftProposal,
   reportJobExpired,
+  reportListingTrust,
 
   getAuthFindings,
 
@@ -48,6 +49,10 @@ import { MatchScore, MatchScoreBar } from "@/components/ui/match-score";
 import { PageHeader } from "@/components/ui/page-header";
 
 import { Skeleton } from "@/components/ui/skeleton";
+
+import { LeadSignalMeters } from "@/components/lead-signal-meters";
+
+import { useToast } from "@/components/ui/toast";
 
 import { Check, Copy, ExternalLink, Filter, Mail } from "lucide-react";
 
@@ -107,6 +112,8 @@ function LeadsPageInner() {
   const router = useRouter();
 
   const searchParams = useSearchParams();
+
+  const { toast } = useToast();
 
   const [keywords, setKeywords] = useState(DEFAULT_KEYWORDS);
 
@@ -480,6 +487,28 @@ function LeadsPageInner() {
     });
   };
 
+  const handleTrustReport = (jobId: number) => {
+    if (!getToken()) {
+      router.push("/auth");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        setError(null);
+        const res = await reportListingTrust(jobId, {
+          reason_code: "other_trust_concern",
+          details: "User flagged listing for human review from Desk",
+        });
+        setSubmitMessage(
+          res.message ||
+            "Concern queued for human review — not an automatic ban.",
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not submit report");
+      }
+    });
+  };
+
   const updateLeadStatus = (jobId: number, status: "save" | "skip" | "pitched" | "won" | "clear") => {
 
     if (!getToken()) {
@@ -562,27 +591,26 @@ function LeadsPageInner() {
 
         await load(keywords, focusOverride, true);
 
-        setSubmitMessage(
-
+        const message =
           status === "save"
-
             ? "Lead saved"
-
             : status === "pitched"
-
               ? "Lead marked as pitched"
-
               : status === "won"
-
                 ? "Lead marked as won"
-
                 : status === "skip"
-
                   ? "Lead skipped — hidden from default list"
+                  : "Lead status cleared";
 
-                  : "Lead status cleared",
+        setSubmitMessage(message);
 
-        );
+        if (status === "save" || status === "skip") {
+          toast(message, {
+            tone: "success",
+            actionLabel: "Undo",
+            onAction: () => updateLeadStatus(jobId, "clear"),
+          });
+        }
 
       } catch (err) {
 
@@ -1209,18 +1237,18 @@ function LeadsPageInner() {
                   ) : null}
 
                   {finding.client_signal?.urgency === "high" && finding.client_signal.urgency_label ? (
-                    <Badge variant="outline" className="border-rose-500/40 bg-rose-500/10 text-rose-400 font-semibold">
-                      ⚡ {finding.client_signal.urgency_label}
+                    <Badge variant="outline" className="border-[var(--danger)]/40 bg-[var(--danger-muted)] text-[var(--danger)] font-semibold">
+                      Urgent: {finding.client_signal.urgency_label}
                     </Badge>
                   ) : null}
 
                   {finding.smart_match?.is_boosted ? (
                     <Badge
                       variant="outline"
-                      className="border-violet-500/40 bg-violet-500/10 text-violet-400 font-medium"
+                      className="border-[var(--fit)]/40 bg-[var(--accent-muted)] text-[var(--fit)] font-medium"
                       title={finding.smart_match.reason || "Learned preference boost"}
                     >
-                      🧠 Learned fit
+                      Learned fit
                     </Badge>
                   ) : null}
 
@@ -1284,7 +1312,13 @@ function LeadsPageInner() {
 
               ) : null}
 
-
+              <LeadSignalMeters
+                className="mb-4"
+                compact
+                fit={finding.score}
+                trust={finding.client_quality_score ?? finding.client_signal?.score ?? 0.5}
+                freshness={finding.freshness_score ?? 0}
+              />
 
               <div className="mb-4 grid gap-3 md:grid-cols-2">
 
@@ -1471,6 +1505,16 @@ function LeadsPageInner() {
 
                     </Button>
 
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-[var(--text-muted)]"
+                      title="Queue for human trust review (not an automatic exclusion)"
+                      onClick={() => handleTrustReport(finding.job_id)}
+                    >
+                      Flag concern
+                    </Button>
+
                   </>
 
                 ) : null}
@@ -1623,6 +1667,57 @@ function LeadsPageInner() {
 
                   </div>
 
+                ) : null}
+
+                {selected.trust ? (
+                  <div className="space-y-3 rounded-md border border-white/10 bg-white/[0.02] p-3">
+                    <p className="text-xs font-semibold tracking-wide text-[var(--mute)] uppercase">
+                      Due diligence (not a verdict)
+                    </p>
+                    <p className="text-[11px] text-[var(--fog)]">
+                      {selected.trust.disclaimer ||
+                        "Indicators assist review. Unknown companies are not marked as scams."}
+                    </p>
+                    {selected.trust.extraction ? (
+                      <div className="text-xs text-[var(--fog)]">
+                        <span className="text-[var(--paper)]">Work type:</span>{" "}
+                        {selected.trust.extraction.work_type || "unknown"}
+                        {selected.trust.extraction.ambiguous_or_missing?.length ? (
+                          <span>
+                            {" "}
+                            · Missing: {selected.trust.extraction.ambiguous_or_missing.slice(0, 4).join(", ")}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {selected.trust.employer?.company_identity_status ? (
+                      <div className="text-xs text-[var(--fog)]">
+                        Employer: {selected.trust.employer.company_name || "unknown"} (
+                        {selected.trust.employer.company_identity_status})
+                      </div>
+                    ) : null}
+                    {selected.trust.risk_indicators?.length ? (
+                      <ul className="space-y-2 text-xs text-[var(--fog)]">
+                        {selected.trust.risk_indicators.slice(0, 4).map((ind) => (
+                          <li key={ind.code}>
+                            <span className="text-[var(--paper)]">{ind.label}</span>
+                            <span className="text-[var(--mute)]"> · {ind.severity}</span>
+                            <div className="mt-0.5">{ind.what_to_verify}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {selected.trust.due_diligence?.length ? (
+                      <ul className="space-y-1 text-[11px] text-[var(--mute)]">
+                        {selected.trust.due_diligence.slice(0, 3).map((item) => (
+                          <li key={item.id}>• {item.title}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {selected.trust.evidence?.note ? (
+                      <p className="text-[10px] text-[var(--mute)]">{selected.trust.evidence.note}</p>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 {selected.application ? (

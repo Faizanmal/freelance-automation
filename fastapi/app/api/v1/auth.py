@@ -15,18 +15,21 @@ from app.core.security.jwt import (
     create_access_token,
     create_email_verification_token,
     create_password_reset_token,
+    create_refresh_token,
     decode_access_token,
     decode_email_verification_token,
     decode_password_reset_token,
+    decode_refresh_token,
 )
 from app.core.security.rate_limit import auth_rate_limiter, client_ip
-from app.schemas.token import Token
+from app.schemas.token import RefreshTokenRequest, Token
 from app.schemas.user import (
     ForgotPasswordRequest,
     GitHubAuthRequest,
     GitHubAuthUrlResponse,
     GoogleAuthRequest,
     GoogleAuthUrlResponse,
+    RegisterResponse,
     ResendVerificationRequest,
     ResetPasswordRequest,
     Setup2FAResponse,
@@ -39,8 +42,9 @@ from fastapi.security import HTTPAuthorizationCredentials, OAuth2PasswordRequest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.application.services.audit import record_audit
 from backend.application.services.email_service import EmailService
-from backend.application.services.user_service import UserService
+from backend.application.services.user_service import AccountLinkError, UserService
 from backend.infrastructure.repositories.user_repository import SQLAlchemyUserRepository
 from config.settings import get_settings
 from database.core.session import get_db
@@ -53,6 +57,7 @@ from fastapi import (
     Form,
     HTTPException,
     Request,
+    Response,
     status,
 )
 
@@ -63,6 +68,41 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _GENERIC_RESEND_DETAIL = (
     "If that email is registered and unverified, we have sent a new verification link."
 )
+_GENERIC_REGISTER_DETAIL = (
+    "If this email can be registered, check your inbox for next steps."
+)
+REFRESH_COOKIE = "sd_refresh"
+
+
+def _issue_token_pair(user_id: str) -> Token:
+    settings = get_settings()
+    access_minutes = getattr(settings, "access_token_expire_minutes", 60 * 24)
+    refresh_minutes = getattr(settings, "refresh_token_expire_minutes", 60 * 24 * 14)
+    access_delta = timedelta(minutes=access_minutes)
+    refresh_delta = timedelta(minutes=refresh_minutes)
+    now = datetime.now(UTC)
+    return Token(
+        access_token=create_access_token(str(user_id), expires_delta=access_delta),
+        expires_at=now + access_delta,
+        refresh_token=create_refresh_token(str(user_id), expires_delta=refresh_delta),
+        refresh_expires_at=now + refresh_delta,
+    )
+
+
+def _attach_refresh_cookie(response: Response, refresh_token: str | None) -> None:
+    if not refresh_token:
+        return
+    settings = get_settings()
+    refresh_minutes = getattr(settings, "refresh_token_expire_minutes", 60 * 24 * 14)
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=refresh_token,
+        httponly=True,
+        secure=bool(getattr(settings, "is_production", False)),
+        samesite="lax",
+        max_age=refresh_minutes * 60,
+        path="/",
+    )
 
 
 def _queue_registration_emails(
@@ -82,6 +122,7 @@ def _queue_registration_emails(
 @router.post("/login", response_model=Token)
 async def login(
     request: Request,
+    response: Response,
     session: Annotated[AsyncSession, Depends(get_db)],
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     totp_code: str | None = Form(None),
@@ -109,29 +150,58 @@ async def login(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code"
             )
 
-    expires_delta = timedelta(minutes=get_settings().access_token_expire_minutes)
-    access_token = create_access_token(str(user.id), expires_delta=expires_delta)
-    return Token(
-        access_token=access_token,
-        expires_at=datetime.now(UTC) + expires_delta,
+    tokens = _issue_token_pair(str(user.id))
+    _attach_refresh_cookie(response, tokens.refresh_token)
+    await record_audit(
+        session,
+        action="auth.login",
+        user_id=str(user.id),
+        actor_ip=client_ip(request),
     )
+    await session.commit()
+    return tokens
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
+)
 async def register(
     request: Request,
     user_create: UserCreate,
     session: Annotated[AsyncSession, Depends(get_db)],
     background_tasks: BackgroundTasks,
-) -> UserRead:
+) -> RegisterResponse:
     await auth_rate_limiter.check(
         f"register:{client_ip(request)}", limit=10, window_seconds=3600
     )
     repository = SQLAlchemyUserRepository(session)
+    settings = get_settings()
     existing = await repository.get_by_email(user_create.email)
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+        # Anti-enumeration: identical outer response; optionally nudge unverified users.
+        smtp_configured = bool(
+            getattr(settings, "email_smtp_host", None)
+            or getattr(settings, "resend_api_key", None)
+        )
+        if smtp_configured and not existing.is_verified:
+            token = create_email_verification_token(existing.email)
+            background_tasks.add_task(
+                _queue_registration_emails,
+                existing.email,
+                existing.full_name,
+                token,
+            )
+        await record_audit(
+            session,
+            action="auth.register_existing",
+            user_id=str(existing.id),
+            actor_ip=client_ip(request),
+        )
+        await session.commit()
+        return RegisterResponse(
+            detail=_GENERIC_REGISTER_DETAIL,
+            created=False,
+            verification_email_sent=bool(smtp_configured and not existing.is_verified),
         )
 
     service = UserService(repository)
@@ -156,14 +226,14 @@ async def register(
         await session.refresh(user)
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
-        ) from None
+        # Race: another request created the same email — still no enumeration.
+        return RegisterResponse(detail=_GENERIC_REGISTER_DETAIL, created=False)
 
-    settings = get_settings()
     verification_token = create_email_verification_token(user.email)
-    smtp_configured = bool(getattr(settings, "email_smtp_host", None) or getattr(settings, "resend_api_key", None))
-    # Never block signup on SMTP — queue outbound mail after the response.
+    smtp_configured = bool(
+        getattr(settings, "email_smtp_host", None)
+        or getattr(settings, "resend_api_key", None)
+    )
     if smtp_configured:
         background_tasks.add_task(
             _queue_registration_emails,
@@ -180,7 +250,6 @@ async def register(
 
     auto_verified = False
     verify_url: str | None = None
-    # Local DEBUG only: auto-verify when SMTP is missing so hunts work offline.
     if not verify_sent and settings.allow_dev_auth_helpers:
         user.is_verified = True
         session.add(user)
@@ -188,11 +257,15 @@ async def register(
         await session.refresh(user)
         auto_verified = True
         logger.info("Auto-verified %s (DEBUG, SMTP not configured)", user.email)
-        verify_url = f"{settings.public_app_url.rstrip('/')}/auth/verify?token={verification_token}"
+        verify_url = (
+            f"{settings.public_app_url.rstrip('/')}/auth/verify?token={verification_token}"
+        )
 
-    read = UserRead.model_validate(user)
     if auto_verified:
-        detail = "Account created and auto-verified for local development (SMTP not configured)."
+        detail = (
+            "Account created and auto-verified for local development "
+            "(SMTP not configured)."
+        )
     elif verify_sent:
         detail = "Account created. Check your inbox to verify email before hunting."
     else:
@@ -200,14 +273,30 @@ async def register(
             "Account created. Email delivery is not configured on this server — "
             "use Resend verification after SMTP is set up, or contact support."
         )
-    return read.model_copy(
+
+    read = UserRead.model_validate(user).model_copy(
         update={
             "verification_email_sent": verify_sent,
             "auto_verified": auto_verified,
-            # Token/URL only when DEBUG helpers are explicitly enabled.
             "verify_url": verify_url if settings.allow_dev_auth_helpers else None,
             "detail": detail,
+            "created": True,
         }
+    )
+    await record_audit(
+        session,
+        action="auth.register",
+        user_id=str(user.id),
+        actor_ip=client_ip(request),
+    )
+    await session.commit()
+    return RegisterResponse(
+        detail=detail,
+        created=True,
+        verification_email_sent=verify_sent,
+        auto_verified=auto_verified,
+        verify_url=verify_url if settings.allow_dev_auth_helpers else None,
+        user=read,
     )
 
 
@@ -416,21 +505,101 @@ async def dev_verify_current_user(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    request: Request,
+    response: Response,
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    session: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
-    if not credentials:
-        return
+    user_id: str | None = None
+    if credentials:
+        token = credentials.credentials
+        try:
+            payload = decode_access_token(token)
+            user_id = payload.get("sub")
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                exp_time = datetime.fromtimestamp(exp, UTC)
+                await blocklist.block_token(jti, exp_time)
+        except jwt.InvalidTokenError:
+            pass
 
-    token = credentials.credentials
+    refresh = request.cookies.get(REFRESH_COOKIE)
+    if refresh:
+        try:
+            r_payload = decode_refresh_token(refresh)
+            rjti = r_payload.get("jti")
+            rexp = r_payload.get("exp")
+            if rjti and rexp:
+                await blocklist.block_token(
+                    rjti, datetime.fromtimestamp(rexp, UTC)
+                )
+        except jwt.InvalidTokenError:
+            pass
+    response.delete_cookie(REFRESH_COOKIE, path="/")
+    await record_audit(
+        session,
+        action="auth.logout",
+        user_id=user_id,
+        actor_ip=client_ip(request),
+    )
+    await session.commit()
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_session(
+    request: Request,
+    response: Response,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    payload: RefreshTokenRequest | None = None,
+) -> Token:
+    """Rotate access + refresh tokens (cookie or body)."""
+    await auth_rate_limiter.check(
+        f"refresh:{client_ip(request)}", limit=60, window_seconds=60
+    )
+    raw = (payload.refresh_token if payload else None) or request.cookies.get(
+        REFRESH_COOKIE
+    )
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token"
+        )
     try:
-        payload = decode_access_token(token)
-        jti = payload.get("jti")
-        exp = payload.get("exp")
-        if jti and exp:
-            exp_time = datetime.fromtimestamp(exp, UTC)
-            await blocklist.block_token(jti, exp_time)
-    except jwt.InvalidTokenError:
-        pass
+        decoded = decode_refresh_token(raw)
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        ) from exc
+
+    jti = decoded.get("jti")
+    if jti and await blocklist.is_blocked(jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revoked"
+        )
+
+    user_id = decoded["sub"]
+    repository = SQLAlchemyUserRepository(session)
+    user = await repository.get_by_id(user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
+
+    # Rotate: block previous refresh jti
+    exp = decoded.get("exp")
+    if jti and exp:
+        await blocklist.block_token(jti, datetime.fromtimestamp(exp, UTC))
+
+    tokens = _issue_token_pair(str(user.id))
+    _attach_refresh_cookie(response, tokens.refresh_token)
+    await record_audit(
+        session,
+        action="auth.refresh",
+        user_id=str(user.id),
+        actor_ip=client_ip(request),
+    )
+    await session.commit()
+    return tokens
 
 
 @router.post(
@@ -529,6 +698,7 @@ async def get_google_auth_url(
 @router.post("/google", response_model=Token)
 async def google_auth(
     request: Request,
+    response: Response,
     payload: GoogleAuthRequest,
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
@@ -553,11 +723,16 @@ async def google_auth(
     repository = SQLAlchemyUserRepository(session)
     service = UserService(repository)
 
-    user, is_new = await service.authenticate_or_create_google_user(
-        google_id=google_info["sub"],
-        email=google_info["email"],
-        full_name=google_info.get("name"),
-    )
+    try:
+        user, is_new = await service.authenticate_or_create_google_user(
+            google_id=google_info["sub"],
+            email=google_info["email"],
+            full_name=google_info.get("name"),
+        )
+    except AccountLinkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=exc.message
+        ) from exc
 
     if not user.is_active:
         raise HTTPException(
@@ -590,12 +765,17 @@ async def google_auth(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code"
             )
 
-    expires_delta = timedelta(minutes=get_settings().access_token_expire_minutes)
-    access_token = create_access_token(str(user.id), expires_delta=expires_delta)
-    return Token(
-        access_token=access_token,
-        expires_at=datetime.now(UTC) + expires_delta,
+    tokens = _issue_token_pair(str(user.id))
+    _attach_refresh_cookie(response, tokens.refresh_token)
+    await record_audit(
+        session,
+        action="auth.google",
+        user_id=str(user.id),
+        actor_ip=client_ip(request),
+        meta={"is_new": is_new},
     )
+    await session.commit()
+    return tokens
 
 
 @router.get("/github/url", response_model=GitHubAuthUrlResponse)
@@ -609,6 +789,7 @@ async def get_github_auth_url(
 @router.post("/github", response_model=Token)
 async def github_auth(
     request: Request,
+    response: Response,
     payload: GitHubAuthRequest,
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
@@ -625,11 +806,16 @@ async def github_auth(
     repository = SQLAlchemyUserRepository(session)
     service = UserService(repository)
 
-    user, is_new = await service.authenticate_or_create_github_user(
-        github_id=github_info["sub"],
-        email=github_info["email"],
-        full_name=github_info.get("name"),
-    )
+    try:
+        user, is_new = await service.authenticate_or_create_github_user(
+            github_id=github_info["sub"],
+            email=github_info["email"],
+            full_name=github_info.get("name"),
+        )
+    except AccountLinkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=exc.message
+        ) from exc
 
     if not user.is_active:
         raise HTTPException(
@@ -662,9 +848,14 @@ async def github_auth(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code"
             )
 
-    expires_delta = timedelta(minutes=get_settings().access_token_expire_minutes)
-    access_token = create_access_token(str(user.id), expires_delta=expires_delta)
-    return Token(
-        access_token=access_token,
-        expires_at=datetime.now(UTC) + expires_delta,
+    tokens = _issue_token_pair(str(user.id))
+    _attach_refresh_cookie(response, tokens.refresh_token)
+    await record_audit(
+        session,
+        action="auth.github",
+        user_id=str(user.id),
+        actor_ip=client_ip(request),
+        meta={"is_new": is_new},
     )
+    await session.commit()
+    return tokens

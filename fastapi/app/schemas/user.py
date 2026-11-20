@@ -21,6 +21,8 @@ class UserRead(UserBase):
     is_active: bool
     is_verified: bool = False
     is_superuser: bool = False
+    account_role: str = "freelancer"
+    profile_visibility: str = "private"
     is_totp_enabled: bool = False
     google_id: str | None = None
     github_id: str | None = None
@@ -32,10 +34,23 @@ class UserRead(UserBase):
     auto_verified: bool | None = None
     verify_url: str | None = None
     detail: str | None = None
+    created: bool | None = None
 
     model_config = {
         "from_attributes": True,
     }
+
+
+class RegisterResponse(BaseModel):
+    """Anti-enumeration register result — never reveals whether email already existed."""
+
+    detail: str
+    created: bool
+    verification_email_sent: bool = False
+    auto_verified: bool = False
+    verify_url: str | None = None
+    # Present only when a new account was created (client may proceed to login).
+    user: UserRead | None = None
 
 
 class ForgotPasswordRequest(BaseModel):

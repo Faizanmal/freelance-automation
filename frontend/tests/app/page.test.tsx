@@ -130,5 +130,5 @@ test('renders marketing hero without scrape when logged out', async () => {
   expect(screen.getByRole('link', { name: /see pricing/i })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /start free/i })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /refresh inventory/i })).not.toBeInTheDocument()
-  expect(screen.getByText(/outside crowded marketplaces/i)).toBeInTheDocument()
+  expect(screen.getByText(/outside bid wars/i)).toBeInTheDocument()
 })

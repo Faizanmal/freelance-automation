@@ -13,6 +13,14 @@ from database.models.user import User
 _BCRYPT_MAX_BYTES = 72
 
 
+class AccountLinkError(Exception):
+    """Raised when OAuth must not silently merge into an unverified local account."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 def _password_bytes(password: str) -> bytes:
     raw = password.encode("utf-8")
     if len(raw) > _BCRYPT_MAX_BYTES:
@@ -73,12 +81,20 @@ class UserService:
                 await self.user_repository.update(user)
             return user, False
 
-        # 2. Lookup by email to link Google account to existing user
+        # 2. Link only when the local account already verified ownership of the email.
+        # Never merge into an unverified password signup (account pre-hijack).
         user = await self.user_repository.get_by_email(normalized_email)
         if user:
-            user.google_id = google_id
             if not user.is_verified:
-                user.is_verified = True
+                raise AccountLinkError(
+                    "An account with this email exists but is not verified. "
+                    "Verify your email (or reset your password), then connect Google."
+                )
+            if user.google_id and user.google_id != google_id:
+                raise AccountLinkError(
+                    "This email is already linked to a different Google account."
+                )
+            user.google_id = google_id
             if not user.full_name and full_name:
                 user.full_name = full_name
             await self.user_repository.update(user)
@@ -95,6 +111,8 @@ class UserService:
             google_id=google_id,
             is_verified=True,
             is_active=True,
+            account_role="freelancer",
+            profile_visibility="private",
         )
         created_user = await self.user_repository.create(new_user)
         return created_user, True
@@ -128,12 +146,19 @@ class UserService:
                 await self.user_repository.update(user)
             return user, False
 
-        # 2. Lookup by email to link GitHub account to existing user
+        # 2. Link only when the local account already verified ownership of the email.
         user = await self.user_repository.get_by_email(normalized_email)
         if user:
-            user.github_id = github_id
             if not user.is_verified:
-                user.is_verified = True
+                raise AccountLinkError(
+                    "An account with this email exists but is not verified. "
+                    "Verify your email (or reset your password), then connect GitHub."
+                )
+            if user.github_id and user.github_id != github_id:
+                raise AccountLinkError(
+                    "This email is already linked to a different GitHub account."
+                )
+            user.github_id = github_id
             if not user.full_name and full_name:
                 user.full_name = full_name
             await self.user_repository.update(user)
@@ -150,6 +175,8 @@ class UserService:
             github_id=github_id,
             is_verified=True,
             is_active=True,
+            account_role="freelancer",
+            profile_visibility="private",
         )
         created_user = await self.user_repository.create(new_user)
         return created_user, True

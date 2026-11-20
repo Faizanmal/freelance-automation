@@ -158,7 +158,8 @@ class DigestService:
             delivered = await self._send_user_digest(user, prefs)
             if delivered:
                 sent += 1
-                prefs.last_digest_at = datetime.now(UTC)
+                # Must match UserPreferences.digest_last_sent_at (is_digest_due reads this).
+                prefs.digest_last_sent_at = datetime.now(UTC)
                 self.session.add(prefs)
             else:
                 skipped += 1

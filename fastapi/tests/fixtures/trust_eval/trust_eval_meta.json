@@ -1,0 +1,19 @@
+{
+  "count": 43,
+  "train": 28,
+  "holdout": 15,
+  "labels": [
+    "adversarial",
+    "ambiguous",
+    "legitimate",
+    "missing_field",
+    "suspicious"
+  ],
+  "limits": "Human-authored synthetic fixtures; not production scam statistics. Do not claim scam-prevention efficacy from this set alone.",
+  "known_failure_cases": [
+    "Domain mismatch soft signal can false-positive on third-party boards",
+    "Non-English budget phrases may remain unknown",
+    "LLM path unavailable \u2192 deterministic fallback only",
+    "No private company registry \u2014 unknown \u2260 scam"
+  ]
+}

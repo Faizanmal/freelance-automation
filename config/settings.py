@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(
         60 * 24, alias="ACCESS_TOKEN_EXPIRE_MINUTES"
     )
+    # Refresh tokens rotate via POST /auth/refresh (HttpOnly cookie + body).
+    refresh_token_expire_minutes: int = Field(
+        60 * 24 * 14, alias="REFRESH_TOKEN_EXPIRE_MINUTES"
+    )
 
     cors_origins: str = Field(
         "http://localhost:3000,http://127.0.0.1:3000,https://freelance-automation-xi.vercel.app", alias="CORS_ORIGINS"

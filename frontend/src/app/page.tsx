@@ -23,6 +23,8 @@ import {
 } from "@/lib/api";
 import { sanitizeExternalUrl } from "@/lib/security";
 import { ActivationChecklist } from "@/components/activation-checklist";
+import { EarningsCalculator } from "@/components/earnings-calculator";
+import { HuntRulesPreview } from "@/components/hunt-rules-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -259,42 +261,57 @@ export default function HomePage() {
   if (!authed) {
     return (
       <div className="flex flex-1 flex-col gap-14">
-        <section className="relative overflow-hidden rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] px-6 py-14 md:px-12 md:py-20">
-          <div
-            className="pointer-events-none absolute inset-0 opacity-80"
-            style={{
-              backgroundImage:
-                "radial-gradient(700px 320px at 0% 0%, rgba(59,130,246,0.12), transparent 60%), radial-gradient(500px 280px at 100% 10%, rgba(39,39,42,0.5), transparent 55%)",
-            }}
-          />
-          <div className="relative max-w-3xl">
+        <section className="rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface)] px-6 py-14 md:px-12 md:py-20">
+          <div className="max-w-3xl">
             <p className="text-xs font-semibold tracking-[0.22em] text-[var(--accent)] uppercase">
-              Freelance opportunity intelligence
+              Signal Desk
             </p>
             <h1
-              className="mt-3 text-5xl leading-[1.05] tracking-tight text-[var(--text)] md:text-7xl"
+              className="mt-3 text-4xl leading-[1.08] tracking-tight text-[var(--text)] md:text-6xl"
               style={{ fontFamily: "var(--font-display), Georgia, serif" }}
             >
-              Signal Desk
+              Find actionable freelance work outside bid wars
             </h1>
             <p className="mt-5 max-w-xl text-lg text-[var(--text-secondary)]">
-              Set Hunt Rules. We find public freelance and contract posts outside crowded marketplaces. You get ranked
-              leads and a short digest — then pitch on the original page.
+              Set Hunt Rules once. We surface public contract posts from the open web and company boards, rank them for
+              fit, and email a short digest. You pitch on the original listing — we never invent jobs or auto-apply.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
-                href="/pricing"
-                className="inline-flex h-10 items-center rounded-[var(--radius)] bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)]"
-              >
-                See pricing
-              </Link>
-              <Link
                 href="/auth"
-                className="inline-flex h-10 items-center rounded-[var(--radius)] border border-[var(--border)] px-5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                className="inline-flex h-10 items-center rounded-[var(--radius)] bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)]"
               >
                 Start free
               </Link>
+              <Link
+                href="/pricing"
+                className="inline-flex h-10 items-center rounded-[var(--radius)] border border-[var(--border)] px-5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+              >
+                See pricing
+              </Link>
             </div>
+          </div>
+        </section>
+
+        <section className="grid gap-8 md:grid-cols-2" aria-labelledby="discovery-heading">
+          <div className="border-t border-[var(--border)] pt-5">
+            <h2 id="discovery-heading" className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+              External discovery
+            </h2>
+            <p className="mt-3 text-[var(--text-secondary)]">
+              Default product: hunters fill a shared pool from public sources (search, ATS-style company pages,
+              communities). You open the original link. Application fees on third-party boards — if known — are labeled;
+              unknowns stay unknown.
+            </p>
+          </div>
+          <div className="border-t border-[var(--border)] pt-5">
+            <h2 className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+              Native marketplace
+            </h2>
+            <p className="mt-3 text-[var(--text-secondary)]">
+              Opt-in native jobs, mutual matching, and provider-backed payments are a separate track — not required to use
+              the discovery desk. Marketplace nav stays feature-flagged until enabled.
+            </p>
           </div>
         </section>
 
@@ -320,6 +337,48 @@ export default function HomePage() {
               <p className="mt-3 text-[var(--text-secondary)]">{item.body}</p>
             </div>
           ))}
+        </section>
+
+        <section className="border-t border-[var(--border)] pt-8" aria-labelledby="fees-heading">
+          <h2 id="fees-heading" className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+            Fees, clearly
+          </h2>
+          <ul className="mt-4 space-y-2 text-sm text-[var(--text-secondary)]">
+            <li>Signal Desk subscriptions sell productivity tools — never paid visibility on native jobs.</li>
+            <li>We do not charge pay-per-application for native listings.</li>
+            <li>External boards may charge their own apply fees; we show them when known and label unknowns.</li>
+            <li>Processor fees, taxes, and exchange spreads are separate from platform subscription — not tax advice.</li>
+          </ul>
+          <Link href="/pricing" className="mt-4 inline-block text-sm font-semibold text-[var(--accent)] hover:underline">
+            Compare Free vs Pro →
+          </Link>
+        </section>
+
+        <section className="border-t border-[var(--border)] pt-8" aria-labelledby="faq-heading">
+          <h2 id="faq-heading" className="text-2xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+            FAQ
+          </h2>
+          <dl className="mt-4 space-y-5 text-sm">
+            {[
+              {
+                q: "Do you auto-apply for me?",
+                a: "No. Leads open the original listing. Drafts stay in your control.",
+              },
+              {
+                q: "Are jobs synthetic?",
+                a: "Production inventory comes from authorized public sources. Demo fixtures stay in isolated environments only.",
+              },
+              {
+                q: "What does Free include?",
+                a: "Hunt Rules, ranked Leads from the shared pool, and a capped digest. Pro raises limits and unlocks premium source options when configured.",
+              },
+            ].map((item) => (
+              <div key={item.q}>
+                <dt className="font-semibold text-[var(--text)]">{item.q}</dt>
+                <dd className="mt-1 text-[var(--text-secondary)]">{item.a}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
 
         <section className="flex flex-col gap-6">
@@ -536,6 +595,27 @@ export default function HomePage() {
       ) : null}
 
       <ActivationChecklist />
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2
+            className="text-lg text-[var(--text)]"
+            style={{ fontFamily: "var(--font-display), Georgia, serif" }}
+          >
+            Your Hunt Rules
+          </h2>
+          <div className="mt-3">
+            <HuntRulesPreview prefs={prefs} />
+          </div>
+          <Link
+            href="/preferences?tab=matching"
+            className="mt-4 inline-block text-sm font-semibold text-[var(--accent)] hover:underline"
+          >
+            Edit Hunt Rules →
+          </Link>
+        </Card>
+        <EarningsCalculator />
+      </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[

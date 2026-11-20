@@ -75,6 +75,14 @@ export default function AuthPage() {
         setInfo(null);
         if (mode === "register") {
           const created = await register(email, password, fullName || undefined);
+          if (!created.created) {
+            setInfo(
+              created.detail ||
+                "If this email can be registered, check your inbox for next steps.",
+            );
+            setMode("login");
+            return;
+          }
           await login(email, password, requireTotp ? totpCode : undefined);
           const verifyFlag = created.auto_verified
             ? "auto"

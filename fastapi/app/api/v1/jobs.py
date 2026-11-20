@@ -107,6 +107,13 @@ class JobOut(BaseModel):
     is_expired: bool = False
     expired_at: str | None = None
     expired_reason: str | None = None
+    work_type: str | None = "unknown"
+    compensation_period: str | None = None
+    compensation_currency: str | None = None
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+    last_checked_at: str | None = None
+    inventory_state: str | None = "active"
 
 
 import json
@@ -119,14 +126,20 @@ async def list_jobs(
     session: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    cursor: int | None = Query(
+        None, description="Opaque pagination cursor = last seen job id (exclusive)"
+    ),
     source: str | None = None,
     search: str | None = None,
     include_expired: bool = Query(False),
 ) -> dict:
     redis_client = await get_redis()
-    cache_key = f"jobs_cache:v3:{limit}:{offset}:{source or 'all'}:{search or 'none'}:{int(include_expired)}"
+    cache_key = (
+        f"jobs_cache:v4:{limit}:{offset}:{cursor or 0}:"
+        f"{source or 'all'}:{search or 'none'}:{int(include_expired)}"
+    )
 
-    if redis_client:
+    if redis_client and cursor is None:
         try:
             cached = await redis_client.get(cache_key)
             if cached:
@@ -137,18 +150,40 @@ async def list_jobs(
             logging.getLogger(__name__).debug("Cache retrieval failed: %s", e)
 
     repo = SQLAlchemyJobRepository(session)
-    jobs = await repo.list_jobs(
-        limit=limit, offset=offset, source=source, search=search, include_expired=include_expired
-    )
-    total = await repo.count_jobs(source=source, search=search, include_expired=include_expired)
+    if cursor is not None:
+        jobs = await repo.list_jobs_after_id(
+            after_id=cursor,
+            limit=limit,
+            source=source,
+            search=search,
+            include_expired=include_expired,
+        )
+        total = await repo.count_jobs(
+            source=source, search=search, include_expired=include_expired
+        )
+    else:
+        jobs = await repo.list_jobs(
+            limit=limit,
+            offset=offset,
+            source=source,
+            search=search,
+            include_expired=include_expired,
+        )
+        total = await repo.count_jobs(
+            source=source, search=search, include_expired=include_expired
+        )
 
     items = [
         JobOut(**(await repo.to_candidate_dict(job))).model_dump(mode="json")
         for job in jobs
     ]
+    next_cursor = items[-1]["id"] if items else None
     result = {
         "total": total,
         "items": items,
+        "next_cursor": next_cursor,
+        "cursor": cursor,
+        "offset": offset if cursor is None else None,
     }
 
     if redis_client:

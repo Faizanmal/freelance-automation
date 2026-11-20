@@ -13,4 +13,9 @@ jobs:
       - name: Ping /health/live
         env:
           UPTIME_URL: ${{ secrets.UPTIME_URL }}
-        run: python scripts/uptime_check.py
+        run: |
+          if [ -z "$UPTIME_URL" ]; then
+            echo "UPTIME_URL secret is required; refusing to report healthy" >&2
+            exit 1
+          fi
+          python scripts/uptime_check.py

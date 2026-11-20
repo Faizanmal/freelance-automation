@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
+  Bell,
   Bookmark,
   ChevronLeft,
   ChevronRight,
@@ -12,6 +13,7 @@ import {
   Menu,
   Radar,
   Settings,
+  Shield,
   Sparkles,
   Target,
   X,
@@ -24,7 +26,13 @@ import {
   type User,
 } from "@/lib/api";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { AUTH_NAV, PUBLIC_NAV, isActivePath, type NavItem } from "@/components/nav-config";
+import {
+  AUTH_NAV,
+  PUBLIC_NAV,
+  filterNavForUser,
+  isActivePath,
+  type NavItem,
+} from "@/components/nav-config";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 
@@ -48,6 +56,10 @@ function NavIcon({ name, className }: { name?: NavItem["icon"]; className?: stri
       return <Settings {...props} />;
     case "help":
       return <Radar {...props} />;
+    case "alerts":
+      return <Bell {...props} />;
+    case "admin":
+      return <Shield {...props} />;
     default:
       return <LayoutDashboard {...props} />;
   }
@@ -167,17 +179,20 @@ function SiteFooter({ authed }: { authed: boolean }) {
 function SidebarNav({
   collapsed,
   onNavigate,
+  user,
 }: {
   collapsed: boolean;
   onNavigate?: () => void;
+  user: User | null;
 }) {
   const pathname = usePathname() || "/";
   const sections: Array<NavItem["section"]> = ["workspace", "management", "account"];
+  const nav = filterNavForUser(AUTH_NAV, user);
 
   return (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4" aria-label="Primary">
       {sections.map((section) => {
-        const items = AUTH_NAV.filter((item) => item.section === section);
+        const items = nav.filter((item) => item.section === section);
         const label = sectionLabel(section);
         return (
           <div key={section}>
@@ -334,7 +349,7 @@ function ProductShell({ children }: { children: React.ReactNode }) {
             {collapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
           </button>
         </div>
-        <SidebarNav collapsed={collapsed} />
+        <SidebarNav collapsed={collapsed} user={user} />
         <UserChip user={user} collapsed={collapsed} />
       </aside>
 
@@ -361,7 +376,7 @@ function ProductShell({ children }: { children: React.ReactNode }) {
                 <X className="size-4" />
               </button>
             </div>
-            <SidebarNav collapsed={false} onNavigate={() => setMobileOpen(false)} />
+            <SidebarNav collapsed={false} user={user} onNavigate={() => setMobileOpen(false)} />
             <UserChip user={user} collapsed={false} />
           </aside>
         </div>

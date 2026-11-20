@@ -11,10 +11,19 @@ type ToastItem = {
   id: string;
   message: string;
   tone: ToastTone;
+  actionLabel?: string;
+  onAction?: () => void;
+};
+
+type ToastOptions = {
+  tone?: ToastTone;
+  actionLabel?: string;
+  onAction?: () => void;
+  durationMs?: number;
 };
 
 type ToastContextValue = {
-  toast: (message: string, tone?: ToastTone) => void;
+  toast: (message: string, options?: ToastTone | ToastOptions) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -27,10 +36,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toast = useCallback(
-    (message: string, tone: ToastTone = "default") => {
+    (message: string, options?: ToastTone | ToastOptions) => {
+      const opts: ToastOptions =
+        typeof options === "string" || options === undefined
+          ? { tone: options || "default" }
+          : options;
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      setItems((current) => [...current.slice(-3), { id, message, tone }]);
-      window.setTimeout(() => dismiss(id), 3200);
+      setItems((current) => [
+        ...current.slice(-3),
+        {
+          id,
+          message,
+          tone: opts.tone || "default",
+          actionLabel: opts.actionLabel,
+          onAction: opts.onAction,
+        },
+      ]);
+      window.setTimeout(() => dismiss(id), opts.durationMs ?? (opts.onAction ? 6000 : 3200));
     },
     [dismiss],
   );
@@ -59,7 +81,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               )}
               role="status"
             >
-              <p className="flex-1 text-sm">{item.message}</p>
+              <p className="flex-1 text-sm text-[var(--text)]">{item.message}</p>
+              {item.actionLabel && item.onAction ? (
+                <button
+                  type="button"
+                  className="shrink-0 text-sm font-semibold text-[var(--accent)] hover:underline"
+                  onClick={() => {
+                    item.onAction?.();
+                    dismiss(item.id);
+                  }}
+                >
+                  {item.actionLabel}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="rounded p-0.5 text-[var(--text-muted)] hover:text-[var(--text)]"
@@ -82,7 +116,6 @@ export function useToast() {
     return {
       toast: (message: string) => {
         if (typeof window !== "undefined") {
-          // Fallback when provider is absent (tests).
           console.info(message);
         }
       },

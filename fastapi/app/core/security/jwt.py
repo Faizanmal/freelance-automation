@@ -19,11 +19,28 @@ def create_access_token(subject: str, expires_delta: timedelta | None = None) ->
         "exp": expires,
         "iat": datetime.now(UTC),
         "jti": str(uuid.uuid4()),
+        "typ": "access",
     }
     token = jwt.encode(
         payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
     )
     return token
+
+
+def create_refresh_token(subject: str, expires_delta: timedelta | None = None) -> str:
+    """Longer-lived refresh token; rotate on each /auth/refresh."""
+    minutes = getattr(settings, "refresh_token_expire_minutes", 60 * 24 * 14)
+    expires = datetime.now(UTC) + (expires_delta or timedelta(minutes=minutes))
+    payload = {
+        "sub": str(subject),
+        "exp": expires,
+        "iat": datetime.now(UTC),
+        "jti": str(uuid.uuid4()),
+        "typ": "refresh",
+    }
+    return jwt.encode(
+        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
 
 
 def decode_access_token(token: str) -> dict[str, str]:
@@ -34,9 +51,26 @@ def decode_access_token(token: str) -> dict[str, str]:
         subject = payload.get("sub")
         if subject is None:
             raise jwt.InvalidTokenError("Missing subject")
+        # Reject refresh tokens presented as access credentials.
+        if payload.get("typ") == "refresh":
+            raise jwt.InvalidTokenError("Refresh token cannot be used as access token")
         return payload
     except jwt.InvalidTokenError as exc:
         raise jwt.InvalidTokenError("Could not validate credentials") from exc
+
+
+def decode_refresh_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+        if payload.get("typ") != "refresh":
+            raise jwt.InvalidTokenError("Invalid token type")
+        if not payload.get("sub") or not payload.get("jti"):
+            raise jwt.InvalidTokenError("Missing subject or jti")
+        return payload
+    except jwt.InvalidTokenError as exc:
+        raise jwt.InvalidTokenError("Invalid or expired refresh token") from exc
 
 
 def create_password_reset_token(email: str) -> str:

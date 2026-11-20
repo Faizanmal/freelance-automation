@@ -65,6 +65,7 @@ class AuthVerifyTests(unittest.IsolatedAsyncioTestCase):
                 "app.api.v1.auth.create_email_verification_token", return_value="tok"
             ),
             patch("app.api.v1.auth.get_settings", return_value=settings),
+            patch("app.api.v1.auth.record_audit", new=AsyncMock()),
         ):
             result = await register(
                 request=MagicMock(),
@@ -77,6 +78,7 @@ class AuthVerifyTests(unittest.IsolatedAsyncioTestCase):
                 background_tasks=MagicMock(),
             )
 
+        self.assertTrue(result.created)
         self.assertTrue(result.auto_verified)
         self.assertFalse(result.verification_email_sent)
         self.assertTrue(created.is_verified)
@@ -111,6 +113,7 @@ class AuthVerifyTests(unittest.IsolatedAsyncioTestCase):
                 "app.api.v1.auth.create_email_verification_token", return_value="tok"
             ),
             patch("app.api.v1.auth.get_settings", return_value=settings),
+            patch("app.api.v1.auth.record_audit", new=AsyncMock()),
         ):
             result = await register(
                 request=MagicMock(),
@@ -123,6 +126,7 @@ class AuthVerifyTests(unittest.IsolatedAsyncioTestCase):
                 background_tasks=MagicMock(),
             )
 
+        self.assertTrue(result.created)
         self.assertFalse(result.auto_verified or False)
         self.assertFalse(created.is_verified)
         self.assertIsNone(result.verify_url)
@@ -155,6 +159,7 @@ class AuthVerifyTests(unittest.IsolatedAsyncioTestCase):
                 "app.api.v1.auth.create_email_verification_token", return_value="tok"
             ),
             patch("app.api.v1.auth.get_settings", return_value=settings),
+            patch("app.api.v1.auth.record_audit", new=AsyncMock()),
         ):
             result = await register(
                 request=MagicMock(),

@@ -33,6 +33,15 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Product role: freelancer (default desk user), client (future hiring), staff (ops).
+    # is_superuser remains the admin elevation gate; staff is not automatically superuser.
+    account_role: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="freelancer", server_default="freelancer"
+    )
+    # Public talent discovery is opt-in later; default private.
+    profile_visibility: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="private", server_default="private"
+    )
     totp_secret: Mapped[str | None] = mapped_column(String(32), nullable=True)
     is_totp_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

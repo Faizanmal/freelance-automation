@@ -6,6 +6,19 @@ from typing import Any
 
 import httpx
 from app.core.redis_client import get_redis
+from app.ingestion.governance import record_source_health
+from app.ingestion.normalize import enrich_candidate_classification
+from app.ingestion.policy_gate import filter_sources
+from app.ingestion.reliability import (
+    acquire_source_lease,
+    budget_exceeded,
+    circuit_is_open,
+    quarantine_batch,
+    record_source_failure,
+    record_source_success,
+    record_spend,
+    release_source_lease,
+)
 from app.ingestion.sources import (
     DISCOVERY_SOURCES,
     SOURCE_REGISTRY,
@@ -125,16 +138,18 @@ class ScrapeService:
         notify_matches: bool = False,
         query: str | None = None,
     ) -> dict[str, object]:
-        # Default to V1 hunter spine (settings SCRAPE_SOURCES / V1_DEFAULT_HUNTERS).
-        # Marketplaces stay opt-in and out of the default schedule.
-        selected = (
+        # Default to V1 hunter spine. Policy gate drops restricted/experimental/
+        # uncredentialed sources. Ranking/digest stay outside this path.
+        requested = (
             sources or get_settings().scrape_source_list or list(V1_DEFAULT_HUNTERS)
         )
+        selected, gate_decisions = filter_sources(requested)
         query_map = await HuntQueryBuilder(self.session).queries_for_sources(
             selected, explicit=query
         )
         summary: dict[str, object] = {
             "sources": {},
+            "gate": {k: v.to_dict() for k, v in gate_decisions.items()},
             "total_fetched": 0,
             "total_ingested": 0,
             "total_merged": 0,
@@ -142,105 +157,198 @@ class ScrapeService:
             "alerts_sent": 0,
             "new_job_ids": [],
             "hunt_queries": {k: v for k, v in query_map.items() if v},
+            "inventory_mode": "shared_discovery",
         }
+
+        for name, decision in gate_decisions.items():
+            if not decision.allowed:
+                summary["sources"][name] = {
+                    "status": "skipped",
+                    "error": decision.reason,
+                    "fetched": 0,
+                }
 
         for source_name in selected:
             cls = SOURCE_REGISTRY.get(source_name)
             if cls is None:
-                summary["sources"][source_name] = {"error": "unknown_source"}
+                summary["sources"][source_name] = {
+                    "status": "error",
+                    "error": "unknown_source",
+                }
+                continue
+
+            policy = gate_decisions.get(source_name).policy if gate_decisions.get(source_name) else None
+            if await circuit_is_open(source_name):
+                summary["sources"][source_name] = {
+                    "status": "circuit_open",
+                    "error": "circuit_open",
+                    "fetched": 0,
+                }
+                continue
+
+            if policy and await budget_exceeded(source_name, policy.daily_budget_usd):
+                summary["sources"][source_name] = {
+                    "status": "budget_capped",
+                    "error": "daily_budget_exceeded",
+                    "fetched": 0,
+                }
+                continue
+
+            leased = await acquire_source_lease(source_name)
+            if not leased:
+                summary["sources"][source_name] = {
+                    "status": "lease_held",
+                    "error": "source_lease_held",
+                    "fetched": 0,
+                }
                 continue
 
             source = cls()
             source_query = query_map.get(source_name)
 
-            # Check Redis cache for discovery/rate-sensitive sources
             candidates: list[JobCandidate] | None = None
             is_cacheable = source_name in DISCOVERY_SOURCES
-            if is_cacheable:
-                candidates = await self._get_cached_candidates(
-                    source_name, source_query, limit
-                )
-
-            if candidates is None:
-                try:
-                    fetch = source.fetch
-                    try:
-                        candidates = await fetch(limit=limit, query=source_query)
-                    except TypeError:
-                        candidates = await fetch(limit=limit)
-                    if is_cacheable and candidates:
-                        await self._set_cached_candidates(
-                            source_name, source_query, limit, candidates
-                        )
-                except (
-                    UpworkNotConfigured,
-                    FreelancerNotConfigured,
-                    ApifyNotConfigured,
-                    SerpApiNotConfigured,
-                    RedditNotConfigured,
-                ) as exc:
-                    summary["sources"][source_name] = {
-                        "error": "not_configured",
-                        "detail": str(exc),
-                        "fetched": 0,
-                    }
-                    continue
-                except (
-                    httpx.HTTPError,
-                    RuntimeError,
-                    ValueError,
-                    OSError,
-                    TimeoutError,
-                ) as exc:
-                    summary["sources"][source_name] = {"error": str(exc), "fetched": 0}
-                    continue
-                except Exception as exc:
-                    # Keep other hunters running if one source blows up unexpectedly.
-                    summary["sources"][source_name] = {
-                        "error": f"{exc.__class__.__name__}: {exc}",
-                        "fetched": 0,
-                    }
-                    continue
-
-            counts = {
-                "fetched": len(candidates),
-                "ingested": 0,
-                "merged": 0,
-                "linked": 0,
-                "skipped": 0,
-            }
-            for candidate in candidates:
-                try:
-                    result = await self.ingestion.ingest(
-                        candidate,
-                        location=(candidate.metadata or {}).get("location"),
-                        tags=(candidate.metadata or {}).get("tags"),
+            try:
+                if is_cacheable:
+                    candidates = await self._get_cached_candidates(
+                        source_name, source_query, limit
                     )
-                except Exception as exc:
-                    counts["skipped"] = int(counts.get("skipped", 0)) + 1
-                    summary["total_skipped"] = int(summary["total_skipped"]) + 1
-                    summary["total_fetched"] = int(summary["total_fetched"]) + 1
-                    counts.setdefault("errors", [])
-                    if isinstance(counts["errors"], list) and len(counts["errors"]) < 5:
-                        counts["errors"].append(
-                            f"{exc.__class__.__name__}: {str(exc)[:160]}"
-                        )
-                    continue
-                action = str(result.get("action"))
-                if action in counts:
-                    counts[action] += 1
-                summary["total_fetched"] = int(summary["total_fetched"]) + 1
-                if action == "ingested":
-                    summary["total_ingested"] = int(summary["total_ingested"]) + 1
-                    job_id = result.get("job_id")
-                    if isinstance(job_id, int):
-                        summary["new_job_ids"].append(job_id)  # type: ignore[union-attr]
-                elif action == "merged":
-                    summary["total_merged"] = int(summary["total_merged"]) + 1
-                elif action in {"skipped", "linked"}:
-                    summary["total_skipped"] = int(summary["total_skipped"]) + 1
 
-            summary["sources"][source_name] = counts
+                if candidates is None:
+                    try:
+                        fetch = source.fetch
+                        try:
+                            candidates = await fetch(limit=limit, query=source_query)
+                        except TypeError:
+                            candidates = await fetch(limit=limit)
+                        if is_cacheable and candidates:
+                            await self._set_cached_candidates(
+                                source_name, source_query, limit, candidates
+                            )
+                    except (
+                        UpworkNotConfigured,
+                        FreelancerNotConfigured,
+                        ApifyNotConfigured,
+                        SerpApiNotConfigured,
+                        RedditNotConfigured,
+                    ) as exc:
+                        summary["sources"][source_name] = {
+                            "status": "error",
+                            "error": "not_configured",
+                            "detail": str(exc),
+                            "fetched": 0,
+                        }
+                        await record_source_failure(source_name, error=str(exc))
+                        record_source_health(source_name, ok=False, detail=str(exc))
+                        continue
+                    except (
+                        httpx.HTTPError,
+                        RuntimeError,
+                        ValueError,
+                        OSError,
+                        TimeoutError,
+                    ) as exc:
+                        qid = await quarantine_batch(
+                            source_name=source_name,
+                            reason="fetch_error",
+                            payload={"error": str(exc)},
+                        )
+                        opened = await record_source_failure(
+                            source_name, error=str(exc)
+                        )
+                        record_source_health(source_name, ok=False, detail=str(exc))
+                        summary["sources"][source_name] = {
+                            "status": "error",
+                            "error": str(exc),
+                            "fetched": 0,
+                            "quarantine_id": qid,
+                            "circuit_opened": opened,
+                        }
+                        continue
+                    except Exception as exc:
+                        # Keep other hunters running if one source blows up.
+                        qid = await quarantine_batch(
+                            source_name=source_name,
+                            reason="unexpected_error",
+                            payload={"error": f"{exc.__class__.__name__}: {exc}"},
+                        )
+                        await record_source_failure(source_name, error=str(exc))
+                        record_source_health(source_name, ok=False, detail=str(exc))
+                        summary["sources"][source_name] = {
+                            "status": "error",
+                            "error": f"{exc.__class__.__name__}: {exc}",
+                            "fetched": 0,
+                            "quarantine_id": qid,
+                        }
+                        continue
+
+                if not candidates:
+                    # Distinguish empty inventory from provider failure.
+                    await record_source_success(source_name)
+                    record_source_health(source_name, ok=True, fetched=0)
+                    summary["sources"][source_name] = {
+                        "status": "no_results",
+                        "fetched": 0,
+                        "ingested": 0,
+                        "merged": 0,
+                        "linked": 0,
+                        "skipped": 0,
+                    }
+                    continue
+
+                counts = {
+                    "status": "ok",
+                    "fetched": len(candidates),
+                    "ingested": 0,
+                    "merged": 0,
+                    "linked": 0,
+                    "skipped": 0,
+                }
+                for candidate in candidates:
+                    candidate = enrich_candidate_classification(candidate)
+                    try:
+                        result = await self.ingestion.ingest(
+                            candidate,
+                            location=(candidate.metadata or {}).get("location"),
+                            tags=(candidate.metadata or {}).get("tags"),
+                        )
+                    except Exception as exc:
+                        counts["skipped"] = int(counts.get("skipped", 0)) + 1
+                        summary["total_skipped"] = int(summary["total_skipped"]) + 1
+                        summary["total_fetched"] = int(summary["total_fetched"]) + 1
+                        counts.setdefault("errors", [])
+                        if (
+                            isinstance(counts["errors"], list)
+                            and len(counts["errors"]) < 5
+                        ):
+                            counts["errors"].append(
+                                f"{exc.__class__.__name__}: {str(exc)[:160]}"
+                            )
+                        continue
+                    action = str(result.get("action"))
+                    if action in counts:
+                        counts[action] = int(counts[action]) + 1
+                    summary["total_fetched"] = int(summary["total_fetched"]) + 1
+                    if action == "ingested":
+                        summary["total_ingested"] = int(summary["total_ingested"]) + 1
+                        job_id = result.get("job_id")
+                        if isinstance(job_id, int):
+                            summary["new_job_ids"].append(job_id)  # type: ignore[union-attr]
+                    elif action == "merged":
+                        summary["total_merged"] = int(summary["total_merged"]) + 1
+                    elif action in {"skipped", "linked"}:
+                        summary["total_skipped"] = int(summary["total_skipped"]) + 1
+
+                await record_source_success(source_name)
+                record_source_health(
+                    source_name, ok=True, fetched=int(counts["fetched"])
+                )
+                if policy and policy.daily_budget_usd and policy.daily_budget_usd > 0:
+                    # Approximate unit cost for search providers (~$0.01 / batch).
+                    await record_spend(source_name, 0.01)
+                summary["sources"][source_name] = counts
+            finally:
+                await release_source_lease(source_name)
 
         if notify_matches and summary["new_job_ids"]:
             summary["alerts_sent"] = await self._notify_users_of_new_jobs(summary["new_job_ids"])  # type: ignore[arg-type]
@@ -272,8 +380,8 @@ class ScrapeService:
             if getattr(prefs, "digest_mode", False):
                 continue
             for job in jobs:
-                match = matching.calculate_match(job, prefs)
-                if not match.is_match:
+                match = matching.score_job(job, prefs)
+                if match is None:
                     continue
                 channels = []
                 for channel_name in prefs.notification_channels or ["email"]:

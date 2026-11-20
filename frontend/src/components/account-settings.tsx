@@ -2,7 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setToken, request, updateProfile, type User } from "@/lib/api";
+import Link from "next/link";
+import {
+  logout,
+  request,
+  updateProfile,
+  exportMyData,
+  type User,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +24,10 @@ export function AccountSettings({ user }: { user: User }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleLogout = () => {
-    setToken(null);
-    router.push("/");
+    startTransition(async () => {
+      await logout();
+      router.push("/");
+    });
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {
@@ -37,12 +46,33 @@ export function AccountSettings({ user }: { user: User }) {
     });
   };
 
+  const handleExport = () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        const data = await exportMyData();
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `signal-desk-export-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setMessage("Data export downloaded.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Export failed");
+      }
+    });
+  };
+
   const handleDeleteAccount = () => {
     startTransition(async () => {
       try {
         setError(null);
         await request("/users/me", { method: "DELETE", auth: true });
-        setToken(null);
+        await logout();
         router.push("/");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to delete account");
@@ -51,6 +81,8 @@ export function AccountSettings({ user }: { user: User }) {
   };
 
   const plan = (user.plan || "free").toLowerCase();
+  const role = user.account_role || "freelancer";
+  const visibility = user.profile_visibility || "private";
 
   return (
     <Card className="mt-2 p-6 md:p-8">
@@ -66,7 +98,9 @@ export function AccountSettings({ user }: { user: User }) {
             Profile, session, and account controls.
           </p>
         </div>
-        <Badge variant={plan === "pro" ? "accent" : "muted"}>{plan === "pro" ? "Pro" : "Free"}</Badge>
+        <Badge variant={plan === "pro" ? "accent" : "muted"}>
+          {plan === "pro" ? "Pro" : "Free"}
+        </Badge>
       </div>
 
       {message ? (
@@ -75,12 +109,16 @@ export function AccountSettings({ user }: { user: User }) {
         </p>
       ) : null}
       {error ? (
-        <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>
+        <p className="mb-4 text-sm text-[var(--danger)]" role="alert">
+          {error}
+        </p>
       ) : null}
 
       <div className="space-y-6">
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-          <h3 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">Personal information</h3>
+          <h3 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">
+            Personal information
+          </h3>
           <p className="text-sm text-[var(--text-muted)]">
             Signed in as <strong className="text-[var(--text)]">{user.email}</strong>
             {currentName ? ` (${currentName})` : null}
@@ -90,11 +128,17 @@ export function AccountSettings({ user }: { user: User }) {
             <span className={user.is_verified ? "text-[var(--success)]" : "text-[var(--warning)]"}>
               {user.is_verified ? "Verified" : "Not verified"}
             </span>
+            {" · "}
+            Role: <span className="text-[var(--text)]">{role}</span>
+            {" · "}
+            Visibility: <span className="text-[var(--text)]">{visibility}</span>
           </p>
 
           <form onSubmit={handleSaveProfile} className="mt-4 flex flex-wrap items-center gap-3">
-            <div className="flex-1 min-w-[200px]">
-              <label htmlFor="account-fullname" className="sr-only">Full Name</label>
+            <div className="min-w-[200px] flex-1">
+              <label htmlFor="account-fullname" className="sr-only">
+                Full Name
+              </label>
               <input
                 id="account-fullname"
                 type="text"
@@ -111,14 +155,22 @@ export function AccountSettings({ user }: { user: User }) {
           </form>
 
           <p className="mt-3 text-xs text-[var(--text-muted)]">
-            Two-factor authentication and passwords are managed under Hunt Rules → Security.
+            Two-factor authentication and passwords are managed under Hunt Rules → Security. Privacy
+            center:{" "}
+            <Link href="/privacy/center" className="text-[var(--signal)] underline">
+              export, consents, audit
+            </Link>
+            .
           </p>
         </div>
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-          <h3 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">Connected accounts</h3>
+          <h3 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">
+            Connected accounts
+          </h3>
           <p className="mb-3 text-xs text-[var(--text-muted)]">
-            Sign in faster with single sign-on (SSO). Accounts matching your email are automatically linked.
+            OAuth links only after email ownership is verified. Unverified local accounts are not
+            merged automatically.
           </p>
           <div className="space-y-2.5">
             <div className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm">
@@ -137,7 +189,15 @@ export function AccountSettings({ user }: { user: User }) {
         </div>
 
         <div className="border-t border-[var(--border)] pt-4">
-          <Button onClick={handleLogout} variant="outline" className="w-full sm:w-auto">
+          <Button onClick={handleExport} variant="outline" className="w-full sm:w-auto" disabled={pending}>
+            {pending ? "Working…" : "Download my data"}
+          </Button>
+          <Button
+            onClick={handleLogout}
+            variant="outline"
+            className="mt-3 w-full sm:ml-3 sm:mt-0 sm:w-auto"
+            disabled={pending}
+          >
             Sign out
           </Button>
 
@@ -154,7 +214,8 @@ export function AccountSettings({ user }: { user: User }) {
         <div className="border-t border-[var(--danger)]/25 pt-6">
           <h3 className="mb-2 text-sm font-medium text-[var(--danger)]">Danger zone</h3>
           <p className="mb-4 text-sm text-[var(--text-muted)]">
-            Permanently delete your account and all associated data. This action cannot be undone.
+            Permanently delete your account and associated desk data. Legal holds may delay purge of
+            some operational logs.
           </p>
 
           {!confirmDelete ? (

@@ -37,5 +37,19 @@ def public_job_payload(
         payload["full_description_available"] = True
     payload["source_attribution"] = attribution
     payload["source_label"] = f"Listed on {attribution}"
-    payload["apply_url"] = job_dict.get("url")
+    apply_url = job_dict.get("url")
+    # Block non-http(s) schemes from reaching the client.
+    if isinstance(apply_url, str):
+        lowered = apply_url.strip().lower()
+        if not (
+            lowered.startswith("http://") or lowered.startswith("https://")
+        ):
+            apply_url = None
+    payload["apply_url"] = apply_url
+    # Freshness for UI (users see source + when last verified).
+    payload.setdefault("work_type", job_dict.get("work_type") or "unknown")
+    payload.setdefault("last_checked_at", job_dict.get("last_checked_at"))
+    payload.setdefault("inventory_state", job_dict.get("inventory_state") or "active")
+    if payload.get("is_expired"):
+        payload["inventory_state"] = payload.get("expired_reason") or "expired"
     return payload

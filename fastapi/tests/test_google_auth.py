@@ -117,15 +117,18 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             payload = GoogleAuthRequest(id_token="valid-id-token")
             token_resp = await google_auth(
                 request=MagicMock(),
+                response=MagicMock(),
                 payload=payload,
                 session=session,
             )
 
         self.assertTrue(token_resp.access_token)
-        session.add.assert_called_once()  # UserPreferences added
+        self.assertGreaterEqual(session.add.call_count, 1)  # prefs (+ audit)
         session.commit.assert_called()
 
-    async def test_google_auth_links_existing_user_by_email(self) -> None:
+    async def test_google_auth_rejects_link_to_unverified_email(self) -> None:
+        from fastapi import HTTPException
+
         google_info = {
             "sub": "google-sub-456",
             "email": "existing@example.com",
@@ -151,8 +154,10 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
 
         settings = SimpleNamespace(
             access_token_expire_minutes=60,
+            refresh_token_expire_minutes=60 * 24 * 14,
             jwt_secret_key="dev-secret-key-32-chars-long-test-1234",
             jwt_algorithm="HS256",
+            is_production=False,
         )
 
         with (
@@ -164,15 +169,69 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             patch("app.core.security.jwt.get_settings", return_value=settings),
         ):
             payload = GoogleAuthRequest(id_token="valid-id-token")
+            with self.assertRaises(HTTPException) as ctx:
+                await google_auth(
+                    request=MagicMock(),
+                    response=MagicMock(),
+                    payload=payload,
+                    session=session,
+                )
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIsNone(existing_user.google_id)
+        self.assertFalse(existing_user.is_verified)
+
+    async def test_google_auth_links_verified_user_by_email(self) -> None:
+        google_info = {
+            "sub": "google-sub-456",
+            "email": "existing@example.com",
+            "name": "Existing User",
+        }
+
+        existing_user = _user(
+            id="u-existing",
+            email="existing@example.com",
+            full_name=None,
+            google_id=None,
+            is_verified=True,
+        )
+
+        session = AsyncMock()
+        session.commit = AsyncMock()
+        session.refresh = AsyncMock()
+
+        repo = MagicMock()
+        repo.get_by_google_id = AsyncMock(return_value=None)
+        repo.get_by_email = AsyncMock(return_value=existing_user)
+        repo.update = AsyncMock(return_value=existing_user)
+
+        settings = SimpleNamespace(
+            access_token_expire_minutes=60,
+            refresh_token_expire_minutes=60 * 24 * 14,
+            jwt_secret_key="dev-secret-key-32-chars-long-test-1234",
+            jwt_algorithm="HS256",
+            is_production=False,
+        )
+
+        with (
+            patch("app.api.v1.auth.auth_rate_limiter.check", new=AsyncMock()),
+            patch("app.api.v1.auth.client_ip", return_value="127.0.0.1"),
+            patch("app.api.v1.auth.GoogleAuthService.verify_id_token", AsyncMock(return_value=google_info)),
+            patch("app.api.v1.auth.SQLAlchemyUserRepository", return_value=repo),
+            patch("app.api.v1.auth.get_settings", return_value=settings),
+            patch("app.core.security.jwt.get_settings", return_value=settings),
+            patch("app.api.v1.auth.record_audit", new=AsyncMock()),
+        ):
+            payload = GoogleAuthRequest(id_token="valid-id-token")
             token_resp = await google_auth(
                 request=MagicMock(),
+                response=MagicMock(),
                 payload=payload,
                 session=session,
             )
 
         self.assertTrue(token_resp.access_token)
+        self.assertTrue(token_resp.refresh_token)
         self.assertEqual(existing_user.google_id, "google-sub-456")
-        self.assertTrue(existing_user.is_verified)
         self.assertEqual(existing_user.full_name, "Existing User")
 
     async def test_google_auth_totp_enforcement(self) -> None:
@@ -214,6 +273,7 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await google_auth(
                     request=MagicMock(),
+                    response=MagicMock(),
                     payload=GoogleAuthRequest(id_token="valid-id-token"),
                     session=session,
                 )
@@ -224,6 +284,7 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await google_auth(
                     request=MagicMock(),
+                    response=MagicMock(),
                     payload=GoogleAuthRequest(id_token="valid-id-token", totp_code="000000"),
                     session=session,
                 )
@@ -234,6 +295,7 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             valid_totp = pyotp.TOTP(totp_secret).now()
             token_resp = await google_auth(
                 request=MagicMock(),
+                response=MagicMock(),
                 payload=GoogleAuthRequest(id_token="valid-id-token", totp_code=valid_totp),
                 session=session,
             )
@@ -267,6 +329,7 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await google_auth(
                     request=MagicMock(),
+                    response=MagicMock(),
                     payload=GoogleAuthRequest(id_token="valid-token"),
                     session=session,
                 )
@@ -282,6 +345,7 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await google_auth(
                     request=MagicMock(),
+                    response=MagicMock(),
                     payload=GoogleAuthRequest(),
                     session=session,
                 )
@@ -323,6 +387,7 @@ class GoogleAuthTests(unittest.IsolatedAsyncioTestCase):
             payload = GoogleAuthRequest(code="google-auth-code", state="state-token")
             token_resp = await google_auth(
                 request=MagicMock(),
+                response=MagicMock(),
                 payload=payload,
                 session=session,
             )

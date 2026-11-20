@@ -1,6 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 const TOKEN_KEY = "signal_desk_token";
+const REFRESH_KEY = "signal_desk_refresh";
 
 const TOKEN_CHANGE_EVENT = "signal-desk-token-change";
 
@@ -164,6 +165,10 @@ export type User = {
 
   is_superuser?: boolean;
 
+  account_role?: string;
+
+  profile_visibility?: string;
+
   is_totp_enabled?: boolean;
 
   google_id?: string | null;
@@ -174,6 +179,17 @@ export type User = {
 
   detail?: string | null;
 
+  created?: boolean | null;
+
+};
+
+export type RegisterResponse = {
+  detail: string;
+  created: boolean;
+  verification_email_sent?: boolean;
+  auto_verified?: boolean;
+  verify_url?: string | null;
+  user?: User | null;
 };
 
 
@@ -254,6 +270,60 @@ export function setToken(token: string | null) {
 
   window.dispatchEvent(new Event(TOKEN_CHANGE_EVENT));
 
+}
+
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_KEY);
+}
+
+export function setRefreshToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) localStorage.setItem(REFRESH_KEY, token);
+  else localStorage.removeItem(REFRESH_KEY);
+}
+
+function storeAuthTokens(payload: {
+  access_token?: string;
+  refresh_token?: string | null;
+}) {
+  if (payload.access_token) setToken(payload.access_token);
+  if (payload.refresh_token) setRefreshToken(payload.refresh_token);
+  else if (payload.refresh_token === null) setRefreshToken(null);
+}
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefreshSession(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refresh = getRefreshToken();
+    if (!refresh) return false;
+    try {
+      const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!response.ok) return false;
+      const data = (await response.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+      };
+      if (!data.access_token) return false;
+      storeAuthTokens({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token ?? null,
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 
@@ -342,7 +412,12 @@ function formatApiDetail(detail: unknown): string | null {
 
 
 
-export async function request<T>(path: string, init?: RequestInit & { auth?: boolean }): Promise<T> {
+const DEFAULT_TIMEOUT_MS = 25_000;
+
+export async function request<T>(
+  path: string,
+  init?: RequestInit & { auth?: boolean; timeoutMs?: number; _retried?: boolean },
+): Promise<T> {
 
   const headers: Record<string, string> = {
 
@@ -366,6 +441,16 @@ export async function request<T>(path: string, init?: RequestInit & { auth?: boo
 
   }
 
+  const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const externalSignal = init?.signal;
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
+
   let response: Response;
 
   try {
@@ -378,14 +463,22 @@ export async function request<T>(path: string, init?: RequestInit & { auth?: boo
 
       cache: "no-store",
 
+      signal: controller.signal,
+
     });
 
   } catch (err) {
 
     if (err instanceof Error && err.message === "Not authenticated") throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out. Check your connection and try again.");
+    }
 
     throw new Error("Can't reach the API. Check your connection and try again.");
 
+  } finally {
+    clearTimeout(timeoutId);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
   }
 
   if (response.status === 204 || response.status === 205) {
@@ -396,15 +489,36 @@ export async function request<T>(path: string, init?: RequestInit & { auth?: boo
 
   if (!response.ok) {
 
+    if (response.status === 401 && init?.auth && !init._retried) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        return request<T>(path, { ...init, auth: true, _retried: true });
+      }
+      setToken(null);
+      setRefreshToken(null);
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/auth")) {
+        window.location.assign("/auth/session-expired");
+      }
+      throw new Error("Session expired. Please sign in again.");
+    }
+    if (response.status === 401 && init?.auth) {
+      setToken(null);
+      setRefreshToken(null);
+      throw new Error("Session expired. Please sign in again.");
+    }
+
     const raw = await response.text();
 
     try {
 
-      const parsed = JSON.parse(raw) as { detail?: unknown };
+      const parsed = JSON.parse(raw) as { detail?: unknown; code?: string; request_id?: string };
 
       const message = formatApiDetail(parsed.detail);
 
-      if (message) throw new Error(message);
+      if (message) {
+        const suffix = parsed.request_id ? ` (ref ${parsed.request_id.slice(0, 8)})` : "";
+        throw new Error(`${message}${suffix}`);
+      }
 
     } catch (err) {
 
@@ -768,6 +882,52 @@ export type LeadFinding = {
 
   application?: LeadApplication | null;
 
+  trust?: {
+    risk_indicators?: Array<{
+      code: string;
+      label: string;
+      severity: string;
+      observation: string;
+      why_it_matters: string;
+      what_to_verify: string;
+      is_verdict?: boolean;
+      abstain?: boolean;
+      disclaimer?: string;
+    }>;
+    risk_high_count?: number;
+    requires_human_review?: boolean;
+    verdict?: null;
+    disclaimer?: string;
+    extraction?: {
+      work_type?: string;
+      ambiguous_or_missing?: string[];
+      required_skills?: string[];
+      budget_structure?: string | null;
+      provider?: string;
+      extraction_version?: string;
+    };
+    employer?: {
+      company_name?: string | null;
+      company_identity_status?: string;
+      domain?: string | null;
+      public_hiring_page?: string | null;
+    };
+    due_diligence?: Array<{
+      id: string;
+      title: string;
+      why_it_matters: string;
+      what_to_verify: string;
+      severity: string;
+      is_verdict?: boolean;
+    }>;
+    evidence?: {
+      count?: number;
+      by_semantics?: Record<string, number>;
+      note?: string;
+    };
+    policy?: Record<string, boolean | string>;
+  } | null;
+
 };
 
 
@@ -1105,29 +1265,10 @@ export async function getIntegrationsStatus() {
 
 
 export async function register(email: string, password: string, full_name?: string) {
-
-  return request<
-
-    User & {
-
-      verification_email_sent?: boolean | null;
-
-      auto_verified?: boolean | null;
-
-      verify_url?: string | null;
-
-      detail?: string | null;
-
-    }
-
-  >("/auth/register", {
-
+  return request<RegisterResponse>("/auth/register", {
     method: "POST",
-
     body: JSON.stringify({ email, password, full_name }),
-
   });
-
 }
 
 
@@ -1176,6 +1317,8 @@ export async function login(email: string, password: string, totp_code?: string)
 
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
 
+      credentials: "include",
+
       body,
 
     });
@@ -1206,9 +1349,15 @@ export async function login(email: string, password: string, totp_code?: string)
 
   }
 
-  const data = (await response.json()) as { access_token: string };
+  const data = (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+  };
 
-  setToken(data.access_token);
+  storeAuthTokens({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? null,
+  });
 
   return data;
 
@@ -1250,6 +1399,8 @@ export async function loginWithGoogle(payload: {
 
       headers: { "Content-Type": "application/json" },
 
+      credentials: "include",
+
       body: JSON.stringify(payload),
 
     });
@@ -1284,9 +1435,15 @@ export async function loginWithGoogle(payload: {
 
 
 
-  const data = (await response.json()) as { access_token: string };
+  const data = (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+  };
 
-  setToken(data.access_token);
+  storeAuthTokens({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? null,
+  });
 
   return data;
 
@@ -1326,6 +1483,8 @@ export async function loginWithGitHub(payload: {
 
       headers: { "Content-Type": "application/json" },
 
+      credentials: "include",
+
       body: JSON.stringify(payload),
 
     });
@@ -1360,9 +1519,15 @@ export async function loginWithGitHub(payload: {
 
 
 
-  const data = (await response.json()) as { access_token: string };
+  const data = (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+  };
 
-  setToken(data.access_token);
+  storeAuthTokens({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? null,
+  });
 
   return data;
 
@@ -1486,10 +1651,53 @@ export async function activateDevPro() {
 
 
 
-export function logout() {
-
+export async function logout() {
+  try {
+    if (getToken()) {
+      await request("/auth/logout", {
+        method: "POST",
+        auth: true,
+        credentials: "include",
+      } as RequestInit & { auth?: boolean });
+    }
+  } catch {
+    // Always clear local session even if revoke fails (offline / expired).
+  }
   setToken(null);
+  setRefreshToken(null);
+}
 
+export async function exportMyData() {
+  return request<Record<string, unknown>>("/users/me/export", { auth: true });
+}
+
+export async function getProfileCompleteness() {
+  return request<{ score: number; checks: Record<string, boolean> }>(
+    "/users/me/profile-completeness",
+    { auth: true },
+  );
+}
+
+export async function upsertConsent(purpose: string, granted: boolean) {
+  return request<{ purpose: string; granted: boolean }>("/users/me/consents", {
+    method: "PUT",
+    auth: true,
+    body: JSON.stringify({ purpose, granted, source: "privacy_center" }),
+  });
+}
+
+export async function listConsents() {
+  return request<{ items: Array<{ purpose: string; granted: boolean }> }>(
+    "/users/me/consents",
+    { auth: true },
+  );
+}
+
+export async function listMyAudit() {
+  return request<{ items: Array<{ action: string; created_at?: string; meta?: unknown }> }>(
+    "/users/me/audit",
+    { auth: true },
+  );
 }
 
 
@@ -1696,6 +1904,112 @@ export async function adminTriggerStaleSweep() {
     method: "POST",
     auth: true,
   });
+}
+
+export type AdminSourcePolicy = {
+  key: string;
+  display_name: string;
+  category: string;
+  permission: string;
+  enabled_by_default: boolean;
+  attribution: string;
+  rate_limit_per_hour: number | null;
+  daily_budget_usd: number | null;
+  ttl_days: number;
+  health: string;
+  operator_disabled: boolean;
+  notes: string;
+  circuit_open?: boolean;
+};
+
+export async function adminListSources() {
+  return request<{
+    sources: AdminSourcePolicy[];
+    audit: Record<string, unknown>;
+    spend_today_usd: Record<string, number>;
+    quarantine_open: number;
+  }>("/admin/sources", { auth: true });
+}
+
+export async function adminSourceHealth() {
+  return request<{
+    sources: AdminSourcePolicy[];
+    spend_today_usd: Record<string, number>;
+  }>("/admin/sources/health", { auth: true });
+}
+
+export async function adminSourceQuarantine(limit = 50) {
+  return request<{ items: Array<Record<string, unknown>>; total: number }>(
+    `/admin/sources/quarantine?limit=${limit}`,
+    { auth: true },
+  );
+}
+
+export async function adminDisableSource(sourceKey: string, disabled: boolean) {
+  return request<{ status: string; source: string; operator_disabled: boolean }>(
+    `/admin/sources/${encodeURIComponent(sourceKey)}/disable`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ disabled }),
+    },
+  );
+}
+
+export async function adminInventoryQuality() {
+  return request<{
+    quality: Record<string, number>;
+    coverage: Record<string, { count: number; attribution: string }>;
+    sample_size: number;
+  }>("/admin/inventory/quality", { auth: true });
+}
+
+export async function adminHuntRunStatus() {
+  return request<{
+    audit: Record<string, unknown>;
+    enabled_sources: string[];
+    spend_today_usd: Record<string, number>;
+    quarantine: Array<Record<string, unknown>>;
+    note: string;
+  }>("/admin/hunt-runs/status", { auth: true });
+}
+
+export async function getJobTrust(jobId: number, includeEvidence = true) {
+  return request<Record<string, unknown>>(
+    `/trust/jobs/${jobId}?include_evidence=${includeEvidence ? "true" : "false"}`,
+    { auth: true },
+  );
+}
+
+export async function reportListingTrust(
+  jobId: number,
+  body: {
+    reason_code: string;
+    details?: string;
+    correction_requested?: boolean;
+  },
+) {
+  return request<{ ok: boolean; report?: Record<string, unknown>; message?: string }>(
+    `/trust/jobs/${jobId}/report`,
+    { method: "POST", auth: true, body: JSON.stringify(body) },
+  );
+}
+
+export async function adminModerationQueue(status = "open", limit = 50) {
+  return request<{ items: Array<Record<string, unknown>>; total: number }>(
+    `/trust/moderation/queue?status=${encodeURIComponent(status)}&limit=${limit}`,
+    { auth: true },
+  );
+}
+
+export async function adminReviewListingReport(
+  reportId: number,
+  body: { outcome: string; notes?: string; status?: string },
+) {
+  return request<{ ok: boolean; report?: Record<string, unknown> }>(
+    `/trust/moderation/reports/${reportId}/review`,
+    { method: "POST", auth: true, body: JSON.stringify(body) },
+  );
 }
 
 export type LearnedAffinitiesResponse = {

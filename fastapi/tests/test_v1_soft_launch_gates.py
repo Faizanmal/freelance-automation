@@ -58,7 +58,7 @@ class SoftLaunchGateTests(unittest.IsolatedAsyncioTestCase):
             timezone="UTC",
             digest_days=["wed"],
             digest_time_local="09:00",
-            last_digest_at=None,
+            digest_last_sent_at=None,
         )
         self.assertTrue(is_digest_due(prefs, now_utc=local))
 
@@ -67,7 +67,7 @@ class SoftLaunchGateTests(unittest.IsolatedAsyncioTestCase):
             timezone="UTC",
             digest_days=["wed"],
             digest_time_local="09:00",
-            last_digest_at=None,
+            digest_last_sent_at=None,
         )
         self.assertFalse(is_digest_due(prefs_off, now_utc=local))
 

@@ -988,5 +988,55 @@ class LeadFindingsService:
 
             "expired_reason": getattr(job, "expired_reason", None),
 
+            **self._trust_summary(job),
+
         }
+
+    def _trust_summary(self, job: JobRecord) -> dict[str, Any]:
+        """Attach compact trust channels — not a scam verdict or blended score."""
+        try:
+            from backend.application.services.trust.service import (
+                TrustIntelligenceService,
+            )
+
+            full = TrustIntelligenceService().analyze_job(
+                job, include_evidence_records=False
+            )
+            return {
+                "trust": {
+                    "risk_indicators": full["risk"]["indicators"][:6],
+                    "risk_high_count": full["risk"]["high_count"],
+                    "requires_human_review": full["risk"]["requires_human_review"],
+                    "verdict": None,
+                    "disclaimer": full["risk"]["disclaimer"],
+                    "extraction": {
+                        "work_type": full["extraction"].get("work_type"),
+                        "ambiguous_or_missing": full["extraction"].get(
+                            "ambiguous_or_missing"
+                        ),
+                        "required_skills": full["extraction"].get("required_skills"),
+                        "budget_structure": full["extraction"].get("budget_structure"),
+                        "provider": full["extraction_meta"].get("provider"),
+                        "extraction_version": full["extraction_meta"].get(
+                            "extraction_version"
+                        ),
+                    },
+                    "employer": {
+                        "company_name": full["employer"].get("company_name"),
+                        "company_identity_status": full["employer"].get(
+                            "company_identity_status"
+                        ),
+                        "domain": full["employer"].get("domain"),
+                        "public_hiring_page": full["employer"].get(
+                            "public_hiring_page"
+                        ),
+                    },
+                    "due_diligence": full["due_diligence"][:5],
+                    "evidence": full["evidence"],
+                    "channels": full["channels"],
+                    "policy": full["policy"],
+                }
+            }
+        except Exception:  # noqa: BLE001
+            return {"trust": None}
 

@@ -34,6 +34,8 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 @router.get("/status")
 async def integrations_status() -> dict[str, object]:
     settings = get_settings()
+    from app.ingestion.governance import governance_audit_summary
+
     return {
         "public_sources": list(PUBLIC_SOURCES),
         "marketplace_sources": list(MARKETPLACE_SOURCES),
@@ -42,6 +44,7 @@ async def integrations_status() -> dict[str, object]:
         "commercial_pro_sources": list(COMMERCIAL_PRO_SOURCES),
         "restricted_sources": list(RESTRICTED_SOURCES),
         "registered": list(SOURCE_REGISTRY.keys()),
+        "governance": governance_audit_summary(),
         "notes": {
             "restricted": (
                 "Remotive, We Work Remotely, PeoplePerHour, and Guru stay registered for demos "

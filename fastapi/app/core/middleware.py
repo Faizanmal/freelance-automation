@@ -1,0 +1,41 @@
+"""HTTP middleware: request IDs and structured access logging."""
+
+from __future__ import annotations
+
+import time
+import uuid
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+from app.core.logging.logger import get_logger
+
+logger = get_logger(__name__)
+REQUEST_ID_HEADER = "X-Request-Id"
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        incoming = request.headers.get(REQUEST_ID_HEADER) or request.headers.get(
+            "X-Correlation-Id"
+        )
+        request_id = (incoming or "").strip() or str(uuid.uuid4())
+        request.state.request_id = request_id
+        started = time.perf_counter()
+        response = await call_next(request)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        response.headers[REQUEST_ID_HEADER] = request_id
+        logger.info(
+            "request method=%s path=%s status=%s duration_ms=%s request_id=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+            request_id,
+        )
+        return response
+
+
+def get_request_id(request: Request) -> str | None:
+    return getattr(request.state, "request_id", None)

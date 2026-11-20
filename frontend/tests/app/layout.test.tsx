@@ -42,6 +42,8 @@ test('renders layout with primary navigation', () => {
     </RootLayout>
   )
 
+  expect(screen.getByRole('link', { name: /skip to main content/i })).toBeInTheDocument()
+
   const links = ['Desk', 'Pricing', 'Leads', 'Account']
   for (const link of links) {
     expect(screen.getAllByText(link).length).toBeGreaterThanOrEqual(1)

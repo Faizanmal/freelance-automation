@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError
@@ -77,6 +78,23 @@ class JobIngestionService:
             candidate.source_name, candidate.source_id
         )
         if existing:
+            # Idempotent replay: touch last_seen/checked; never duplicate rows.
+            # Never auto-republish removed/expired listings.
+            now = datetime.now(UTC)
+            if hasattr(existing, "last_checked_at"):
+                existing.last_checked_at = now
+            if getattr(existing, "is_expired", False) or getattr(
+                existing, "inventory_state", None
+            ) in {"removed", "expired"}:
+                await self.repository.update(existing)
+                return {
+                    "action": "skipped",
+                    "reason": "expired_or_removed",
+                    "job_id": existing.id,
+                }
+            if hasattr(existing, "last_seen_at"):
+                existing.last_seen_at = now
+            await self.repository.update(existing)
             return {
                 "action": "skipped",
                 "reason": "already_exists",
@@ -85,6 +103,9 @@ class JobIngestionService:
 
         by_url = await self.repository.get_by_url(candidate.url)
         if by_url:
+            now = datetime.now(UTC)
+            if hasattr(by_url, "last_seen_at"):
+                by_url.last_seen_at = now
             await self.repository.add_source(
                 by_url, candidate.source_name, candidate.source_id, candidate.url
             )
@@ -130,6 +151,8 @@ class JobIngestionService:
                 }
 
         enrichment = await self.enrichment_service.enrich(candidate)
+        meta = candidate.metadata or {}
+        now = datetime.now(UTC)
         job = JobRecord(
             source_name=candidate.source_name,
             source_id=candidate.source_id,
@@ -138,15 +161,29 @@ class JobIngestionService:
             description=candidate.description,
             url=candidate.url,
             company=candidate.company,
-            location=location or (candidate.metadata or {}).get("location"),
-            tags=tags or (candidate.metadata or {}).get("tags"),
+            location=location or meta.get("location"),
+            tags=tags or meta.get("tags"),
             budget_min=candidate.budget_min,
             budget_max=candidate.budget_max,
             posted_at=candidate.posted_at,
             duplicate_confidence=0.0,
             source_count=1,
+            work_type=meta.get("work_type") or "unknown",
+            compensation_period=meta.get("compensation_period") or "unknown",
+            compensation_currency=meta.get("compensation_currency"),
+            first_seen_at=now,
+            last_seen_at=now,
+            last_checked_at=now,
+            inventory_state="active",
         )
         self._apply_enrichment(job, enrichment)
+        # Preserve classification evidence inside enrichment JSON (additive).
+        enrich_dict = dict(job.enrichment or {})
+        if meta.get("classification_evidence"):
+            enrich_dict["classification_evidence"] = meta["classification_evidence"]
+        if meta.get("provenance"):
+            enrich_dict["provenance"] = meta["provenance"]
+        job.enrichment = enrich_dict
         job.sources.append(
             JobSource(
                 source_name=candidate.source_name,

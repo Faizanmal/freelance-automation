@@ -40,6 +40,34 @@ JOB_COLUMNS = {
         "ALTER TABLE jobs ADD COLUMN enrichment JSON",
         "ALTER TABLE jobs ADD COLUMN enrichment JSON",
     ),
+    "work_type": (
+        "ALTER TABLE jobs ADD COLUMN work_type VARCHAR(32)",
+        "ALTER TABLE jobs ADD COLUMN work_type VARCHAR(32)",
+    ),
+    "compensation_period": (
+        "ALTER TABLE jobs ADD COLUMN compensation_period VARCHAR(32)",
+        "ALTER TABLE jobs ADD COLUMN compensation_period VARCHAR(32)",
+    ),
+    "compensation_currency": (
+        "ALTER TABLE jobs ADD COLUMN compensation_currency VARCHAR(16)",
+        "ALTER TABLE jobs ADD COLUMN compensation_currency VARCHAR(16)",
+    ),
+    "first_seen_at": (
+        "ALTER TABLE jobs ADD COLUMN first_seen_at DATETIME",
+        "ALTER TABLE jobs ADD COLUMN first_seen_at TIMESTAMPTZ",
+    ),
+    "last_seen_at": (
+        "ALTER TABLE jobs ADD COLUMN last_seen_at DATETIME",
+        "ALTER TABLE jobs ADD COLUMN last_seen_at TIMESTAMPTZ",
+    ),
+    "last_checked_at": (
+        "ALTER TABLE jobs ADD COLUMN last_checked_at DATETIME",
+        "ALTER TABLE jobs ADD COLUMN last_checked_at TIMESTAMPTZ",
+    ),
+    "inventory_state": (
+        "ALTER TABLE jobs ADD COLUMN inventory_state VARCHAR(32) DEFAULT 'active'",
+        "ALTER TABLE jobs ADD COLUMN inventory_state VARCHAR(32) DEFAULT 'active'",
+    ),
 }
 
 USER_COLUMNS = {
@@ -70,6 +98,14 @@ USER_COLUMNS = {
     "is_totp_enabled": (
         "ALTER TABLE users ADD COLUMN is_totp_enabled BOOLEAN NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN is_totp_enabled BOOLEAN NOT NULL DEFAULT false",
+    ),
+    "account_role": (
+        "ALTER TABLE users ADD COLUMN account_role VARCHAR(32) NOT NULL DEFAULT 'freelancer'",
+        "ALTER TABLE users ADD COLUMN account_role VARCHAR(32) NOT NULL DEFAULT 'freelancer'",
+    ),
+    "profile_visibility": (
+        "ALTER TABLE users ADD COLUMN profile_visibility VARCHAR(32) NOT NULL DEFAULT 'private'",
+        "ALTER TABLE users ADD COLUMN profile_visibility VARCHAR(32) NOT NULL DEFAULT 'private'",
     ),
 }
 
