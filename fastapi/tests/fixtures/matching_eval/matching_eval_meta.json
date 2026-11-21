@@ -1,0 +1,9 @@
+{
+  "dataset_id": "matching_eval_v1",
+  "immutable": true,
+  "description": "Labeled preference→job pairs for offline ranking benchmarks. Synthetic fixtures — not production hire rates.",
+  "labels": ["strong", "weak", "unknown", "hard_filter", "exclusion"],
+  "metrics": ["precision_at_5", "precision_at_10", "ndcg_at_10", "recall_at_20", "duplicate_rate", "latency_ms"],
+  "subgroup_fields": ["cohort", "freelance_focus"],
+  "non_sensitive_note": "Subgroups use operational categories only (newcomer vs experienced actions, freelance_focus). No demographic traits."
+}

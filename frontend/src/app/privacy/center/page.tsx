@@ -31,6 +31,11 @@ const PURPOSES = [
     label: "Occasional product tips",
     help: "Optional tips — off by default. Never sold.",
   },
+  {
+    id: "ranking_personalization",
+    label: "Ranking personalization",
+    help: "Use Save/Skip and outcomes to improve lead ranking. Off = Hunt Rules only. You can reset learned prefs anytime.",
+  },
 ] as const;
 
 export default function PrivacyCenterPage() {

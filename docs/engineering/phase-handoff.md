@@ -1,33 +1,38 @@
 # Phase handoff
 
-**Current phase completed:** 06 (opportunity trust intelligence) after 01–05  
-**Do not deploy** without explicit approval. Ensure `listing_reports` / `listing_report_corrections` tables are created (`create_all` + existing schema_patch for jobs).
+**Current phase completed:** 08 (freelancer OS — pipeline CRM + copilot) after 01–07  
+**Do not deploy** without explicit approval. Ensure Alembic `20261122_copilot_crm_workflow` (or `schema_patch` / `create_all` for new CRM tables + `user_lead_actions` CRM columns) is applied.
 
-## Phase 06 summary
+## Phase 08 summary
 
-- Structured project extraction (LLM schema-validated + deterministic fallback)
-- Evidence registry (verified/observed/reported/unknown) — no universal reputation score
-- Transparent risk indicators (not scam verdicts); unknown employer abstains
-- Employer research panel + SSRF-safe allowlisted fetch
-- Due-diligence checklist on findings; Flag concern → human mod queue
-- Eval corpus 43 examples; holdout precision/recall gates in tests
+- Explicit pipeline stages with history; Save/Skip/`pitched`/`won` migrated safely
+- Notes, tasks, deduped reminders, tags, employer/contact fields
+- Apply-click distinguished from confirmed application
+- Board/list UI, search, bulk internal stage moves + undo, CSV/ICS export
+- Typed AI copilot (brief, gaps, portfolio, proposal, interview, scope, negotiation)
+- Durable agent runs (id, state, tool history redacted, budgets, cancel/retry/idempotency)
+- Grounded drafts + unverified-claim highlights; adversarial listing text sanitized
+- Workspace dashboard (real data vs separate sample/demo)
+- Per-plan productivity entitlements without limiting native apply or organic rank
 
-Docs: `phase-06.md`
+Docs: `phase-08.md`
 
 ## Verification evidence
 
-- `tests.test_trust_intelligence`: **15 passed**
-- Prior: `tests.test_source_governance` + commercial sources: **25 passed**
+- `tests.test_phase08_crm_copilot`: stage mapping, sanitization, entitlements, bulk guard, reminder dedupe, copilot fallback/isolation/tools, demo dashboard
+- Frontend: `tests/app/pipeline-page.test.tsx`
 
 ## Carry-forward
 
+- Playwright + axe CI for full acceptance browser flow
 - Orphan Celery beat / stale sweep wiring
-- Playwright + axe CI
+- Scheduled draft/note retention purge job (policy values shipped; sweeper optional)
+- Multi-user team workspaces (explicitly out of single-user-first scope)
 - Persistent Redis quarantine DB table (optional)
-- Ranking/matching phase on shared inventory (user-specific)
+- Larger matching holdout before promoting `hybrid_v1`
 
 ## Next prompt recommendations
 
-1. Matching / ranking quality on shared inventory (keep separate from ingestion + trust channels)
-2. Playwright + axe viewport gate
+1. Playwright acceptance: save → brief → draft → applied → follow-up → won/lost → export
+2. Retention sweeper for drafts/notes past plan TTL
 3. Wire orphan Celery beat schedules

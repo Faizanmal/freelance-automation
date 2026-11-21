@@ -32,6 +32,7 @@ from backend.application.services.matching import (
     MatchingService,
     is_non_opportunity_noise,
 )
+from backend.application.services.ranking.pipeline import RankedMatch, RankingPipeline
 
 from backend.application.services.proposal_draft import extract_apply_email
 
@@ -143,6 +144,14 @@ class LeadFinding:
 
     smart_match: dict[str, Any] | None = None
 
+    fit_score: float = 0.0
+
+    score_version: str = "weighted_v1"
+
+    explanation: dict[str, Any] | None = None
+
+    why_shown: str | None = None
+
 
 
 
@@ -153,9 +162,14 @@ class LeadFindingsService:
 
 
 
-    def __init__(self, matcher: MatchingService | None = None) -> None:
+    def __init__(
+        self,
+        matcher: MatchingService | None = None,
+        pipeline: RankingPipeline | None = None,
+    ) -> None:
 
         self.matcher = matcher or MatchingService()
+        self.pipeline = pipeline or RankingPipeline(matcher=self.matcher)
 
 
 
@@ -186,6 +200,7 @@ class LeadFindingsService:
         include_expired: bool = False,
 
         skill_weights: dict[str, float] | None = None,
+        learning_enabled: bool = False,
         total_indexed: int | None = None,
 
     ) -> dict[str, Any]:
@@ -207,11 +222,16 @@ class LeadFindingsService:
 
         pitched = {jid for jid, st in actions_map.items() if st in {"pitched", "won"}}
 
-        matches = self.matcher.rank_jobs(
-
-            jobs, preferences, skill_weights=skill_weights
-
+        ranked = self.pipeline.rank(
+            jobs,
+            preferences,
+            skill_weights=skill_weights,
+            learning_enabled=learning_enabled,
         )
+        matches: list[JobMatch] = [item.as_job_match() for item in ranked]
+        ranked_by_id = {
+            item.job.id: item for item in ranked if item.job.id is not None
+        }
 
         preserved_ids = saved | pitched | (skipped if include_skipped else set())
         matched_ids = {m.job.id for m in matches if m.job.id is not None}
@@ -233,7 +253,11 @@ class LeadFindingsService:
 
         findings = [
 
-            self._from_match(match, freelance_focus=freelance_focus)
+            self._from_match(
+                match,
+                freelance_focus=freelance_focus,
+                ranked=ranked_by_id.get(match.job.id) if match.job.id else None,
+            )
 
             for match in matches
 
@@ -371,25 +395,41 @@ class LeadFindingsService:
 
             "keywords": list(preferences.keywords or []),
 
+            "score_version": (
+                findings[0].score_version if findings else "weighted_v1"
+            ),
+
+            "learning_enabled": learning_enabled,
+
+            "subscription_affects_organic_rank": False,
+
             "items": items,
 
         }
 
 
 
-    def _from_match(self, match: JobMatch, *, freelance_focus: bool) -> LeadFinding:
+    def _from_match(
+        self,
+        match: JobMatch,
+        *,
+        freelance_focus: bool,
+        ranked: RankedMatch | None = None,
+    ) -> LeadFinding:
 
         red_flags = list(match.red_flags or [])
 
         benefits, employment_risks, freelance_fit = self._freelance_profile(match.job)
 
-        score = match.score
+        fit_score = float(ranked.fit_score) if ranked is not None else float(match.score)
+        # Display score may blend freelance preference; fit_score stays independent of trust.
+        score = fit_score
 
         if freelance_focus:
 
             score = max(
 
-                0.0, min(1.0, round((0.55 * match.score) + (0.45 * freelance_fit), 3))
+                0.0, min(1.0, round((0.55 * fit_score) + (0.45 * freelance_fit), 3))
 
             )
 
@@ -470,6 +510,16 @@ class LeadFindingsService:
 
         )
 
+        explanation = ranked.explanation.to_dict() if ranked is not None else None
+        why_shown = (
+            ranked.explanation.why_shown
+            if ranked is not None
+            else "Shown from Hunt Rules keyword ranking."
+        )
+        score_version = (
+            ranked.score_version if ranked is not None else "weighted_v1"
+        )
+
         finding = LeadFinding(
 
             job=match.job,
@@ -501,6 +551,14 @@ class LeadFindingsService:
             client_signal=client_sig.to_dict(),
 
             smart_match=smart_match_data,
+
+            fit_score=round(fit_score, 3),
+
+            score_version=score_version,
+
+            explanation=explanation,
+
+            why_shown=why_shown,
 
         )
 
@@ -945,6 +1003,20 @@ class LeadFindingsService:
             "description_excerpt": make_excerpt(job.description or ""),
 
             "score": finding.score,
+
+            "fit_score": finding.fit_score,
+
+            "score_version": finding.score_version,
+
+            "explanation": finding.explanation,
+
+            "why_shown": finding.why_shown,
+
+            "eligibility": (
+                (finding.explanation or {}).get("eligibility")
+                if finding.explanation
+                else "eligible"
+            ),
 
             "why": finding.why,
 

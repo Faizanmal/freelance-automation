@@ -38,10 +38,11 @@ Hunters → enrich → shared jobs DB
 - Boost skills the user saves; soft-penalize skills they skip often.
 - Applied in `MatchingService` without changing the pool.
 
-## Phase 4 — Later
+## Phase 4 — Embeddings / hybrid (Phase 07)
 
-- Embedding similarity blended with keyword score.
-- Pro gets fresher slice of the same pool.
+- Optional semantic shortlist via JSON `embedding_vector` + cosine (feature-flagged).
+- Default remains deterministic `weighted_v1`; hybrid does not auto-promote on this corpus.
+- Subscription/plan never enters organic native rank.
 
 ## Success checks
 

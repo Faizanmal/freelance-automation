@@ -831,6 +831,35 @@ export type LeadFinding = {
 
   score: number;
 
+  fit_score?: number;
+
+  score_version?: string;
+
+  why_shown?: string | null;
+
+  eligibility?: string | null;
+
+  explanation?: {
+    score_version?: string;
+    fit_score?: number;
+    components?: Array<{
+      name: string;
+      weight: number;
+      contribution: number;
+      evidence?: string | null;
+    }>;
+    matched_keywords?: string[];
+    missing_qualifications?: string[];
+    mismatches?: string[];
+    reasons?: string[];
+    why_shown?: string;
+    retrieval_path?: string;
+    confidence_band?: string;
+    confidence_note?: string;
+    calibrated_probability?: null;
+    eligibility?: string;
+  } | null;
+
   why: string;
 
   signals: string[];
@@ -960,6 +989,27 @@ export type LeadFindingsResponse = {
 
   keywords: string[];
 
+  score_version?: string;
+
+  learning_enabled?: boolean;
+
+  subscription_affects_organic_rank?: boolean;
+
+  candidate_stage?: string;
+
+  retrieval_mode?: string;
+
+  cache_hit?: boolean;
+
+  ineligible_samples?: Array<{
+    job_id?: number;
+    eligibility?: string;
+    hard_filters_failed?: string[];
+    evidence?: string[];
+    title?: string;
+    source_name?: string;
+  }>;
+
   items: LeadFinding[];
 
 };
@@ -1003,9 +1053,18 @@ export async function getAuthFindings(
 
 
 
-export async function setLeadAction(jobId: number, status: "save" | "skip" | "pitched" | "won" | "clear") {
+export async function setLeadAction(
+  jobId: number,
+  status: "save" | "skip" | "pitched" | "won" | "clear",
+  opts?: { reason?: string; feedback_kind?: string },
+) {
 
-  return request<{ job_id: number; status: "save" | "skip" | "pitched" | "won" | null }>(
+  return request<{
+    job_id: number;
+    status: "save" | "skip" | "pitched" | "won" | null;
+    reason?: string | null;
+    feedback_kind?: string | null;
+  }>(
 
     `/preferences/leads/${jobId}/action`,
 
@@ -1015,7 +1074,11 @@ export async function setLeadAction(jobId: number, status: "save" | "skip" | "pi
 
       auth: true,
 
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({
+        status,
+        reason: opts?.reason,
+        feedback_kind: opts?.feedback_kind,
+      }),
 
     },
 
@@ -1119,9 +1182,116 @@ export async function sendNotification(payload: {
 
 
 export async function getNotificationHistory() {
-
   return request<{ items: Array<Record<string, unknown>> }>("/notifications/history", { auth: true });
+}
 
+export async function getInbox(params?: {
+  unread_only?: boolean;
+  event_type?: string;
+  group_key?: string;
+}) {
+  const q = new URLSearchParams();
+  if (params?.unread_only) q.set("unread_only", "true");
+  if (params?.event_type) q.set("event_type", params.event_type);
+  if (params?.group_key) q.set("group_key", params.group_key);
+  const qs = q.toString() ? `?${q.toString()}` : "";
+  return request<{
+    items: Array<Record<string, unknown>>;
+    unread_count: number;
+    offset: number;
+    limit: number;
+  }>(`/notifications/inbox${qs}`, { auth: true });
+}
+
+export async function markNotificationRead(id: number) {
+  return request<{ id: number; is_read: boolean; read_at: string }>(
+    `/notifications/inbox/${id}/read`,
+    { method: "POST", auth: true },
+  );
+}
+
+export async function markAllNotificationsRead() {
+  return request<{ marked_read: number; read_at: string }>(
+    "/notifications/inbox/read-all",
+    { method: "POST", auth: true },
+  );
+}
+
+export async function archiveNotification(id: number) {
+  return request<{ id: number; archived: boolean }>(
+    `/notifications/inbox/${id}`,
+    { method: "DELETE", auth: true },
+  );
+}
+
+export async function getUnreadNotificationCount() {
+  return request<{ unread_count: number }>(
+    "/notifications/inbox/unread-count",
+    { auth: true },
+  );
+}
+
+export async function previewDigest() {
+  return request<{
+    title: string;
+    leads: Array<Record<string, unknown>>;
+    count: number;
+    text_body: string;
+    html_preview: string;
+    generated_at: string;
+    local_date: string;
+    schedule: Record<string, unknown>;
+  }>("/notifications/digest/preview", { auth: true });
+}
+
+export async function sendTestDigest() {
+  return request<{
+    status: string;
+    recipient: string;
+    lead_count: number;
+    delivered_count: number;
+    sent_at: string;
+  }>("/notifications/digest/test", { method: "POST", auth: true });
+}
+
+export async function getTimezonePreview() {
+  return request<Record<string, unknown>>("/notifications/timezone-preview", {
+    auth: true,
+  });
+}
+
+export async function getProviderStatus() {
+  return request<Record<string, unknown>>("/notifications/providers/status", {
+    auth: true,
+  });
+}
+
+export async function getProviderCapabilities() {
+  return request<Record<string, unknown>>(
+    "/notifications/providers/capabilities",
+    { auth: true },
+  );
+}
+
+export async function pauseNotifications() {
+  return request<Preferences>("/preferences/pause", {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function resumeNotifications() {
+  return request<Preferences>("/preferences/resume", {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function unsubscribeNotifications() {
+  return request<Preferences>("/preferences/unsubscribe", {
+    method: "POST",
+    auth: true,
+  });
 }
 
 
@@ -1644,9 +1814,78 @@ export async function openBillingPortal() {
 
 
 export async function activateDevPro() {
-
   return request<BillingStatus>("/billing/dev-activate-pro", { method: "POST", auth: true });
+}
 
+export type UserUsageStatus = {
+  user_id: string;
+  plan: string;
+  subscription_status: string;
+  features: Record<
+    string,
+    {
+      units_used: number;
+      units_pending: number;
+      units_remaining: number;
+      limit: number;
+      pct_used: number;
+      period_key: string;
+      reset_at: string;
+    }
+  >;
+};
+
+export async function getBillingUsage() {
+  return request<UserUsageStatus>("/billing/usage", { auth: true });
+}
+
+export async function getUnitEconomics() {
+  return request<{
+    pricing_hypothesis: string;
+    scenarios: Array<{
+      name: string;
+      description: string;
+      monthly_price: number;
+      monthly_hunts: number;
+      monthly_copilot_runs: number;
+      avg_tokens_per_run: number;
+      monthly_digests: number;
+      search_api_cost: number;
+      llm_tokens_cost: number;
+      notification_cost: number;
+      infra_cost: number;
+      support_cost: number;
+      payment_processor_fee: number;
+      total_cogs: number;
+      gross_profit: number;
+      gross_margin_pct: number;
+      breakeven_price: number;
+    }>;
+    measured_telemetry: {
+      period: string;
+      user_id: string;
+      total_measured_cost_usd: number;
+      measured_features: Record<string, { units_used: number; measured_cost_usd: number }>;
+      operator_hard_cap_usd: number;
+    };
+  }>("/billing/unit-economics");
+}
+
+export async function getProviderEligibility() {
+  return request<{
+    environment: string;
+    stripe_configured: boolean;
+    sandbox_mode: boolean;
+    card_storage_policy: string;
+    checklist: Array<{
+      area: string;
+      requirement: string;
+      status: string;
+      details: string;
+      official_source: string;
+    }>;
+    readiness_summary: string;
+  }>("/billing/provider-eligibility");
 }
 
 
@@ -2018,6 +2257,9 @@ export type LearnedAffinitiesResponse = {
   pitched_count: number;
   skipped_count: number;
   learning_active: boolean;
+  learning_consent?: boolean;
+  consent_purpose?: string;
+  can_reset?: boolean;
   positive_skills: Array<{
     skill: string;
     weight: number;
@@ -2032,8 +2274,65 @@ export type LearnedAffinitiesResponse = {
   summary: string;
 };
 
+export type MatchProfileResponse = {
+  user_id?: string | null;
+  skills: string[];
+  keywords: string[];
+  exclude_keywords: string[];
+  experience_level: string;
+  cold_start: boolean;
+  learning_enabled: boolean;
+  score_version: string;
+  retrieval_mode: string;
+  hard: Array<{ key: string; value: unknown; kind: string; source: string; evidence?: string | null }>;
+  soft: Array<{ key: string; value: unknown; kind: string; source: string; evidence?: string | null }>;
+  unknowns: Array<{ key: string; value: unknown; kind: string; source: string; evidence?: string | null }>;
+  sensitive_traits_inferred: boolean;
+};
+
 export async function getLearnedAffinities() {
   return request<LearnedAffinitiesResponse>("/preferences/learned-affinities", { auth: true });
+}
+
+export async function resetLearnedAffinities() {
+  return request<{ reset: boolean; deleted_actions: number; summary: string }>(
+    "/preferences/learned-affinities/reset",
+    { method: "POST", auth: true },
+  );
+}
+
+export async function getMatchProfile() {
+  return request<MatchProfileResponse>("/preferences/match-profile", { auth: true });
+}
+
+export async function getRecommendationMeta() {
+  return request<{
+    score_version: string;
+    retrieval_mode: string;
+    semantic_enabled: boolean;
+    learning_enabled: boolean;
+    subscription_affects_organic_rank: boolean;
+    cache_key: string;
+    consent_purpose: string;
+  }>("/preferences/recommendation-meta", { auth: true });
+}
+
+export async function postMatchFeedback(body: {
+  job_id: number;
+  kind: "save" | "skip" | "hide_source" | "apply_click" | "outcome" | "clear";
+  reason?: string;
+  outcome?: "interview" | "contract" | "rejected" | "none";
+}) {
+  return request<{
+    job_id: number;
+    status: string | null;
+    feedback_kind?: string;
+    counts_as_success?: boolean;
+  }>("/preferences/match-feedback", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(body),
+  });
 }
 
 export async function testWebhook(webhookUrl?: string) {
@@ -2045,4 +2344,535 @@ export async function testWebhook(webhookUrl?: string) {
       body: JSON.stringify({ webhook_url: webhookUrl }),
     }
   );
+}
+
+/* ── Phase 08: Pipeline CRM + Copilot ─────────────────────────────── */
+
+export type PipelineStage =
+  | "discovered"
+  | "saved"
+  | "researching"
+  | "ready"
+  | "applied"
+  | "interview"
+  | "negotiating"
+  | "won"
+  | "lost"
+  | "archived";
+
+export type PipelineLead = {
+  id: number;
+  job_id: number;
+  status: string;
+  pipeline_stage: PipelineStage;
+  follow_up_at?: string | null;
+  apply_clicked_at?: string | null;
+  applied_confirmed_at?: string | null;
+  tags?: string[];
+  employer_name?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  won_value?: number | null;
+  lost_reason?: string | null;
+  time_spent_seconds?: number;
+  job?: {
+    id: number;
+    title: string;
+    company?: string | null;
+    source_name?: string;
+    url?: string;
+    budget_min?: number | null;
+    budget_max?: number | null;
+    location?: string | null;
+  };
+};
+
+export type WorkspaceDashboard = {
+  demo: boolean;
+  follow_ups_due: number;
+  qualified_leads: number;
+  active_opportunities: number;
+  stage_counts: Record<string, number>;
+  stage_conversion: {
+    saved_to_applied: number;
+    applied_to_interview: number;
+    interview_to_won: number;
+  };
+  time_spent_seconds: number;
+  won_revenue: number;
+  notes?: string | null;
+};
+
+export type CopilotIntent =
+  | "lead_brief"
+  | "requirements_gap"
+  | "portfolio_selection"
+  | "proposal_draft"
+  | "interview_prep"
+  | "scope_clarification"
+  | "negotiation_scenario";
+
+export type CopilotDraft = {
+  id: number;
+  job_id: number;
+  intent: string;
+  version: number;
+  title?: string | null;
+  body: string;
+  evidence?: Array<{ claim: string; source: string }> | null;
+  unverified_claims?: string[] | null;
+  provider?: string | null;
+  model?: string | null;
+  sent_at?: string | null;
+  never_auto_sends?: boolean;
+};
+
+export type AgentRunResult = {
+  id: string;
+  intent: string;
+  state: string;
+  job_id?: number | null;
+  output?: {
+    title?: string;
+    body?: string;
+    evidence?: unknown;
+    unverified_claims?: string[];
+    listing_url?: string;
+    duration_ms?: number;
+    auto_sent?: boolean;
+    fallback?: boolean;
+  } | null;
+  error?: string | null;
+  tokens_used?: number;
+  cost_usd?: number;
+  tool_calls?: Array<{ tool_name: string; ok: boolean }>;
+  draft?: CopilotDraft;
+  never_auto_sends?: boolean;
+  audit_receipt?: Record<string, unknown>;
+};
+
+export async function getPipelineLeads(opts?: {
+  stage?: string;
+  q?: string;
+  tag?: string;
+  follow_up_due?: boolean;
+  include_archived?: boolean;
+}) {
+  const query = new URLSearchParams();
+  if (opts?.stage) query.set("stage", opts.stage);
+  if (opts?.q) query.set("q", opts.q);
+  if (opts?.tag) query.set("tag", opts.tag);
+  if (opts?.follow_up_due) query.set("follow_up_due", "true");
+  if (opts?.include_archived) query.set("include_archived", "true");
+  return request<{ items: PipelineLead[]; count: number; stages: PipelineStage[] }>(
+    `/pipeline/leads?${query}`,
+    { auth: true },
+  );
+}
+
+export async function getPipelineBoard() {
+  return request<{
+    columns: Record<string, PipelineLead[]>;
+    stages: PipelineStage[];
+  }>("/pipeline/board", { auth: true });
+}
+
+export async function getWorkspaceDashboard(demo = false) {
+  return request<WorkspaceDashboard>(
+    `/pipeline/dashboard${demo ? "?demo=true" : ""}`,
+    { auth: true },
+  );
+}
+
+export async function setPipelineStage(
+  jobId: number,
+  stage: PipelineStage,
+  opts?: {
+    reason?: string;
+    lost_reason?: string;
+    won_value?: number;
+    confirm_applied?: boolean;
+  },
+) {
+  return request<{ lead: PipelineLead }>(`/pipeline/leads/${jobId}/stage`, {
+    method: "PUT",
+    auth: true,
+    body: JSON.stringify({
+      stage,
+      reason: opts?.reason,
+      lost_reason: opts?.lost_reason,
+      won_value: opts?.won_value,
+      confirm_applied: opts?.confirm_applied ?? false,
+    }),
+  });
+}
+
+export async function updatePipelineLead(
+  jobId: number,
+  fields: Partial<{
+    follow_up_at: string | null;
+    tags: string[];
+    employer_name: string | null;
+    contact_name: string | null;
+    contact_email: string | null;
+    contact_url: string | null;
+    contact_notes: string | null;
+    won_value: number | null;
+    lost_reason: string | null;
+  }>,
+) {
+  return request<{ lead: PipelineLead }>(`/pipeline/leads/${jobId}`, {
+    method: "PATCH",
+    auth: true,
+    body: JSON.stringify(fields),
+  });
+}
+
+export async function addLeadNote(
+  jobId: number,
+  body: string,
+  kind: "note" | "negotiation" | "research" = "note",
+) {
+  return request<{ note: { id: number; body: string; kind: string } }>(
+    `/pipeline/leads/${jobId}/notes`,
+    { method: "POST", auth: true, body: JSON.stringify({ body, kind }) },
+  );
+}
+
+export async function listLeadNotes(jobId: number) {
+  return request<{ notes: Array<{ id: number; body: string; kind: string; created_at?: string }> }>(
+    `/pipeline/leads/${jobId}/notes`,
+    { auth: true },
+  );
+}
+
+export async function addLeadReminder(
+  jobId: number,
+  remindAt: string,
+  message?: string,
+) {
+  return request<{ reminder: { id: number; remind_at: string } }>(
+    `/pipeline/leads/${jobId}/reminders`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ remind_at: remindAt, message, kind: "follow_up" }),
+    },
+  );
+}
+
+export async function bulkSetPipelineStage(jobIds: number[], stage: PipelineStage) {
+  return request<{ updated: Array<{ job_id: number }>; undo_id: string }>(
+    "/pipeline/leads/bulk-stage",
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ job_ids: jobIds, stage }),
+    },
+  );
+}
+
+export async function undoPipelineAction(undoId: string) {
+  return request<{ restored: unknown[] }>(`/pipeline/undo/${undoId}`, {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function startCopilotRun(
+  jobId: number,
+  intent: CopilotIntent,
+  opts?: { idempotency_key?: string },
+) {
+  return request<AgentRunResult>("/copilot/runs", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify({
+      job_id: jobId,
+      intent,
+      idempotency_key: opts?.idempotency_key,
+      confirm_side_effect: false,
+    }),
+  });
+}
+
+export async function getCopilotRun(runId: string) {
+  return request<AgentRunResult>(`/copilot/runs/${runId}`, { auth: true });
+}
+
+export async function cancelCopilotRun(runId: string) {
+  return request<AgentRunResult>(`/copilot/runs/${runId}/cancel`, {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function retryCopilotRun(runId: string) {
+  return request<AgentRunResult>(`/copilot/runs/${runId}/retry`, {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function updateCopilotDraft(
+  draftId: number,
+  body: string,
+  title?: string,
+) {
+  return request<{ draft: CopilotDraft }>(`/copilot/drafts/${draftId}`, {
+    method: "PATCH",
+    auth: true,
+    body: JSON.stringify({ body, title }),
+  });
+}
+
+export async function listCopilotDrafts(jobId?: number) {
+  const q = jobId != null ? `?job_id=${jobId}` : "";
+  return request<{ drafts: CopilotDraft[]; never_auto_sends: boolean }>(
+    `/copilot/drafts${q}`,
+    { auth: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Financial Intelligence & Earnings Calculator (Phase 10)
+// ---------------------------------------------------------------------------
+
+export type GrossToNetPayload = {
+  gross_amount: number;
+  currency?: string;
+  target_currency?: string;
+  template_id?: string;
+  contract_service_fee_pct?: number;
+  contract_service_fee_fixed?: number;
+  fee_tax_pct?: number;
+  withholding_tax_pct?: number;
+  withholding_tax_base?: "gross" | "fee";
+  withdrawal_fee?: number;
+  withdrawal_count?: number;
+  processor_fee_pct?: number;
+  processor_fee_fixed?: number;
+  other_expenses?: number;
+  benchmark_fx_rate?: number;
+  actual_fx_rate?: number;
+  reported_bank_quote?: number;
+};
+
+export type NetToGrossPayload = {
+  target_net_amount: number;
+  currency?: string;
+  target_currency?: string;
+  hourly_hours?: number;
+  contract_service_fee_pct?: number;
+  contract_service_fee_fixed?: number;
+  fee_tax_pct?: number;
+  withholding_tax_pct?: number;
+  withholding_tax_base?: "gross" | "fee";
+  withdrawal_fee?: number;
+  withdrawal_count?: number;
+  processor_fee_pct?: number;
+  processor_fee_fixed?: number;
+  other_expenses?: number;
+  actual_fx_rate?: number;
+};
+
+export type CalculationBreakdownResponse = {
+  disclaimer: string;
+  calculation: {
+    gross_amount: number;
+    currency: string;
+    target_currency: string;
+    contract_service_fee: number;
+    fee_tax: number;
+    withholding_tax: number;
+    withdrawal_fee_total: number;
+    processor_fee_total: number;
+    other_expenses: number;
+    total_deductions_base: number;
+    permanent_costs: number;
+    recoverable_credits: number;
+    net_payout_amount: number;
+    bank_deposit_amount: number;
+    benchmark_bank_deposit?: number;
+    fx_spread_cost_total?: number;
+    reported_bank_quote?: number;
+    reconciliation_discrepancy?: number;
+    reconciliation_status: string;
+    effective_take_home_rate_pct: number;
+    effective_total_cost_pct: number;
+    itemized_deductions: Array<{
+      name: string;
+      code: string;
+      amount_base: number;
+      amount_target: number;
+      pct_of_gross: number;
+      category: "permanent_cost" | "recoverable_credit" | "payout";
+      notes: string;
+    }>;
+  };
+  fx_metadata?: {
+    from_currency: string;
+    to_currency: string;
+    benchmark_rate: number;
+    offered_rate: number;
+    spread_pct: number;
+    spread_cost_per_unit: number;
+    rate_type: string;
+    provider: string;
+    is_outage: boolean;
+    is_stale: boolean;
+    timestamp: string;
+  };
+};
+
+export type InverseQuoteResponse = {
+  disclaimer: string;
+  quote: {
+    target_net_amount: number;
+    required_gross_amount: number;
+    currency: string;
+    target_currency: string;
+    hourly_hours?: number;
+    suggested_hourly_rate?: number;
+    verification_net_deposit: number;
+    rounding_discrepancy: number;
+    meets_target: boolean;
+    deduction_breakdown: {
+      contract_service_fee: number;
+      fee_tax: number;
+      withholding_tax: number;
+      withdrawal_fee_total: number;
+      processor_fee_total: number;
+      other_expenses: number;
+      total_deductions_base: number;
+    };
+  };
+};
+
+export async function calculateGrossToNet(payload: GrossToNetPayload) {
+  return request<CalculationBreakdownResponse>("/finance/calculate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function calculateNetToGross(payload: NetToGrossPayload) {
+  return request<InverseQuoteResponse>("/finance/calculate/inverse", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listFeeTemplates() {
+  return request<{
+    disclaimer: string;
+    templates: Array<{
+      id: string;
+      template_name: string;
+      platform: string;
+      region: string;
+      currency: string;
+      contract_service_fee_pct: number;
+      contract_service_fee_fixed: number;
+      fee_tax_pct: number;
+      withholding_tax_pct: number;
+      withholding_tax_base: "gross" | "fee";
+      withdrawal_fee: number;
+      processor_fee_pct: number;
+      processor_fee_fixed: number;
+      source_url: string;
+      effective_date: string;
+      eligibility_notes: string;
+      is_system: boolean;
+    }>;
+  }>("/finance/templates");
+}
+
+export async function getFxRates(fromCurr = "USD", toCurr = "INR", manualRate?: number) {
+  const q = new URLSearchParams({ from_currency: fromCurr, to_currency: toCurr });
+  if (manualRate != null) q.set("manual_rate", String(manualRate));
+  return request<{
+    disclaimer: string;
+    rate: {
+      from_currency: string;
+      to_currency: string;
+      benchmark_rate: number;
+      offered_rate: number;
+      spread_pct: number;
+      spread_cost_per_unit: number;
+      rate_type: string;
+      provider: string;
+      is_outage: boolean;
+      is_stale: boolean;
+      timestamp: string;
+    };
+  }>(`/finance/fx-rates?${q.toString()}`);
+}
+
+export async function listUserEarnings(statusFilter?: string) {
+  const q = statusFilter ? `?status_filter=${statusFilter}` : "";
+  return request<{
+    disclaimer: string;
+    summary: {
+      cash_received: number;
+      gross_paid: number;
+      pipeline_estimated_gross: number;
+      platform_fees_paid: number;
+      withholding_tax_credits: number;
+      effective_take_home_rate_pct: number;
+      monthly_summary: Array<{
+        month: string;
+        gross: number;
+        net_cash: number;
+        fees: number;
+        withholding_credits: number;
+      }>;
+    };
+    earnings: Array<{
+      id: string;
+      project_title: string;
+      client_name: string | null;
+      platform: string;
+      contract_id: string | null;
+      currency: string;
+      gross_amount: number;
+      contract_service_fee: number;
+      fee_tax: number;
+      withholding_tax: number;
+      withdrawal_fee: number;
+      processor_fee: number;
+      other_expenses: number;
+      actual_fx_rate: number | null;
+      net_payout_amount: number;
+      net_received_in_bank: number;
+      invoice_status: "draft" | "invoiced" | "paid" | "cancelled";
+      payment_date: string | null;
+      notes: string | null;
+      created_at: string;
+    }>;
+  }>(`/finance/earnings${q}`, { auth: true });
+}
+
+export async function createUserEarning(payload: Record<string, unknown>) {
+  return request<{
+    disclaimer: string;
+    earning: {
+      id: string;
+      project_title: string;
+      gross_amount: number;
+      net_received_in_bank: number;
+      invoice_status: string;
+    };
+  }>("/finance/earnings", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteUserEarning(id: string) {
+  return request<{ status: string; earning_id: string }>(`/finance/earnings/${id}`, {
+    method: "DELETE",
+    auth: true,
+  });
 }

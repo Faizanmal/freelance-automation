@@ -178,6 +178,152 @@ PREFERENCE_COLUMNS = {
         "ALTER TABLE user_preferences ADD COLUMN custom_webhook_url VARCHAR(1024)",
         "ALTER TABLE user_preferences ADD COLUMN custom_webhook_url VARCHAR(1024)",
     ),
+    "cadence": (
+        "ALTER TABLE user_preferences ADD COLUMN cadence VARCHAR(32) DEFAULT 'daily'",
+        "ALTER TABLE user_preferences ADD COLUMN cadence VARCHAR(32) DEFAULT 'daily'",
+    ),
+    "quiet_hours_enabled": (
+        "ALTER TABLE user_preferences ADD COLUMN quiet_hours_enabled BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE user_preferences ADD COLUMN quiet_hours_enabled BOOLEAN NOT NULL DEFAULT false",
+    ),
+    "quiet_hours_start": (
+        "ALTER TABLE user_preferences ADD COLUMN quiet_hours_start VARCHAR(8) DEFAULT '22:00'",
+        "ALTER TABLE user_preferences ADD COLUMN quiet_hours_start VARCHAR(8) DEFAULT '22:00'",
+    ),
+    "quiet_hours_end": (
+        "ALTER TABLE user_preferences ADD COLUMN quiet_hours_end VARCHAR(8) DEFAULT '08:00'",
+        "ALTER TABLE user_preferences ADD COLUMN quiet_hours_end VARCHAR(8) DEFAULT '08:00'",
+    ),
+    "event_types": (
+        "ALTER TABLE user_preferences ADD COLUMN event_types JSON",
+        "ALTER TABLE user_preferences ADD COLUMN event_types JSON",
+    ),
+    "is_paused": (
+        "ALTER TABLE user_preferences ADD COLUMN is_paused BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE user_preferences ADD COLUMN is_paused BOOLEAN NOT NULL DEFAULT false",
+    ),
+    "is_unsubscribed": (
+        "ALTER TABLE user_preferences ADD COLUMN is_unsubscribed BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE user_preferences ADD COLUMN is_unsubscribed BOOLEAN NOT NULL DEFAULT false",
+    ),
+    "unsubscribed_at": (
+        "ALTER TABLE user_preferences ADD COLUMN unsubscribed_at DATETIME",
+        "ALTER TABLE user_preferences ADD COLUMN unsubscribed_at TIMESTAMPTZ",
+    ),
+    "empty_digest_policy": (
+        "ALTER TABLE user_preferences ADD COLUMN empty_digest_policy VARCHAR(32) DEFAULT 'suppress'",
+        "ALTER TABLE user_preferences ADD COLUMN empty_digest_policy VARCHAR(32) DEFAULT 'suppress'",
+    ),
+    "immediate_alerts_enabled": (
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alerts_enabled BOOLEAN NOT NULL DEFAULT 1",
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alerts_enabled BOOLEAN NOT NULL DEFAULT true",
+    ),
+    "immediate_alert_threshold": (
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alert_threshold FLOAT DEFAULT 0.85",
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alert_threshold FLOAT DEFAULT 0.85",
+    ),
+    "immediate_alert_cap_per_day": (
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alert_cap_per_day INTEGER NOT NULL DEFAULT 5",
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alert_cap_per_day INTEGER NOT NULL DEFAULT 5",
+    ),
+    "immediate_alerts_sent_today": (
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alerts_sent_today INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alerts_sent_today INTEGER NOT NULL DEFAULT 0",
+    ),
+    "immediate_alerts_date": (
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alerts_date VARCHAR(10)",
+        "ALTER TABLE user_preferences ADD COLUMN immediate_alerts_date VARCHAR(10)",
+    ),
+}
+
+NOTIFICATION_COLUMNS = {
+    "is_read": (
+        "ALTER TABLE notifications ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE notifications ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT false",
+    ),
+    "read_at": (
+        "ALTER TABLE notifications ADD COLUMN read_at DATETIME",
+        "ALTER TABLE notifications ADD COLUMN read_at TIMESTAMPTZ",
+    ),
+    "archived_at": (
+        "ALTER TABLE notifications ADD COLUMN archived_at DATETIME",
+        "ALTER TABLE notifications ADD COLUMN archived_at TIMESTAMPTZ",
+    ),
+    "event_type": (
+        "ALTER TABLE notifications ADD COLUMN event_type VARCHAR(64) DEFAULT 'lead_match'",
+        "ALTER TABLE notifications ADD COLUMN event_type VARCHAR(64) DEFAULT 'lead_match'",
+    ),
+    "group_key": (
+        "ALTER TABLE notifications ADD COLUMN group_key VARCHAR(128)",
+        "ALTER TABLE notifications ADD COLUMN group_key VARCHAR(128)",
+    ),
+}
+
+LEAD_ACTION_COLUMNS = {
+    "reason": (
+        "ALTER TABLE user_lead_actions ADD COLUMN reason VARCHAR(64)",
+        "ALTER TABLE user_lead_actions ADD COLUMN reason VARCHAR(64)",
+    ),
+    "feedback_kind": (
+        "ALTER TABLE user_lead_actions ADD COLUMN feedback_kind VARCHAR(32)",
+        "ALTER TABLE user_lead_actions ADD COLUMN feedback_kind VARCHAR(32)",
+    ),
+    "pipeline_stage": (
+        "ALTER TABLE user_lead_actions ADD COLUMN pipeline_stage VARCHAR(32) NOT NULL DEFAULT 'saved'",
+        "ALTER TABLE user_lead_actions ADD COLUMN pipeline_stage VARCHAR(32) NOT NULL DEFAULT 'saved'",
+    ),
+    "follow_up_at": (
+        "ALTER TABLE user_lead_actions ADD COLUMN follow_up_at DATETIME",
+        "ALTER TABLE user_lead_actions ADD COLUMN follow_up_at TIMESTAMPTZ",
+    ),
+    "apply_clicked_at": (
+        "ALTER TABLE user_lead_actions ADD COLUMN apply_clicked_at DATETIME",
+        "ALTER TABLE user_lead_actions ADD COLUMN apply_clicked_at TIMESTAMPTZ",
+    ),
+    "applied_confirmed_at": (
+        "ALTER TABLE user_lead_actions ADD COLUMN applied_confirmed_at DATETIME",
+        "ALTER TABLE user_lead_actions ADD COLUMN applied_confirmed_at TIMESTAMPTZ",
+    ),
+    "tags": (
+        "ALTER TABLE user_lead_actions ADD COLUMN tags JSON",
+        "ALTER TABLE user_lead_actions ADD COLUMN tags JSON",
+    ),
+    "employer_name": (
+        "ALTER TABLE user_lead_actions ADD COLUMN employer_name VARCHAR(256)",
+        "ALTER TABLE user_lead_actions ADD COLUMN employer_name VARCHAR(256)",
+    ),
+    "contact_name": (
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_name VARCHAR(256)",
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_name VARCHAR(256)",
+    ),
+    "contact_email": (
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_email VARCHAR(320)",
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_email VARCHAR(320)",
+    ),
+    "contact_url": (
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_url VARCHAR(1024)",
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_url VARCHAR(1024)",
+    ),
+    "contact_notes": (
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_notes TEXT",
+        "ALTER TABLE user_lead_actions ADD COLUMN contact_notes TEXT",
+    ),
+    "won_value": (
+        "ALTER TABLE user_lead_actions ADD COLUMN won_value FLOAT",
+        "ALTER TABLE user_lead_actions ADD COLUMN won_value FLOAT",
+    ),
+    "lost_reason": (
+        "ALTER TABLE user_lead_actions ADD COLUMN lost_reason VARCHAR(256)",
+        "ALTER TABLE user_lead_actions ADD COLUMN lost_reason VARCHAR(256)",
+    ),
+    "time_spent_seconds": (
+        "ALTER TABLE user_lead_actions ADD COLUMN time_spent_seconds INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_lead_actions ADD COLUMN time_spent_seconds INTEGER NOT NULL DEFAULT 0",
+    ),
+    "deleted_at": (
+        "ALTER TABLE user_lead_actions ADD COLUMN deleted_at DATETIME",
+        "ALTER TABLE user_lead_actions ADD COLUMN deleted_at TIMESTAMPTZ",
+    ),
 }
 
 
@@ -201,6 +347,251 @@ async def ensure_missing_columns(engine: AsyncEngine) -> None:
         await _ensure_table_columns(
             conn, "user_preferences", PREFERENCE_COLUMNS, dialect
         )
+        await _ensure_table_columns(
+            conn, "user_lead_actions", LEAD_ACTION_COLUMNS, dialect
+        )
+        await _ensure_table_columns(
+            conn, "notifications", NOTIFICATION_COLUMNS, dialect
+        )
+        if dialect == "sqlite":
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS notification_outbox (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        dedup_key VARCHAR(256) NOT NULL UNIQUE,
+                        recipient VARCHAR(256) NOT NULL,
+                        user_id VARCHAR(64),
+                        channel VARCHAR(32) NOT NULL,
+                        event_type VARCHAR(64) NOT NULL DEFAULT 'lead_match',
+                        title VARCHAR(512) NOT NULL,
+                        body TEXT NOT NULL,
+                        html_body TEXT,
+                        payload_json JSON,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        max_retries INTEGER NOT NULL DEFAULT 3,
+                        last_error TEXT,
+                        cost_usd FLOAT NOT NULL DEFAULT 0.0,
+                        scheduled_for DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        last_attempt_at DATETIME,
+                        delivered_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS digest_sent_jobs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id VARCHAR(64) NOT NULL,
+                        job_id INTEGER NOT NULL,
+                        digest_id VARCHAR(64),
+                        sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_outbox_dedup ON notification_outbox (dedup_key)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_outbox_status ON notification_outbox (status)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_sent_jobs_user_job ON digest_sent_jobs (user_id, job_id)"
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fee_templates (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        slug VARCHAR(64) NOT NULL UNIQUE,
+                        platform VARCHAR(64) NOT NULL,
+                        name VARCHAR(128) NOT NULL,
+                        region VARCHAR(32) NOT NULL DEFAULT 'global',
+                        contract_service_fee_pct FLOAT NOT NULL DEFAULT 0.0,
+                        contract_service_fee_fixed FLOAT NOT NULL DEFAULT 0.0,
+                        tax_on_fee_pct FLOAT NOT NULL DEFAULT 0.0,
+                        withholding_tax_pct FLOAT NOT NULL DEFAULT 0.0,
+                        withholding_base VARCHAR(16) NOT NULL DEFAULT 'gross',
+                        withdrawal_fee FLOAT NOT NULL DEFAULT 0.0,
+                        withdrawal_currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+                        processor_charge_pct FLOAT NOT NULL DEFAULT 0.0,
+                        processor_charge_fixed FLOAT NOT NULL DEFAULT 0.0,
+                        source_url VARCHAR(1024) NOT NULL,
+                        effective_date VARCHAR(32) NOT NULL,
+                        eligibility_notes TEXT NOT NULL,
+                        is_system_template BOOLEAN NOT NULL DEFAULT 1,
+                        user_id VARCHAR(64),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fx_rate_cache (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        base_currency VARCHAR(8) NOT NULL,
+                        quote_currency VARCHAR(8) NOT NULL,
+                        benchmark_rate FLOAT NOT NULL,
+                        offered_rate FLOAT NOT NULL,
+                        rate_type VARCHAR(32) NOT NULL DEFAULT 'estimated_platform',
+                        provider_name VARCHAR(64) NOT NULL DEFAULT 'open_er_or_manual',
+                        is_outage BOOLEAN NOT NULL DEFAULT 0,
+                        rate_timestamp DATETIME NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_earnings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id VARCHAR(36) NOT NULL,
+                        project_title VARCHAR(256) NOT NULL,
+                        client_name VARCHAR(256),
+                        platform VARCHAR(64) NOT NULL DEFAULT 'direct',
+                        job_id INTEGER,
+                        invoice_status VARCHAR(32) NOT NULL DEFAULT 'invoiced',
+                        gross_amount FLOAT NOT NULL,
+                        currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+                        platform_fee_paid FLOAT NOT NULL DEFAULT 0.0,
+                        tax_on_fee_paid FLOAT NOT NULL DEFAULT 0.0,
+                        withholding_paid FLOAT NOT NULL DEFAULT 0.0,
+                        withdrawal_fee_paid FLOAT NOT NULL DEFAULT 0.0,
+                        processor_fee_paid FLOAT NOT NULL DEFAULT 0.0,
+                        net_received_usd FLOAT NOT NULL,
+                        net_received_local FLOAT,
+                        target_currency VARCHAR(8),
+                        actual_fx_rate FLOAT,
+                        hours_logged FLOAT,
+                        effective_hourly_rate FLOAT,
+                        invoice_date VARCHAR(10),
+                        paid_at DATETIME,
+                        notes TEXT,
+                        metadata_json JSON,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_earnings_user ON user_earnings (user_id)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_earnings_status ON user_earnings (invoice_status)"
+                )
+            )
+            # Phase 11 Billing & Quota tables
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS billing_webhook_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_id VARCHAR(128) NOT NULL UNIQUE,
+                        provider VARCHAR(32) NOT NULL DEFAULT 'stripe',
+                        event_type VARCHAR(64) NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'processed',
+                        payload_hash VARCHAR(64),
+                        event_timestamp DATETIME NOT NULL,
+                        processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        error_message TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS quota_reservations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        reservation_token VARCHAR(64) NOT NULL UNIQUE,
+                        user_id VARCHAR(64) NOT NULL,
+                        workspace_id VARCHAR(64),
+                        feature VARCHAR(64) NOT NULL,
+                        units_reserved INTEGER NOT NULL DEFAULT 1,
+                        units_committed INTEGER NOT NULL DEFAULT 0,
+                        status VARCHAR(32) NOT NULL DEFAULT 'reserved',
+                        idempotency_key VARCHAR(128),
+                        expires_at DATETIME NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_quota_res_user ON quota_reservations (user_id)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_quota_res_status ON quota_reservations (status)"
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_usage_records (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id VARCHAR(64) NOT NULL,
+                        feature VARCHAR(64) NOT NULL,
+                        period_key VARCHAR(32) NOT NULL,
+                        units_used INTEGER NOT NULL DEFAULT 0,
+                        cost_estimate_usd FLOAT NOT NULL DEFAULT 0.0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_usage_user_feat ON user_usage_records (user_id, feature, period_key)"
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS subscription_lifecycle (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id VARCHAR(64) NOT NULL UNIQUE,
+                        provider VARCHAR(32) NOT NULL DEFAULT 'stripe',
+                        customer_id VARCHAR(128),
+                        subscription_id VARCHAR(128),
+                        plan VARCHAR(32) NOT NULL DEFAULT 'free',
+                        status VARCHAR(32) NOT NULL DEFAULT 'inactive',
+                        cancel_at_period_end BOOLEAN NOT NULL DEFAULT 0,
+                        current_period_start DATETIME,
+                        current_period_end DATETIME,
+                        grace_period_until DATETIME,
+                        last_event_timestamp DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
         if await _table_columns(conn, "jobs", dialect):
             await conn.execute(
                 text(

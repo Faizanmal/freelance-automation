@@ -187,6 +187,55 @@ def enrich_jobs_task(self, job_id: int):
     return _run_async(_enrich_job_async(job_id))
 
 
+async def _reindex_embeddings_async(limit: int = 200, force: bool = False):
+    import os
+    import sys
+
+    fastapi_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "fastapi")
+    )
+    if fastapi_dir not in sys.path:
+        sys.path.insert(0, fastapi_dir)
+
+    from backend.application.services.ranking.embeddings import EmbeddingIndex
+    from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
+    from database.core.session import get_session
+
+    async with get_session() as session:
+        repo = SQLAlchemyJobRepository(session)
+        jobs = await repo.list_recent(limit=max(1, min(int(limit), 500)))
+        index = EmbeddingIndex()
+        await index.persist_dirty(
+            session,
+            jobs,
+            batch_limit=min(64, len(jobs) or 1),
+            budget_ms=5000,
+            force=force,
+        )
+        return index.metrics_dict() | {
+            "limit": limit,
+            "force": force,
+            "status": "ok",
+        }
+
+
+@celery_app.task(
+    name="tasks.reindex_embeddings",
+    bind=True,
+    base=DLQTask,
+    max_retries=2,
+    default_retry_delay=30,
+)
+def reindex_embeddings_task(self, limit: int = 200, force: bool = False):
+    """Background safe reindex of job embedding vectors (content-hash keyed)."""
+    try:
+        return _run_async(_reindex_embeddings_async(limit=limit, force=force))
+    except (RuntimeError, TimeoutError) as exc:
+        raise self.retry(
+            exc=exc, countdown=retry_countdown(30, self.request.retries)
+        )
+
+
 async def _send_notification_async(payload_dict: dict[str, Any]):
     import os
     import sys
@@ -372,6 +421,50 @@ def process_lead_digests_task(self, run_id: str | None = None):
         except (RuntimeError, TimeoutError) as exc:
             raise self.retry(
                 exc=exc, countdown=retry_countdown(60, self.request.retries)
+            )
+
+
+async def _process_outbox_async(batch_size: int = 50):
+    import os
+    import sys
+
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    fastapi_dir = os.path.join(root, "fastapi")
+    for path in (root, fastapi_dir):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+
+    from backend.application.services.outbox_service import OutboxService
+    from database.core.session import get_session
+
+    async with get_session() as session:
+        return await OutboxService(session).process_pending_outbox(
+            batch_size=batch_size
+        )
+
+
+@celery_app.task(
+    name="tasks.process_outbox",
+    bind=True,
+    base=DLQTask,
+    max_retries=3,
+    default_retry_delay=30,
+)
+def process_outbox_task(self, batch_size: int = 50, run_id: str | None = None):
+    """Processes pending transactional outbox notifications with bounded retries."""
+    run_id = run_id or str(uuid.uuid4())
+    with overlap_lock("process_outbox", ttl_seconds=120) as acquired:
+        if not acquired:
+            return {"status": "skipped", "reason": "overlap_lock", "run_id": run_id}
+        try:
+            from workers.heartbeat import touch_beat
+
+            touch_beat()
+            result = _run_async(_process_outbox_async(batch_size=batch_size))
+            return {"result": result, "run_id": run_id}
+        except (RuntimeError, TimeoutError) as exc:
+            raise self.retry(
+                exc=exc, countdown=retry_countdown(30, self.request.retries)
             )
 
 

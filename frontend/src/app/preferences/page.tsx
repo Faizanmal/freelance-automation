@@ -18,10 +18,15 @@ import {
   startCheckout,
   testWebhook,
   getLearnedAffinities,
+  getMatchProfile,
+  listConsents,
+  resetLearnedAffinities,
   updatePreferences,
+  upsertConsent,
   type BillingStatus,
   type Job,
   type LearnedAffinitiesResponse,
+  type MatchProfileResponse,
   type Preferences,
   type User,
 } from "@/lib/api";
@@ -90,6 +95,8 @@ function PreferencesPageInner() {
   const [matches, setMatches] = useState<Job[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(true);
   const [affinities, setAffinities] = useState<LearnedAffinitiesResponse | null>(null);
+  const [matchProfile, setMatchProfile] = useState<MatchProfileResponse | null>(null);
+  const [rankingConsent, setRankingConsent] = useState(false);
   const [skillsText, setSkillsText] = useState((emptyPrefs.skills || []).join(", "));
   const [keywordsText, setKeywordsText] = useState("");
   const [excludeText, setExcludeText] = useState("");
@@ -118,17 +125,24 @@ function PreferencesPageInner() {
     }
     startTransition(async () => {
       try {
-        const [currentUser, currentPrefs, authMatches, currentBilling, learnedAffinities] = await Promise.all([
+        const [currentUser, currentPrefs, authMatches, currentBilling, learnedAffinities, profile, consents] = await Promise.all([
           me(),
           getPreferences(),
           getAuthMatches(),
           typeof getBilling === "function" ? getBilling().catch(() => null) : Promise.resolve(null),
           typeof getLearnedAffinities === "function" ? getLearnedAffinities().catch(() => null) : Promise.resolve(null),
+          typeof getMatchProfile === "function" ? getMatchProfile().catch(() => null) : Promise.resolve(null),
+          typeof listConsents === "function" ? listConsents().catch(() => null) : Promise.resolve(null),
         ]);
         setUser(currentUser);
         setPrefs(currentPrefs);
         setBilling(currentBilling);
         setAffinities(learnedAffinities);
+        setMatchProfile(profile);
+        const consentMap = Object.fromEntries(
+          (consents?.items || []).map((c) => [c.purpose, c.granted]),
+        );
+        setRankingConsent(Boolean(consentMap.ranking_personalization));
         const rawSkills =
           currentPrefs.skills?.length
             ? currentPrefs.skills
@@ -547,47 +561,125 @@ function PreferencesPageInner() {
               ) : null}
             </div>
 
-            {affinities && affinities.total_actions > 0 ? (
+            {matchProfile ? (
               <div className="mt-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-[var(--text)] flex items-center gap-1.5">
-                    <span>🧠</span> Learned Affinities
-                  </h3>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-[var(--text)]">Match profile</h3>
                   <span className="text-xs text-[var(--text-muted)]">
-                    {affinities.total_actions} actions analyzed
+                    {matchProfile.score_version} · {matchProfile.retrieval_mode}
+                    {matchProfile.cold_start ? " · cold start" : ""}
                   </span>
                 </div>
                 <p className="mb-3 text-xs text-[var(--text-muted)]">
-                  {affinities.summary}
+                  Hard requirements, soft preferences, and unknowns from Hunt Rules. Sensitive traits are never inferred.
                 </p>
-                {affinities.positive_skills.length > 0 ? (
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs font-medium text-emerald-400">Boosting:</span>
-                    {affinities.positive_skills.slice(0, 5).map((item) => (
-                      <span
-                        key={item.skill}
-                        className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400 font-medium"
-                      >
-                        +{Math.round(item.weight * 100)}% {item.skill}
-                      </span>
-                    ))}
+                <div className="grid gap-2 text-xs text-[var(--text-secondary)] md:grid-cols-3">
+                  <div>
+                    <p className="mb-1 font-medium text-[var(--text)]">Hard ({matchProfile.hard.length})</p>
+                    <ul className="space-y-0.5">
+                      {matchProfile.hard.slice(0, 4).map((f) => (
+                        <li key={f.key}>{f.key}</li>
+                      ))}
+                      {matchProfile.hard.length === 0 ? <li>None</li> : null}
+                    </ul>
                   </div>
-                ) : null}
-                {affinities.negative_skills.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs font-medium text-rose-400">Demoting:</span>
-                    {affinities.negative_skills.slice(0, 3).map((item) => (
-                      <span
-                        key={item.skill}
-                        className="rounded-full bg-rose-500/10 px-2 py-0.5 text-xs text-rose-400"
-                      >
-                        {Math.round(item.weight * 100)}% {item.skill}
-                      </span>
-                    ))}
+                  <div>
+                    <p className="mb-1 font-medium text-[var(--text)]">Soft ({matchProfile.soft.length})</p>
+                    <ul className="space-y-0.5">
+                      {matchProfile.soft.slice(0, 4).map((f) => (
+                        <li key={f.key}>{f.key}</li>
+                      ))}
+                    </ul>
                   </div>
-                ) : null}
+                  <div>
+                    <p className="mb-1 font-medium text-[var(--text)]">Unknown ({matchProfile.unknowns.length})</p>
+                    <ul className="space-y-0.5">
+                      {matchProfile.unknowns.slice(0, 4).map((f) => (
+                        <li key={f.key}>{f.key}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
             ) : null}
+
+            <div className="mt-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-[var(--text)]">Learned affinities</h3>
+                <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded accent-[var(--accent)]"
+                    checked={rankingConsent}
+                    onChange={(e) => {
+                      const granted = e.target.checked;
+                      setRankingConsent(granted);
+                      void upsertConsent("ranking_personalization", granted)
+                        .then(() => getLearnedAffinities().then(setAffinities).catch(() => null))
+                        .catch(() => setRankingConsent(!granted));
+                    }}
+                  />
+                  Improve ranking from Save/Skip
+                </label>
+              </div>
+              <p className="mb-3 text-xs text-[var(--text-muted)]">
+                {affinities?.summary ||
+                  "Without consent, ranking uses Hunt Rules only. Manage also in Privacy Center."}{" "}
+                <Link href="/privacy/center" className="text-[var(--accent)] hover:underline">
+                  Privacy Center
+                </Link>
+              </p>
+              {affinities && affinities.total_actions > 0 ? (
+                <>
+                  {affinities.positive_skills.length > 0 ? (
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-medium text-emerald-400">Boosting:</span>
+                      {affinities.positive_skills.slice(0, 5).map((item) => (
+                        <span
+                          key={item.skill}
+                          className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400"
+                        >
+                          +{Math.round(item.weight * 100)}% {item.skill}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {affinities.negative_skills.length > 0 ? (
+                    <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-medium text-rose-400">Demoting:</span>
+                      {affinities.negative_skills.slice(0, 3).map((item) => (
+                        <span
+                          key={item.skill}
+                          className="rounded-full bg-rose-500/10 px-2 py-0.5 text-xs text-rose-400"
+                        >
+                          {Math.round(item.weight * 100)}% {item.skill}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => {
+                      startTransition(async () => {
+                        try {
+                          await resetLearnedAffinities();
+                          const next = await getLearnedAffinities();
+                          setAffinities(next);
+                          setMessage("Learned Save/Skip preferences cleared.");
+                        } catch {
+                          setError("Could not reset learned preferences");
+                        }
+                      });
+                    }}
+                  >
+                    Reset learned preferences
+                  </Button>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}

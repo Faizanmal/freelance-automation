@@ -12,11 +12,14 @@ from app.api.v1 import (
     admin,
     auth,
     billing,
+    copilot,
     feedback,
+    finance,
     health,
     integrations,
     jobs,
     notifications,
+    pipeline,
     preferences,
     roadmap,
     telemetry,
@@ -33,13 +36,21 @@ from database.core.base import Base
 from database.core.schema_patch import ensure_missing_columns
 from database.core.session import get_engine, get_session
 from database.models import (  # noqa: F401
+    AgentRun,
+    AgentToolCall,
     AuditEvent,
     CancellationFeedback,
+    CopilotDraft,
     JobApplication,
     JobRecord,
     JobSource,
+    LeadNote,
+    LeadReminder,
+    LeadStageEvent,
+    LeadTask,
     NotificationDelivery,
     NotificationRecord,
+    PipelineUndoEvent,
     RoadmapVote,
     User,
     UserConsent,
@@ -201,12 +212,15 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(notifications.router, prefix="/api/v1")
     app.include_router(preferences.router, prefix="/api/v1")
+    app.include_router(pipeline.router, prefix="/api/v1")
+    app.include_router(copilot.router, prefix="/api/v1")
     app.include_router(users.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")
     app.include_router(roadmap.router, prefix="/api/v1")
     app.include_router(feedback.router, prefix="/api/v1")
     app.include_router(telemetry.router, prefix="/api/v1")
     app.include_router(trust.router, prefix="/api/v1")
+    app.include_router(finance.router, prefix="/api/v1")
 
     app.include_router(auth.router)
     app.include_router(billing.router)
@@ -215,12 +229,15 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(notifications.router)
     app.include_router(preferences.router)
+    app.include_router(pipeline.router)
+    app.include_router(copilot.router)
     app.include_router(users.router)
     app.include_router(admin.router)
     app.include_router(roadmap.router)
     app.include_router(feedback.router)
     app.include_router(telemetry.router)
     app.include_router(trust.router)
+    app.include_router(finance.router)
 
     @app.get("/")
     async def root() -> dict[str, object]:

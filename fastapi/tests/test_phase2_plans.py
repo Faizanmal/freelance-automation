@@ -42,12 +42,21 @@ async def test_match_feedback_affinity_profile():
     action_skip = SimpleNamespace(status="skip", job_id=902)
     job_skip = SimpleNamespace(id=902, enrichment={"skills": ["wordpress", "php"]}, tags=[])
 
-    mock_result = MagicMock()
-    mock_result.all.return_value = [
+    # Consent check uses scalar_one_or_none; action queries use .all().
+    consent_row = SimpleNamespace(granted=True, purpose="ranking_personalization")
+    consent_result = MagicMock()
+    consent_result.scalar_one_or_none.return_value = consent_row
+    actions_result = MagicMock()
+    actions_result.all.return_value = [
         (action_save, job_save),
         (action_skip, job_skip),
     ]
-    session.execute.return_value = mock_result
+    session.execute.side_effect = [
+        consent_result,  # has_ranking_consent
+        actions_result,  # affinity action scan
+        consent_result,  # skill_weights consent
+        actions_result,  # skill_weights join
+    ]
 
     feedback_service = MatchFeedbackService(session)
     profile = await feedback_service.get_affinity_profile("user-aff-1")
@@ -55,6 +64,7 @@ async def test_match_feedback_affinity_profile():
     assert profile["total_actions"] == 2
     assert profile["saved_count"] == 1
     assert profile["skipped_count"] == 1
+    assert profile["learning_consent"] is True
     assert profile["learning_active"] is True
     pos_skills = [p["skill"] for p in profile["positive_skills"]]
     assert "react" in pos_skills

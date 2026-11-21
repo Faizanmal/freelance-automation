@@ -1,7 +1,7 @@
 export type NavItem = {
   href: string;
   label: string;
-  icon?: "desk" | "leads" | "rules" | "saved" | "billing" | "account" | "help" | "pricing" | "alerts" | "admin";
+  icon?: "desk" | "leads" | "pipeline" | "rules" | "saved" | "billing" | "account" | "help" | "pricing" | "alerts" | "admin";
   section?: "workspace" | "management" | "account" | "public";
   /** When set, item only shows for matching account roles or superusers. */
   roles?: Array<"freelancer" | "client" | "staff" | "superuser">;
@@ -26,6 +26,8 @@ export const PUBLIC_NAV: NavItem[] = [
 export const AUTH_NAV: NavItem[] = [
   { href: "/", label: "Desk", icon: "desk", section: "workspace" },
   { href: "/leads", label: "Leads", icon: "leads", section: "workspace" },
+  { href: "/pipeline", label: "Pipeline", icon: "pipeline", section: "workspace" },
+  { href: "/finance", label: "Financials", icon: "billing", section: "workspace" },
   { href: "/preferences", label: "Hunt Rules", icon: "rules", section: "workspace" },
   { href: "/notifications", label: "Alerts", icon: "alerts", section: "workspace" },
   { href: "/leads?filter=saved", label: "Saved Opportunities", icon: "saved", section: "management" },

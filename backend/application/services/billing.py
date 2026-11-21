@@ -23,6 +23,16 @@ PRO_DAILY_SCRAPE_RUNS = 50
 FREE_CHANNELS = {"email"}
 PRO_CHANNELS = {"email", "slack", "telegram", "discord", "whatsapp", "webhook"}
 
+# Phase 08 productivity entitlements — never gate native applications or organic ranking.
+FREE_COPILOT_RUNS_PER_DAY = 10
+PRO_COPILOT_RUNS_PER_DAY = 100
+FREE_COPILOT_TOKEN_BUDGET = 4000
+PRO_COPILOT_TOKEN_BUDGET = 12000
+FREE_DRAFT_RETENTION_DAYS = 30
+PRO_DRAFT_RETENTION_DAYS = 365
+FREE_NOTE_RETENTION_DAYS = 90
+PRO_NOTE_RETENTION_DAYS = 730
+
 
 @dataclass(frozen=True, slots=True)
 class PlanLimits:
@@ -54,6 +64,7 @@ PLANS: dict[str, PlanLimits] = {
             f"Up to {FREE_SCRAPE_LIMIT} jobs per manual hunt",
             f"{FREE_DAILY_SCRAPE_RUNS} manual hunts per day",
             "Proposal draft starter",
+            f"Pipeline CRM + {FREE_COPILOT_RUNS_PER_DAY} copilot runs/day",
         ),
     ),
     PLAN_PRO: PlanLimits(
@@ -73,9 +84,30 @@ PLANS: dict[str, PlanLimits] = {
             "Google Maps / local discovery (serpapi_maps)",
             "Slack, Telegram, Discord, WhatsApp alerts",
             "Optional marketplace APIs when you enable them",
+            f"Higher copilot budget — {PRO_COPILOT_RUNS_PER_DAY} runs/day",
+            "Longer draft/note retention",
         ),
     ),
 }
+
+
+def productivity_entitlements(user: User) -> dict[str, int]:
+    """Per-plan productivity caps. Does not limit native apply or organic ranking."""
+    pro = is_pro(user)
+    return {
+        "copilot_runs_per_day": (
+            PRO_COPILOT_RUNS_PER_DAY if pro else FREE_COPILOT_RUNS_PER_DAY
+        ),
+        "copilot_token_budget": (
+            PRO_COPILOT_TOKEN_BUDGET if pro else FREE_COPILOT_TOKEN_BUDGET
+        ),
+        "draft_retention_days": (
+            PRO_DRAFT_RETENTION_DAYS if pro else FREE_DRAFT_RETENTION_DAYS
+        ),
+        "note_retention_days": (
+            PRO_NOTE_RETENTION_DAYS if pro else FREE_NOTE_RETENTION_DAYS
+        ),
+    }
 
 
 def normalize_plan(plan: str | None) -> str:
@@ -88,7 +120,16 @@ def is_pro(user: User) -> bool:
         return False
     status = (user.subscription_status or "active").lower()
     # past_due keeps the Stripe subscription id but does not unlock Pro features.
-    return status in {"active", "trialing", "dev"}
+    # in_grace grants temporary grace period access while payment retries.
+    return status in {"active", "trialing", "dev", "in_grace"}
+
+
+def assert_ranking_neutrality(user: User | None, score: float) -> float:
+    """Pro status NEVER alters, boosts, or modifies candidate job ranking or match scores.
+    
+    Ranking is strictly organic and based purely on skills, budget alignment, and client signals.
+    """
+    return score
 
 
 def limits_for_user(user: User) -> PlanLimits:

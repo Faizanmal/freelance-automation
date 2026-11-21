@@ -14,6 +14,7 @@ from backend.application.services.billing import (
     filter_channels_for_user,
     is_pro,
 )
+from backend.application.services.digest_scheduler import validate_iana_timezone
 from backend.application.services.lead_findings import LeadFindingsService
 from backend.application.services.match_feedback import MatchFeedbackService
 from backend.application.services.matching import MatchingService
@@ -23,6 +24,13 @@ from backend.application.services.notification_service import (
     NotificationEnvelope,
     NotificationPriority,
 )
+from backend.application.services.ranking.cache import (
+    get_recommendation_cache,
+    recommendation_cache_key,
+)
+from backend.application.services.ranking.embeddings import EmbeddingIndex
+from backend.application.services.ranking.pipeline import RankingPipeline
+from backend.application.services.ranking.profile import RANKING_CONSENT_PURPOSE
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.core.session import get_db
 from database.models.application import JobApplication
@@ -70,6 +78,19 @@ class PreferencesPayload(BaseModel):
     discord_webhook_url: str | None = Field(default=None, max_length=1024)
     whatsapp_to: str | None = Field(default=None, max_length=64)
     custom_webhook_url: str | None = Field(default=None, max_length=1024)
+    cadence: str = Field(default="daily", max_length=32)
+    quiet_hours_enabled: bool = False
+    quiet_hours_start: str = Field(default="22:00", max_length=8)
+    quiet_hours_end: str = Field(default="08:00", max_length=8)
+    event_types: list[str] = Field(
+        default_factory=lambda: ["lead_match", "digest", "immediate_alert"]
+    )
+    is_paused: bool = False
+    is_unsubscribed: bool = False
+    empty_digest_policy: str = Field(default="suppress", max_length=32)
+    immediate_alerts_enabled: bool = True
+    immediate_alert_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    immediate_alert_cap_per_day: int = Field(default=5, ge=1, le=50)
 
 
 class PreferencesOut(PreferencesPayload):
@@ -79,6 +100,22 @@ class PreferencesOut(PreferencesPayload):
 
 class LeadActionPayload(BaseModel):
     status: Literal["save", "skip", "pitched", "won", "clear"]
+    reason: str | None = Field(default=None, max_length=64)
+    feedback_kind: str | None = Field(default=None, max_length=32)
+
+
+class MatchFeedbackPayload(BaseModel):
+    job_id: int
+    kind: Literal[
+        "save",
+        "skip",
+        "hide_source",
+        "apply_click",
+        "outcome",
+        "clear",
+    ]
+    reason: str | None = Field(default=None, max_length=64)
+    outcome: Literal["interview", "contract", "rejected", "none"] | None = None
 
 
 async def _lead_status_sets(
@@ -142,6 +179,27 @@ def _prefs_out(prefs: UserPreferences) -> PreferencesOut:
         discord_webhook_url=prefs.discord_webhook_url,
         whatsapp_to=prefs.whatsapp_to,
         custom_webhook_url=getattr(prefs, "custom_webhook_url", None),
+        cadence=getattr(prefs, "cadence", "daily") or "daily",
+        quiet_hours_enabled=bool(getattr(prefs, "quiet_hours_enabled", False)),
+        quiet_hours_start=getattr(prefs, "quiet_hours_start", "22:00") or "22:00",
+        quiet_hours_end=getattr(prefs, "quiet_hours_end", "08:00") or "08:00",
+        event_types=list(
+            getattr(prefs, "event_types", None)
+            or ["lead_match", "digest", "immediate_alert"]
+        ),
+        is_paused=bool(getattr(prefs, "is_paused", False)),
+        is_unsubscribed=bool(getattr(prefs, "is_unsubscribed", False)),
+        empty_digest_policy=getattr(prefs, "empty_digest_policy", "suppress")
+        or "suppress",
+        immediate_alerts_enabled=bool(
+            getattr(prefs, "immediate_alerts_enabled", True)
+        ),
+        immediate_alert_threshold=float(
+            getattr(prefs, "immediate_alert_threshold", 0.85) or 0.85
+        ),
+        immediate_alert_cap_per_day=int(
+            getattr(prefs, "immediate_alert_cap_per_day", 5) or 5
+        ),
     )
 
 
@@ -202,6 +260,12 @@ async def update_my_preferences(
             detail="Multi-channel alerts require Pro. Upgrade at /pricing.",
         )
 
+    if payload.timezone:
+        try:
+            payload.timezone = validate_iana_timezone(payload.timezone)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
     skills = [s.strip() for s in payload.skills if s and s.strip()][:40]
     extra_keywords = [k.strip() for k in payload.keywords if k and k.strip()][:40]
     # Keep keywords filled for older clients / digests that only read keywords.
@@ -230,10 +294,88 @@ async def update_my_preferences(
     prefs.discord_webhook_url = payload.discord_webhook_url
     prefs.whatsapp_to = payload.whatsapp_to
     prefs.custom_webhook_url = payload.custom_webhook_url
+    prefs.cadence = payload.cadence
+    prefs.quiet_hours_enabled = payload.quiet_hours_enabled
+    prefs.quiet_hours_start = payload.quiet_hours_start
+    prefs.quiet_hours_end = payload.quiet_hours_end
+    prefs.event_types = payload.event_types
+    prefs.is_paused = payload.is_paused
+    prefs.is_unsubscribed = payload.is_unsubscribed
+    prefs.empty_digest_policy = payload.empty_digest_policy
+    prefs.immediate_alerts_enabled = payload.immediate_alerts_enabled
+    prefs.immediate_alert_threshold = payload.immediate_alert_threshold
+    prefs.immediate_alert_cap_per_day = payload.immediate_alert_cap_per_day
+    session.add(prefs)
+    await session.commit()
+    await session.refresh(prefs)
+    get_recommendation_cache().invalidate_user(str(user.id))
+    return _prefs_out(prefs)
+
+
+@router.post("/pause", response_model=PreferencesOut)
+async def pause_notifications(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> PreferencesOut:
+    """Pauses digest and alert deliveries without losing configured criteria."""
+    prefs = await _get_or_create_preferences(session, user)
+    prefs.is_paused = True
     session.add(prefs)
     await session.commit()
     await session.refresh(prefs)
     return _prefs_out(prefs)
+
+
+@router.post("/resume", response_model=PreferencesOut)
+async def resume_notifications(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> PreferencesOut:
+    """Resumes paused digest and alert deliveries."""
+    prefs = await _get_or_create_preferences(session, user)
+    prefs.is_paused = False
+    session.add(prefs)
+    await session.commit()
+    await session.refresh(prefs)
+    return _prefs_out(prefs)
+
+
+@router.post("/unsubscribe", response_model=PreferencesOut)
+async def unsubscribe_notifications(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> PreferencesOut:
+    """One-click authenticated unsubscribe from all outbound email digests and alerts."""
+    from datetime import UTC, datetime
+
+    prefs = await _get_or_create_preferences(session, user)
+    prefs.is_unsubscribed = True
+    prefs.unsubscribed_at = datetime.now(UTC)
+    session.add(prefs)
+    await session.commit()
+    await session.refresh(prefs)
+    return _prefs_out(prefs)
+
+
+async def _load_match_candidate_jobs(
+    session: AsyncSession,
+    prefs: UserPreferences,
+    *,
+    limit: int = 300,
+    offset: int = 0,
+) -> list[JobRecord]:
+    repo = SQLAlchemyJobRepository(session)
+    return await repo.list_match_candidates(
+        skills=list(getattr(prefs, "skills", None) or []),
+        keywords=list(prefs.keywords or []),
+        exclude_keywords=list(prefs.exclude_keywords or []),
+        sources=list(prefs.sources or []),
+        min_budget=prefs.min_budget,
+        max_budget=prefs.max_budget,
+        min_hourly_rate=getattr(prefs, "min_hourly_rate", None),
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/matches")
@@ -241,29 +383,64 @@ async def list_matches(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
     limit: int = 50,
+    offset: int = 0,
 ) -> dict:
     prefs = await _get_or_create_preferences(session, user)
     skipped, _ = await _lead_status_sets(session, user.id)
+    feedback = MatchFeedbackService(session)
+    learning_enabled = await feedback.has_ranking_consent(user.id)
+    pipeline = RankingPipeline()
+    meta = pipeline.recommendation_meta(prefs, learning_enabled=learning_enabled)
+    prefs_updated = getattr(prefs, "updated_at", None)
+    cache_key = recommendation_cache_key(
+        user_id=str(user.id),
+        prefs_updated_at=prefs_updated.isoformat() if prefs_updated else None,
+        score_version=str(meta["score_version"]),
+        retrieval_mode=str(meta["retrieval_mode"]),
+        limit=limit,
+        offset=offset,
+        freelance_focus=bool(getattr(prefs, "freelance_focus", True)),
+    )
+    cache = get_recommendation_cache()
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return {**cached, "cache_hit": True}
+
     repo = SQLAlchemyJobRepository(session)
-    raw_jobs = await repo.list_recent(limit=300)
+    raw_jobs = await _load_match_candidate_jobs(
+        session, prefs, limit=max(300, limit + offset)
+    )
     jobs = [
         j
         for j in raw_jobs
         if not getattr(j, "is_expired", False) and j.id not in skipped
     ]
-    skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
-    matcher = MatchingService()
-    findings_service = LeadFindingsService(matcher)
+    skill_weights = await feedback.skill_weights(user.id)
+    findings_service = LeadFindingsService(pipeline=pipeline)
     freelance_focus = bool(getattr(prefs, "freelance_focus", True))
-    matches = matcher.rank_jobs(jobs, prefs, skill_weights=skill_weights)[:limit]
+    ranked = pipeline.rank(
+        jobs,
+        prefs,
+        skill_weights=skill_weights,
+        learning_enabled=learning_enabled,
+    )[offset : offset + limit]
+    ineligible = pipeline.sample_ineligible(jobs[:80], prefs, limit=5)
     items = []
-    for match in matches:
-        finding = findings_service._from_match(match, freelance_focus=freelance_focus)
+    for item in ranked:
+        match = item.as_job_match()
+        finding = findings_service._from_match(
+            match, freelance_focus=freelance_focus, ranked=item
+        )
         job_data = await repo.to_candidate_dict(match.job)
         items.append(
             {
                 **job_data,
                 "match_score": finding.score,
+                "fit_score": finding.fit_score,
+                "score_version": finding.score_version,
+                "explanation": finding.explanation,
+                "why_shown": finding.why_shown,
+                "eligibility": (finding.explanation or {}).get("eligibility"),
                 "freelance_fit": finding.freelance_fit,
                 "matched_keywords": match.matched_keywords,
                 "match_reasons": match.reasons,
@@ -272,7 +449,21 @@ async def list_matches(
                 "red_flags": match.red_flags or [],
             }
         )
-    return {"total": len(items), "items": items}
+    payload = {
+        "total": len(items),
+        "items": items,
+        "score_version": meta["score_version"],
+        "retrieval_mode": meta["retrieval_mode"],
+        "candidate_stage": "sql_ilike",
+        "learning_enabled": learning_enabled,
+        "subscription_affects_organic_rank": False,
+        "ineligible_samples": ineligible,
+        "offset": offset,
+        "limit": limit,
+        "cache_hit": False,
+    }
+    cache.set(cache_key, payload, user_id=str(user.id))
+    return payload
 
 
 @router.get("/findings")
@@ -314,11 +505,30 @@ async def list_findings(
                 "created_at": app.created_at.isoformat() if app.created_at else None,
             }
 
+    feedback = MatchFeedbackService(session)
+    learning_enabled = await feedback.has_ranking_consent(user.id)
+    pipeline = RankingPipeline()
+    meta = pipeline.recommendation_meta(prefs, learning_enabled=learning_enabled)
+    prefs_updated = getattr(prefs, "updated_at", None)
+    cache_key = recommendation_cache_key(
+        user_id=str(user.id),
+        prefs_updated_at=prefs_updated.isoformat() if prefs_updated else None,
+        score_version=str(meta["score_version"]),
+        retrieval_mode=str(meta["retrieval_mode"]),
+        limit=limit,
+        freelance_focus=focus,
+        include_skipped=include_skipped,
+    )
+    cache = get_recommendation_cache()
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return {**cached, "cache_hit": True}
+
     repo = SQLAlchemyJobRepository(session)
-    jobs = await repo.list_recent(limit=300)
+    jobs = await _load_match_candidate_jobs(session, prefs, limit=300)
     total_indexed = await repo.count_jobs()
-    skill_weights = await MatchFeedbackService(session).skill_weights(user.id)
-    return LeadFindingsService().build(
+    skill_weights = await feedback.skill_weights(user.id)
+    payload = LeadFindingsService(pipeline=pipeline).build(
         jobs,
         prefs,
         limit=limit,
@@ -327,8 +537,18 @@ async def list_findings(
         applications=applications,
         include_skipped=include_skipped,
         skill_weights=skill_weights,
+        learning_enabled=learning_enabled,
         total_indexed=total_indexed,
     )
+    payload["score_version"] = meta["score_version"]
+    payload["retrieval_mode"] = meta["retrieval_mode"]
+    payload["candidate_stage"] = "sql_ilike"
+    payload["learning_enabled"] = learning_enabled
+    payload["subscription_affects_organic_rank"] = False
+    payload["ineligible_samples"] = pipeline.sample_ineligible(jobs[:80], prefs, limit=5)
+    payload["cache_hit"] = False
+    cache.set(cache_key, payload, user_id=str(user.id))
+    return payload
 
 
 @router.put("/leads/{job_id}/action")
@@ -339,33 +559,52 @@ async def set_lead_action(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """Persist Save / Skip for a lead, or clear the stored action."""
+    from backend.application.services.pipeline import PipelineService, stage_for_status
+
     job = await session.get(JobRecord, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    result = await session.execute(
-        select(UserLeadAction).where(
-            UserLeadAction.user_id == user.id,
-            UserLeadAction.job_id == job_id,
-        )
-    )
-    row = result.scalar_one_or_none()
+    pipeline = PipelineService(session)
 
     if payload.status == "clear":
+        await pipeline.clear_lead(user_id=user.id, job_id=job_id)
+        # Preserve prior delete semantics for callers that expect row removal.
+        result = await session.execute(
+            select(UserLeadAction).where(
+                UserLeadAction.user_id == user.id,
+                UserLeadAction.job_id == job_id,
+            )
+        )
+        row = result.scalar_one_or_none()
         if row is not None:
             await session.delete(row)
-            await session.commit()
+        await session.commit()
+        get_recommendation_cache().invalidate_user(str(user.id))
         return {"job_id": job_id, "status": None}
 
-    if row is None:
-        row = UserLeadAction(user_id=user.id, job_id=job_id, status=payload.status)
-        session.add(row)
-    else:
-        row.status = payload.status
-        session.add(row)
+    row = await pipeline.sync_from_legacy_status(
+        user_id=user.id,
+        job_id=job_id,
+        status=payload.status,
+        reason=payload.reason,
+        feedback_kind=payload.feedback_kind or payload.status,
+    )
     await session.commit()
-    await session.refresh(row)
-    return {"job_id": job_id, "status": row.status}
+    if row is not None:
+        await session.refresh(row)
+    get_recommendation_cache().invalidate_user(str(user.id))
+    return {
+        "job_id": job_id,
+        "status": row.status if row else payload.status,
+        "pipeline_stage": (
+            getattr(row, "pipeline_stage", None)
+            if row
+            else stage_for_status(payload.status)
+        ),
+        "reason": getattr(row, "reason", None) if row else payload.reason,
+        "feedback_kind": getattr(row, "feedback_kind", None) if row else payload.feedback_kind,
+    }
 
 
 def _estimate_job_value(
@@ -520,6 +759,220 @@ async def get_my_learned_affinities(
 ) -> dict[str, object]:
     """Inspect learned skill affinities derived automatically from Save/Skip history."""
     return await MatchFeedbackService(session).get_affinity_profile(user.id)
+
+
+@router.post("/learned-affinities/reset")
+async def reset_my_learned_affinities(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, object]:
+    """Reset learned Save/Skip affinities. Hunt Rules are unchanged."""
+    result = await MatchFeedbackService(session).reset_learned_affinities(user.id)
+    get_recommendation_cache().invalidate_user(str(user.id))
+    return result
+
+
+@router.get("/match-profile")
+async def get_match_profile(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, object]:
+    """Inspect the typed match profile derived from Hunt Rules (+ consented learning)."""
+    prefs = await _get_or_create_preferences(session, user)
+    feedback = MatchFeedbackService(session)
+    learning_enabled = await feedback.has_ranking_consent(user.id)
+    skill_weights = await feedback.skill_weights(user.id)
+    profile = RankingPipeline().build_profile(
+        prefs,
+        skill_weights=skill_weights,
+        learning_enabled=learning_enabled,
+    )
+    return profile.to_dict()
+
+
+@router.get("/recommendation-meta")
+async def get_recommendation_meta(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = 10,
+    offset: int = 0,
+) -> dict[str, object]:
+    """Ranking version, retrieval mode, and stable cache key inputs."""
+    prefs = await _get_or_create_preferences(session, user)
+    feedback = MatchFeedbackService(session)
+    learning_enabled = await feedback.has_ranking_consent(user.id)
+    pipeline = RankingPipeline()
+    meta = pipeline.recommendation_meta(prefs, learning_enabled=learning_enabled)
+    prefs_updated = getattr(prefs, "updated_at", None)
+    cache_key = recommendation_cache_key(
+        user_id=str(user.id),
+        prefs_updated_at=prefs_updated.isoformat() if prefs_updated else None,
+        score_version=str(meta["score_version"]),
+        retrieval_mode=str(meta["retrieval_mode"]),
+        limit=limit,
+        offset=offset,
+        freelance_focus=bool(getattr(prefs, "freelance_focus", True)),
+    )
+    return {
+        **meta,
+        "consent_purpose": RANKING_CONSENT_PURPOSE,
+        "cache_key": cache_key,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.post("/match-feedback")
+async def post_match_feedback(
+    payload: MatchFeedbackPayload,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, object]:
+    """Structured ranking feedback. Apply-click is recorded but not treated as success."""
+    job = await session.get(JobRecord, payload.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    result = await session.execute(
+        select(UserLeadAction).where(
+            UserLeadAction.user_id == user.id,
+            UserLeadAction.job_id == payload.job_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+
+    if payload.kind == "clear":
+        if row is not None:
+            await session.delete(row)
+            await session.commit()
+        get_recommendation_cache().invalidate_user(str(user.id))
+        return {"job_id": payload.job_id, "status": None, "feedback_kind": "clear"}
+
+    if payload.kind == "apply_click":
+        # Weak interest only — never invent a Save row (clicks are not success).
+        # Distinguish apply-click from confirmed application (Phase 08).
+        if row is not None:
+            row.feedback_kind = "apply_click"
+            if payload.reason:
+                row.reason = payload.reason
+            if getattr(row, "apply_clicked_at", None) is None:
+                from datetime import datetime, timezone
+
+                row.apply_clicked_at = datetime.now(timezone.utc)
+            session.add(row)
+            await session.commit()
+            status_out = row.status
+        else:
+            # Record click timestamp only if a lead already exists — do not invent Save.
+            status_out = None
+        return {
+            "job_id": payload.job_id,
+            "status": status_out,
+            "feedback_kind": "apply_click",
+            "counts_as_success": False,
+            "applied_confirmed": False,
+        }
+
+    prefs = await _get_or_create_preferences(session, user)
+
+    if payload.kind == "hide_source":
+        status = "skip"
+        reason = payload.reason or f"hide_source:{job.source_name}"
+        kind = "hide_source"
+        # Persist source exclusion into Hunt Rules so future SQL retrieval drops it.
+        source_token = (job.source_name or "").strip().lower()
+        if source_token and len(source_token) >= 3:
+            excludes = [
+                str(x).strip().lower()
+                for x in (prefs.exclude_keywords or [])
+                if x and str(x).strip()
+            ]
+            if source_token not in excludes:
+                excludes.append(source_token)
+                prefs.exclude_keywords = excludes[:40]
+                session.add(prefs)
+    elif payload.kind == "outcome":
+        if payload.outcome == "contract":
+            status = "won"
+        elif payload.outcome == "interview":
+            status = "pitched"
+        elif payload.outcome == "rejected":
+            status = "skip"
+        else:
+            status = "pitched"
+        reason = payload.reason or (payload.outcome or "outcome")
+        kind = "outcome"
+    elif payload.kind == "save":
+        status = "save"
+        reason = payload.reason
+        kind = "save"
+    else:
+        status = "skip"
+        reason = payload.reason
+        kind = "skip"
+
+    from backend.application.services.pipeline import PipelineService
+
+    row = await PipelineService(session).sync_from_legacy_status(
+        user_id=user.id,
+        job_id=payload.job_id,
+        status=status,
+        reason=reason,
+        feedback_kind=kind,
+    )
+    await session.commit()
+    if row is not None:
+        await session.refresh(row)
+    get_recommendation_cache().invalidate_user(str(user.id))
+    return {
+        "job_id": payload.job_id,
+        "status": row.status if row else status,
+        "pipeline_stage": getattr(row, "pipeline_stage", None) if row else None,
+        "reason": row.reason if row else reason,
+        "feedback_kind": row.feedback_kind if row else kind,
+        "counts_as_success": kind in {"save", "outcome"}
+        and status in {"save", "pitched", "won"},
+    }
+
+
+@router.post("/embeddings/reindex")
+async def reindex_job_embeddings(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = 200,
+    force: bool = False,
+    async_job: bool = True,
+) -> dict[str, object]:
+    """Safe embedding reindex with budget limits. Falls back to sync if workers offline."""
+    limit = max(1, min(int(limit), 500))
+    if async_job:
+        try:
+            from workers.availability import celery_workers_online
+            from workers.jobs.tasks import reindex_embeddings_task
+
+            if celery_workers_online():
+                result = reindex_embeddings_task.delay(limit=limit, force=force)
+                return {
+                    "queued": True,
+                    "task_id": result.id,
+                    "limit": limit,
+                    "force": force,
+                    "model_version": EmbeddingIndex().model_version,
+                }
+        except Exception:  # noqa: BLE001 — sync fallback
+            pass
+
+    repo = SQLAlchemyJobRepository(session)
+    jobs = await repo.list_recent(limit=limit)
+    index = EmbeddingIndex()
+    await index.persist_dirty(
+        session, jobs, batch_limit=min(64, limit), budget_ms=2000, force=force
+    )
+    return {
+        "queued": False,
+        "sync": True,
+        **index.metrics_dict(),
+    }
 
 
 @router.post("/test-webhook")

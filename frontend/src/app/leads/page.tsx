@@ -22,6 +22,8 @@ import {
 
   setLeadAction,
 
+  postMatchFeedback,
+
   submitApplication,
 
   type ApplyFormFields,
@@ -33,6 +35,21 @@ import {
   type ProposalDraftResponse,
 
 } from "@/lib/api";
+
+const SAVE_REASONS = [
+  { id: "skills_fit", label: "Skills fit" },
+  { id: "budget_fit", label: "Budget fit" },
+  { id: "interesting_project", label: "Interesting project" },
+  { id: "other", label: "Other" },
+] as const;
+
+const SKIP_REASONS = [
+  { id: "wrong_skills", label: "Wrong skills" },
+  { id: "low_budget", label: "Low budget" },
+  { id: "full_time", label: "Full-time / not freelance" },
+  { id: "spammy", label: "Spammy / low quality" },
+  { id: "other", label: "Other" },
+] as const;
 
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -509,7 +526,27 @@ function LeadsPageInner() {
     });
   };
 
-  const updateLeadStatus = (jobId: number, status: "save" | "skip" | "pitched" | "won" | "clear") => {
+  const pickReason = (
+    status: "save" | "skip",
+  ): string | undefined => {
+    const options = status === "save" ? SAVE_REASONS : SKIP_REASONS;
+    const lines = options.map((o, i) => `${i + 1}. ${o.label}`).join("\n");
+    const answer = window.prompt(
+      `Optional reason (Enter 1–${options.length}, or leave blank):\n${lines}`,
+    );
+    if (!answer) return undefined;
+    const idx = Number.parseInt(answer.trim(), 10);
+    if (Number.isFinite(idx) && idx >= 1 && idx <= options.length) {
+      return options[idx - 1].id;
+    }
+    return answer.trim().slice(0, 64) || undefined;
+  };
+
+  const updateLeadStatus = (
+    jobId: number,
+    status: "save" | "skip" | "pitched" | "won" | "clear",
+    opts?: { reason?: string; askReason?: boolean },
+  ) => {
 
     if (!getToken()) {
 
@@ -518,6 +555,12 @@ function LeadsPageInner() {
       return;
 
     }
+
+    const reason =
+      opts?.reason ??
+      (opts?.askReason && (status === "save" || status === "skip")
+        ? pickReason(status)
+        : undefined);
 
     // Optimistic local update
 
@@ -587,7 +630,29 @@ function LeadsPageInner() {
 
         setError(null);
 
-        await setLeadAction(jobId, status);
+        if (status === "won") {
+          await postMatchFeedback({
+            job_id: jobId,
+            kind: "outcome",
+            outcome: "contract",
+            reason: reason || "contract",
+          });
+        } else if (status === "pitched") {
+          await postMatchFeedback({
+            job_id: jobId,
+            kind: "outcome",
+            outcome: "interview",
+            reason: reason || "interview",
+          });
+        } else if (status === "save" || status === "skip") {
+          await postMatchFeedback({
+            job_id: jobId,
+            kind: status,
+            reason,
+          });
+        } else {
+          await setLeadAction(jobId, status, { reason });
+        }
 
         await load(keywords, focusOverride, true);
 
@@ -595,9 +660,9 @@ function LeadsPageInner() {
           status === "save"
             ? "Lead saved"
             : status === "pitched"
-              ? "Lead marked as pitched"
+              ? "Lead marked as pitched / interview"
               : status === "won"
-                ? "Lead marked as won"
+                ? "Lead marked as contract won"
                 : status === "skip"
                   ? "Lead skipped — hidden from default list"
                   : "Lead status cleared";
@@ -1118,6 +1183,25 @@ function LeadsPageInner() {
 
       {submitMessage ? <p className="text-sm text-[var(--success)]">{submitMessage}</p> : null}
 
+      {authed && data?.ineligible_samples && data.ineligible_samples.length > 0 ? (
+        <details className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3 text-xs text-[var(--text-muted)]">
+          <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
+            Hard-filtered examples ({data.ineligible_samples.length})
+            {data.candidate_stage ? ` · ${data.candidate_stage}` : ""}
+            {data.cache_hit ? " · cached" : ""}
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {data.ineligible_samples.slice(0, 5).map((sample) => (
+              <li key={`${sample.job_id}-${sample.title}`}>
+                {(sample.title || "Listing").slice(0, 72)} —{" "}
+                {(sample.hard_filters_failed || []).join(", ") || "ineligible"}
+                {sample.evidence?.[0] ? ` (${sample.evidence[0]})` : ""}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
 
 
       {data ? (
@@ -1306,6 +1390,17 @@ function LeadsPageInner() {
 
               <p className="mb-3 text-sm leading-relaxed text-[var(--text)]">{finding.why}</p>
 
+              {finding.why_shown ? (
+                <p className="mb-2 text-xs text-[var(--text-muted)]">{finding.why_shown}</p>
+              ) : null}
+
+              {finding.explanation?.missing_qualifications?.length ? (
+                <p className="mb-3 text-xs text-[var(--warning)]">
+                  Missing vs Hunt Rules:{" "}
+                  {finding.explanation.missing_qualifications.slice(0, 6).join(", ")}
+                </p>
+              ) : null}
+
               {finding.freelance_benefits_line ? (
 
                 <p className="mb-3 text-sm text-[var(--accent)]">{finding.freelance_benefits_line}</p>
@@ -1315,7 +1410,7 @@ function LeadsPageInner() {
               <LeadSignalMeters
                 className="mb-4"
                 compact
-                fit={finding.score}
+                fit={finding.fit_score ?? finding.score}
                 trust={finding.client_quality_score ?? finding.client_signal?.score ?? 0.5}
                 freshness={finding.freshness_score ?? 0}
               />
@@ -1388,7 +1483,16 @@ function LeadsPageInner() {
 
                   size="sm"
 
-                  onClick={() => openSafeExternalUrl(finding.apply_url || finding.url)}
+                  onClick={() => {
+                    if (authed) {
+                      void postMatchFeedback({
+                        job_id: finding.job_id,
+                        kind: "apply_click",
+                        reason: "open_original",
+                      }).catch(() => null);
+                    }
+                    openSafeExternalUrl(finding.apply_url || finding.url);
+                  }}
 
                 >
 
@@ -1415,6 +1519,8 @@ function LeadsPageInner() {
                           finding.job_id,
 
                           finding.user_status === "save" ? "clear" : "save",
+
+                          finding.user_status === "save" ? undefined : { askReason: true },
 
                         )
 
@@ -1481,10 +1587,38 @@ function LeadsPageInner() {
                         updateLeadStatus(
                           finding.job_id,
                           finding.user_status === "skip" ? "clear" : "skip",
+                          finding.user_status === "skip" ? undefined : { askReason: true },
                         )
                       }
                     >
                       {finding.user_status === "skip" ? "Restore" : "Skip"}
+                    </Button>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title="Hide this source from future ranking (adds to Hunt Rules exclusions)"
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            await postMatchFeedback({
+                              job_id: finding.job_id,
+                              kind: "hide_source",
+                              reason: `hide_source:${finding.source_name}`,
+                            });
+                            setSubmitMessage(
+                              `Hidden source “${finding.source_name}” — added to exclusions.`,
+                            );
+                            await load(keywords, focusOverride, true);
+                          } catch (err) {
+                            setError(
+                              err instanceof Error ? err.message : "Could not hide source",
+                            );
+                          }
+                        });
+                      }}
+                    >
+                      Hide source
                     </Button>
 
                     <Button
@@ -1603,11 +1737,19 @@ function LeadsPageInner() {
 
                 </div>
 
-                <MatchScoreBar score={selected.score} />
+                <MatchScoreBar score={selected.fit_score ?? selected.score} />
+                {selected.why_shown ? (
+                  <p className="mt-2 text-xs text-[var(--text-muted)]">{selected.why_shown}</p>
+                ) : null}
+                {selected.explanation?.confidence_note ? (
+                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                    {selected.explanation.confidence_note}
+                  </p>
+                ) : null}
 
                 <p className="text-xs text-[var(--text-muted)]">
 
-                  Match scores are estimates from your Hunt Rules — not verified guarantees.
+                  Match scores are heuristic fit estimates from Hunt Rules — not calibrated probabilities or verified guarantees.
 
                 </p>
 

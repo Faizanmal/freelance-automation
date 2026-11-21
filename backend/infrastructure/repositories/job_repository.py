@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import desc, func, not_, or_, select
+from sqlalchemy import String, and_, desc, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.listing_presentation import public_job_payload
@@ -286,6 +286,132 @@ class SQLAlchemyJobRepository:
         )
         if not include_expired:
             query = query.where(JobRecord.is_expired == False)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def list_match_candidates(
+        self,
+        *,
+        skills: list[str] | None = None,
+        keywords: list[str] | None = None,
+        exclude_keywords: list[str] | None = None,
+        sources: list[str] | None = None,
+        min_budget: float | None = None,
+        max_budget: float | None = None,
+        min_hourly_rate: float | None = None,
+        limit: int = 300,
+        offset: int = 0,
+        include_expired: bool = False,
+        recent_fallback_limit: int = 300,
+    ) -> list[JobRecord]:
+        """SQL-stage shortlist for ranking (ILIKE keyword OR + hard filters).
+
+        Falls back to recent inventory when no skills/keywords are configured
+        (cold start / starter search).
+        """
+        terms = [
+            str(t).strip()
+            for t in [*(skills or []), *(keywords or [])]
+            if t and str(t).strip()
+        ]
+        # Deduplicate case-insensitively while preserving order.
+        seen: set[str] = set()
+        clean_terms: list[str] = []
+        for term in terms:
+            key = term.lower()
+            if key not in seen:
+                seen.add(key)
+                clean_terms.append(term)
+
+        query = select(JobRecord).where(self._exclude_marketplace_clause())
+        if not include_expired:
+            query = query.where(JobRecord.is_expired == False)
+
+        allowed_sources = [
+            s.strip().lower() for s in (sources or []) if s and str(s).strip()
+        ]
+        if allowed_sources:
+            query = query.where(func.lower(JobRecord.source_name).in_(allowed_sources))
+
+        excludes = [
+            e.strip().lower()
+            for e in (exclude_keywords or [])
+            if e and str(e).strip()
+        ]
+        for exclude in excludes[:40]:
+            like = f"%{exclude}%"
+            query = query.where(
+                not_(
+                    or_(
+                        func.lower(func.coalesce(JobRecord.title, "")).like(like),
+                        func.lower(func.coalesce(JobRecord.description, "")).like(like),
+                        func.lower(func.coalesce(JobRecord.company, "")).like(like),
+                        func.lower(func.coalesce(JobRecord.source_name, "")).like(like),
+                        func.lower(func.coalesce(JobRecord.url, "")).like(like),
+                    )
+                )
+            )
+
+        # Soft SQL budget prefilter — Python ranker still applies period-aware rules.
+        if min_budget is not None:
+            query = query.where(
+                or_(
+                    JobRecord.budget_max.is_(None),
+                    JobRecord.budget_max >= float(min_budget),
+                    and_(
+                        JobRecord.budget_max.is_(None),
+                        JobRecord.budget_min.is_not(None),
+                        JobRecord.budget_min >= float(min_budget),
+                    ),
+                )
+            )
+        if max_budget is not None:
+            query = query.where(
+                or_(
+                    JobRecord.budget_min.is_(None),
+                    JobRecord.budget_min <= float(max_budget),
+                )
+            )
+        if min_hourly_rate is not None:
+            # Keep rows with unknown budget; drop clearly-too-low hourly tops when present.
+            query = query.where(
+                or_(
+                    JobRecord.budget_max.is_(None),
+                    JobRecord.budget_max >= float(min_hourly_rate),
+                    JobRecord.budget_max >= 200,  # likely fixed-price, keep for period check
+                )
+            )
+
+        if clean_terms:
+            term_clauses = []
+            for term in clean_terms[:40]:
+                like = f"%{term}%"
+                term_clauses.append(
+                    or_(
+                        JobRecord.title.ilike(like),
+                        JobRecord.description.ilike(like),
+                        JobRecord.company.ilike(like),
+                        JobRecord.location.ilike(like),
+                        JobRecord.analysis_summary.ilike(like),
+                        JobRecord.seniority.ilike(like),
+                        # JSON text search (Postgres + SQLite-compatible cast via cast-as-text
+                        # is dialect-sensitive; ILIKE on cast works for both in practice).
+                        func.cast(JobRecord.tags, String).ilike(like),
+                        func.cast(JobRecord.enrichment, String).ilike(like),
+                    )
+                )
+            query = query.where(or_(*term_clauses))
+            query = (
+                query.order_by(desc(JobRecord.created_at)).offset(offset).limit(limit)
+            )
+        else:
+            # Cold start: recent pool only.
+            query = (
+                query.order_by(desc(JobRecord.created_at))
+                .offset(offset)
+                .limit(min(limit, recent_fallback_limit))
+            )
+
         result = await self.session.execute(query)
         return list(result.scalars().all())
 

@@ -22,6 +22,7 @@ class NotificationChannel(str, Enum):
     EMAIL = "email"
     SLACK = "slack"
     WEBHOOK = "webhook"
+    IN_APP = "in_app"
 
 
 class NotificationPriority(str, Enum):
@@ -52,6 +53,7 @@ class NotificationPayload:
     actions: list[NotificationAction] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     destinations: dict[str, str] = field(default_factory=dict)
+    html_body: str | None = None
 
 
 @dataclass(slots=True)
@@ -79,6 +81,7 @@ class NotificationEnvelope:
     last_error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     destinations: dict[str, str] = field(default_factory=dict)
+    html_body: str | None = None
 
 
 class DeliveryAdapter(Protocol):
@@ -356,6 +359,7 @@ class EmailAdapter:
         to_address: str,
         title: str,
         body: str,
+        html_body: str | None = None,
     ) -> None:
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
@@ -365,6 +369,8 @@ class EmailAdapter:
         msg["To"] = to_address
         msg["Subject"] = title
         msg.attach(MIMEText(body, "plain"))
+        if html_body:
+            msg.attach(MIMEText(html_body, "html"))
         if smtp_port == 465:
             with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as smtp:
                 smtp.login(username, password)
@@ -382,6 +388,7 @@ class EmailAdapter:
         to_address: str,
         title: str,
         body: str,
+        html_body: str | None = None,
     ) -> tuple[int, str]:
         import httpx
 
@@ -389,7 +396,7 @@ class EmailAdapter:
             self._cfg("PUBLIC_APP_URL", "public_app_url", "http://localhost:3000")
             or "http://localhost:3000"
         ).rstrip("/")
-        payload = {
+        payload: dict[str, Any] = {
             "from": from_address,
             "to": [to_address],
             "subject": title,
@@ -399,6 +406,8 @@ class EmailAdapter:
                 "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
             },
         }
+        if html_body:
+            payload["html"] = html_body
         with httpx.Client(timeout=10.0) as client:
             resp = client.post(
                 "https://api.resend.com/emails",
@@ -436,6 +445,7 @@ class EmailAdapter:
                     to_address,
                     envelope.title,
                     envelope.body,
+                    envelope.html_body,
                 )
                 if 200 <= status_code < 300:
                     return NotificationResult(
@@ -468,6 +478,7 @@ class EmailAdapter:
                 to_address,
                 envelope.title,
                 envelope.body,
+                envelope.html_body,
             )
             return NotificationResult(
                 channel=self.channel, delivered=True, message_id="smtp"
@@ -481,6 +492,15 @@ class EmailAdapter:
             return NotificationResult(
                 channel=self.channel, delivered=False, error=str(exc)
             )
+
+
+class InAppAdapter:
+    async def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+        return NotificationResult(
+            channel=NotificationChannel.IN_APP,
+            delivered=True,
+            message_id=f"inbox-{envelope.id}",
+        )
 
 
 class NotificationService:
@@ -500,6 +520,7 @@ class NotificationService:
             NotificationChannel.EMAIL: EmailAdapter(),
             NotificationChannel.SLACK: SlackAdapter(),
             NotificationChannel.WEBHOOK: CustomWebhookAdapter(),
+            NotificationChannel.IN_APP: InAppAdapter(),
         }
         self._retry_queue: list[NotificationEnvelope] = []
         self._history: list[NotificationEnvelope] = []
@@ -518,6 +539,7 @@ class NotificationService:
             actions=payload.actions,
             metadata=payload.metadata,
             destinations=payload.destinations,
+            html_body=payload.html_body,
         )
         self._history.append(envelope)
         if self._is_rate_limited(payload.user_id):
@@ -552,6 +574,7 @@ class NotificationService:
                     actions=envelope.actions,
                     metadata=envelope.metadata,
                     destinations=envelope.destinations,
+                    html_body=envelope.html_body,
                 )
             )
             results.append(result)

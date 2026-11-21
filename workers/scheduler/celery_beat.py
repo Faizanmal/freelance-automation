@@ -1,6 +1,7 @@
 from workers.app import celery_app
 from workers.jobs.tasks import (
     process_lead_digests_task,
+    process_outbox_task,
     scrape_jobs_task,
     sweep_stale_jobs_task,
 )
@@ -28,6 +29,12 @@ def setup_periodic_tasks(sender, **kwargs):
         900.0,  # 15 minutes
         process_lead_digests_task.s(),
         name="lead_digests_every_15m",
+    )
+    # Outbox worker: delivers pending/retried transactional notifications.
+    sender.add_periodic_task(
+        120.0,  # 2 minutes
+        process_outbox_task.s(batch_size=50),
+        name="process_outbox_every_2m",
     )
     # Stale sweeper: prune dead links and expired jobs exceeding TTL.
     sender.add_periodic_task(

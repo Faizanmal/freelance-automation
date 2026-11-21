@@ -8,6 +8,7 @@ import {
   Bookmark,
   ChevronLeft,
   ChevronRight,
+  Columns3,
   CreditCard,
   LayoutDashboard,
   Menu,
@@ -45,6 +46,8 @@ function NavIcon({ name, className }: { name?: NavItem["icon"]; className?: stri
       return <LayoutDashboard {...props} />;
     case "leads":
       return <Sparkles {...props} />;
+    case "pipeline":
+      return <Columns3 {...props} />;
     case "rules":
       return <Target {...props} />;
     case "saved":

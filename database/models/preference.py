@@ -53,6 +53,48 @@ class UserPreferences(Base):
     digest_last_sent_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    cadence: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="daily"
+    )  # realtime, daily, weekly, biweekly
+    quiet_hours_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    quiet_hours_start: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="22:00"
+    )
+    quiet_hours_end: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="08:00"
+    )
+    event_types: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=lambda: ["lead_match", "digest", "immediate_alert"],
+    )
+    is_paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_unsubscribed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    unsubscribed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    empty_digest_policy: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="suppress"
+    )  # suppress, send_empty_notification
+    immediate_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
+    immediate_alert_threshold: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.85
+    )
+    immediate_alert_cap_per_day: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=5
+    )
+    immediate_alerts_sent_today: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    immediate_alerts_date: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     alert_email: Mapped[str | None] = mapped_column(String(256), nullable=True)
     slack_webhook_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)

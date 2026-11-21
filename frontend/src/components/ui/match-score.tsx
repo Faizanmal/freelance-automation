@@ -32,7 +32,7 @@ export function MatchScore({
         fitTone(pct),
         className,
       )}
-      title="Match score is an estimate based on your Hunt Rules — not a verified guarantee"
+      title="Heuristic fit estimate from Hunt Rules — not a calibrated probability of hire or success"
     >
       <span className="text-sm font-semibold tabular-nums">{pct}%</span>
       {showLabel ? <span className="text-[11px] font-medium tracking-wide uppercase">{fitLabel(pct)}</span> : null}

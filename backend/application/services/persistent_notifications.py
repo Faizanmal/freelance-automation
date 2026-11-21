@@ -25,6 +25,13 @@ class PersistentNotificationService:
         self, payload: NotificationPayload, *, job_id: int | None = None
     ) -> dict[str, object]:
         public_id = str(uuid4())
+        event_type = str(
+            (payload.metadata or {}).get(
+                "event_type", "digest" if payload.digest else "lead_match"
+            )
+        )
+        group_key = (payload.metadata or {}).get("group_key")
+
         record = NotificationRecord(
             public_id=public_id,
             user_id=payload.user_id,
@@ -37,6 +44,9 @@ class PersistentNotificationService:
             status="sending",
             job_id=job_id,
             metadata_json=payload.metadata or {},
+            is_read=False,
+            event_type=event_type,
+            group_key=group_key,
         )
         self.session.add(record)
         await self.session.flush()

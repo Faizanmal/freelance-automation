@@ -118,6 +118,92 @@ def is_non_opportunity_noise(
 class MatchingService:
     """Score jobs with skills/keywords fit, experience, freshness, and red flags."""
 
+    def explain_ineligibility(
+        self,
+        job: JobRecord,
+        preferences: UserPreferences,
+    ) -> dict[str, object] | None:
+        """Return why a job fails hard filters, or None if eligible for scoring."""
+        terms = self._match_terms(preferences)
+        excludes = [
+            k.strip().lower()
+            for k in (preferences.exclude_keywords or [])
+            if k and k.strip()
+        ]
+        sources = [
+            s.strip().lower() for s in (preferences.sources or []) if s and s.strip()
+        ]
+        failed: list[str] = []
+        evidence: list[str] = []
+
+        if sources and (job.source_name or "").lower() not in sources:
+            failed.append("sources")
+            evidence.append(f"source '{job.source_name}' not in allowlist")
+
+        if is_non_opportunity_noise(job.title, job.description, job.url, job.company):
+            failed.append("non_opportunity_noise")
+            evidence.append("listing looks like a guide, blog, or procurement tender")
+
+        haystack = self._haystack(job)
+        for exclude in excludes:
+            if self._contains_keyword(haystack, exclude) or (
+                len(exclude) >= 4
+                and (
+                    exclude in (job.source_name or "").lower()
+                    or exclude in (job.company or "").lower()
+                    or exclude in (job.url or "").lower()
+                )
+            ):
+                failed.append("exclude_keywords")
+                evidence.append(f"matched exclusion '{exclude}'")
+                break
+
+        job_period = stored_period(job.enrichment, job.budget_min, job.budget_max)
+        min_hourly = getattr(preferences, "min_hourly_rate", None)
+        if not passes_budget_filter(
+            budget_min=job.budget_min,
+            budget_max=job.budget_max,
+            period=job_period,
+            min_project_budget=preferences.min_budget,
+            max_project_budget=preferences.max_budget,
+            min_hourly_rate=min_hourly,
+        ):
+            failed.append("budget")
+            evidence.append("outside Hunt Rules budget / hourly constraints")
+
+        if terms:
+            matched = [t for t in terms if self._contains_keyword(haystack, t)]
+            if not matched:
+                failed.append("no_skill_overlap")
+                evidence.append("no Hunt Rules skills/keywords found in listing")
+
+        if not failed:
+            return None
+        return {
+            "job_id": job.id,
+            "eligibility": "ineligible",
+            "hard_filters_failed": failed,
+            "evidence": evidence,
+            "title": job.title,
+            "source_name": job.source_name,
+        }
+
+    def _haystack(self, job: JobRecord) -> str:
+        return " ".join(
+            [
+                job.title or "",
+                job.description or "",
+                job.company or "",
+                job.location or "",
+                job.source_name or "",
+                job.url or "",
+                " ".join(job.tags or []),
+                " ".join((job.enrichment or {}).get("skills") or []),
+                job.analysis_summary or "",
+                job.seniority or "",
+            ]
+        ).lower()
+
     def score_job(
         self,
         job: JobRecord,
@@ -141,20 +227,7 @@ class MatchingService:
         if is_non_opportunity_noise(job.title, job.description, job.url, job.company):
             return None
 
-        haystack = " ".join(
-            [
-                job.title or "",
-                job.description or "",
-                job.company or "",
-                job.location or "",
-                job.source_name or "",
-                job.url or "",
-                " ".join(job.tags or []),
-                " ".join((job.enrichment or {}).get("skills") or []),
-                job.analysis_summary or "",
-                job.seniority or "",
-            ]
-        ).lower()
+        haystack = self._haystack(job)
 
         for exclude in excludes:
             if self._contains_keyword(haystack, exclude) or (

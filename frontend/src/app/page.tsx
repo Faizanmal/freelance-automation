@@ -678,6 +678,12 @@ export default function HomePage() {
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
               <Link
+                href="/pipeline"
+                className="rounded-md border border-[var(--accent)]/40 bg-[var(--accent-muted)] px-2.5 py-1 text-[var(--accent)] hover:border-[var(--accent)]"
+              >
+                Open Pipeline workspace
+              </Link>
+              <Link
                 href="/leads?filter=saved"
                 className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
               >

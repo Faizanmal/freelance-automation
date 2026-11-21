@@ -200,6 +200,10 @@ class Settings(BaseSettings):
     )
     public_app_url: str = Field("http://localhost:3000", alias="PUBLIC_APP_URL")
 
+    # Phase 07 ranking — weighted_v1 default; hybrid_v1 opt-in. Semantic off by default.
+    match_pipeline: str = Field("weighted_v1", alias="MATCH_PIPELINE")
+    match_semantic_retrieval: bool = Field(False, alias="MATCH_SEMANTIC_RETRIEVAL")
+
     @field_validator("debug", mode="before")
     @classmethod
     def _parse_debug_flag(cls, value: object) -> bool:
