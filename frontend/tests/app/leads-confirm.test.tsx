@@ -56,6 +56,7 @@ vi.mock("@/lib/api", () => ({
   getDemoFindings: vi.fn(),
   getAuthFindings: vi.fn(),
   setLeadAction: vi.fn(),
+  postMatchFeedback: vi.fn(),
   draftProposal: vi.fn(),
   submitApplication: vi.fn(),
 }));
@@ -189,6 +190,10 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
     currentStatus = status === "clear" ? null : status;
     return { job_id: jobId, status: currentStatus };
   });
+  vi.mocked(api.postMatchFeedback).mockImplementation(async (payload) => {
+    currentStatus = payload.kind === "clear" ? null : (payload.kind as any);
+    return { message: "Feedback saved", kind: payload.kind } as any;
+  });
 
   render(<LeadsPage />);
 
@@ -196,7 +201,7 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
     expect(screen.getByText("API Engineer")).toBeInTheDocument();
   });
 
-  expect(screen.getByText("95%")).toBeInTheDocument();
+  expect(screen.getAllByText("95%")[0]).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
   expect(screen.getByText("Skip: 0")).toBeInTheDocument();
 

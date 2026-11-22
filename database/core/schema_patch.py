@@ -592,6 +592,495 @@ async def ensure_missing_columns(engine: AsyncEngine) -> None:
                     """
                 )
             )
+        if dialect == "sqlite":
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS talent_profiles (
+                        id VARCHAR(36) PRIMARY KEY,
+                        user_id VARCHAR(36) NOT NULL UNIQUE,
+                        headline VARCHAR(256) NOT NULL,
+                        bio TEXT,
+                        primary_segment VARCHAR(64) NOT NULL DEFAULT 'ai_software_automation',
+                        years_experience FLOAT NOT NULL DEFAULT 1.0,
+                        location_display VARCHAR(128),
+                        is_published BOOLEAN NOT NULL DEFAULT 0,
+                        is_draft BOOLEAN NOT NULL DEFAULT 1,
+                        is_sample BOOLEAN NOT NULL DEFAULT 0,
+                        status VARCHAR(32) NOT NULL DEFAULT 'private',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS talent_skills (
+                        id VARCHAR(36) PRIMARY KEY,
+                        profile_id VARCHAR(36) NOT NULL,
+                        skill_name VARCHAR(128) NOT NULL,
+                        category VARCHAR(64) NOT NULL DEFAULT 'software',
+                        years_of_experience FLOAT NOT NULL DEFAULT 1.0,
+                        verification_status VARCHAR(32) NOT NULL DEFAULT 'unverified',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS portfolio_artifacts (
+                        id VARCHAR(36) PRIMARY KEY,
+                        profile_id VARCHAR(36) NOT NULL,
+                        title VARCHAR(256) NOT NULL,
+                        description TEXT,
+                        artifact_type VARCHAR(64) NOT NULL DEFAULT 'github_repo',
+                        url VARCHAR(512) NOT NULL,
+                        contribution_role VARCHAR(64) NOT NULL DEFAULT 'contributor',
+                        verification_status VARCHAR(32) NOT NULL DEFAULT 'unverified',
+                        evidence_summary TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS talent_availabilities (
+                        id VARCHAR(36) PRIMARY KEY,
+                        profile_id VARCHAR(36) NOT NULL UNIQUE,
+                        status VARCHAR(32) NOT NULL DEFAULT 'available',
+                        hours_per_week INTEGER NOT NULL DEFAULT 40,
+                        available_from DATETIME,
+                        expires_at DATETIME NOT NULL,
+                        last_confirmed_at DATETIME,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS talent_rates (
+                        id VARCHAR(36) PRIMARY KEY,
+                        profile_id VARCHAR(36) NOT NULL UNIQUE,
+                        min_rate FLOAT NOT NULL DEFAULT 50.0,
+                        max_rate FLOAT,
+                        currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+                        rate_type VARCHAR(32) NOT NULL DEFAULT 'hourly',
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS talent_listing_consents (
+                        id VARCHAR(36) PRIMARY KEY,
+                        profile_id VARCHAR(36) NOT NULL UNIQUE,
+                        opt_in_directory BOOLEAN NOT NULL DEFAULT 0,
+                        allow_platform_contact BOOLEAN NOT NULL DEFAULT 0,
+                        search_indexing_consent BOOLEAN NOT NULL DEFAULT 0,
+                        consented_at DATETIME,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS employer_organizations (
+                        id VARCHAR(36) PRIMARY KEY,
+                        name VARCHAR(256) NOT NULL,
+                        slug VARCHAR(128) NOT NULL UNIQUE,
+                        website VARCHAR(256),
+                        industry VARCHAR(128) NOT NULL DEFAULT 'technology',
+                        org_domain VARCHAR(128),
+                        domain_verified BOOLEAN NOT NULL DEFAULT 0,
+                        verification_status VARCHAR(32) NOT NULL DEFAULT 'unverified',
+                        owner_id VARCHAR(36) NOT NULL,
+                        is_sample BOOLEAN NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS employer_memberships (
+                        id VARCHAR(36) PRIMARY KEY,
+                        org_id VARCHAR(36) NOT NULL,
+                        user_id VARCHAR(36),
+                        email VARCHAR(256) NOT NULL,
+                        role VARCHAR(32) NOT NULL DEFAULT 'member',
+                        seat_status VARCHAR(32) NOT NULL DEFAULT 'invited',
+                        invitation_token VARCHAR(128) UNIQUE,
+                        invited_by_id VARCHAR(36),
+                        invited_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        accepted_at DATETIME,
+                        revoked_at DATETIME,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS employer_seat_audit_logs (
+                        id VARCHAR(36) PRIMARY KEY,
+                        org_id VARCHAR(36) NOT NULL,
+                        actor_id VARCHAR(36),
+                        target_user_id VARCHAR(36),
+                        action VARCHAR(64) NOT NULL,
+                        ip_address VARCHAR(64),
+                        user_agent VARCHAR(256),
+                        details JSON,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS verification_claims (
+                        id VARCHAR(36) PRIMARY KEY,
+                        user_id VARCHAR(36) NOT NULL,
+                        profile_id VARCHAR(36),
+                        claim_type VARCHAR(64) NOT NULL,
+                        level INTEGER NOT NULL DEFAULT 1,
+                        claim_source VARCHAR(32) NOT NULL DEFAULT 'user_claimed',
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        reviewer_notes TEXT,
+                        verified_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS verification_evidences (
+                        id VARCHAR(36) PRIMARY KEY,
+                        claim_id VARCHAR(36) NOT NULL,
+                        provider VARCHAR(64) NOT NULL,
+                        evidence_type VARCHAR(64) NOT NULL,
+                        provider_reference_id VARCHAR(256),
+                        evidence_payload JSON,
+                        is_valid BOOLEAN NOT NULL DEFAULT 1,
+                        submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        corrected_at DATETIME,
+                        correction_notes TEXT
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS marketplace_reports_and_appeals (
+                        id VARCHAR(36) PRIMARY KEY,
+                        reporter_user_id VARCHAR(36) NOT NULL,
+                        target_type VARCHAR(32) NOT NULL,
+                        target_id VARCHAR(36) NOT NULL,
+                        report_type VARCHAR(32) NOT NULL DEFAULT 'report',
+                        reason VARCHAR(128) NOT NULL,
+                        details TEXT NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'opened',
+                        resolution_notes TEXT,
+                        resolved_by_id VARCHAR(36),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS reputation_activities (
+                        id VARCHAR(36) PRIMARY KEY,
+                        user_id VARCHAR(36) NOT NULL,
+                        counterparty_id VARCHAR(36),
+                        entity_type VARCHAR(32) NOT NULL DEFAULT 'freelancer',
+                        event_type VARCHAR(64) NOT NULL,
+                        transaction_amount FLOAT,
+                        response_time_seconds INTEGER,
+                        event_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        is_verified_event BOOLEAN NOT NULL DEFAULT 1,
+                        is_suspicious BOOLEAN NOT NULL DEFAULT 0,
+                        decay_weight FLOAT NOT NULL DEFAULT 1.0
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS native_projects (
+                        id VARCHAR(36) PRIMARY KEY,
+                        org_id VARCHAR(36) NOT NULL,
+                        creator_id VARCHAR(36) NOT NULL,
+                        title VARCHAR(256) NOT NULL,
+                        raw_description TEXT NOT NULL,
+                        ai_scope_summary TEXT,
+                        ai_clarification_approved BOOLEAN NOT NULL DEFAULT 0,
+                        primary_segment VARCHAR(64) NOT NULL DEFAULT 'ai_software_automation',
+                        scope_level VARCHAR(32) NOT NULL DEFAULT 'medium',
+                        work_type VARCHAR(32) NOT NULL DEFAULT 'remote',
+                        commitment_type VARCHAR(32) NOT NULL DEFAULT 'contract',
+                        required_hours_per_week INTEGER NOT NULL DEFAULT 20,
+                        skills_required JSON NOT NULL,
+                        acceptance_criteria JSON NOT NULL,
+                        milestone_outline JSON NOT NULL,
+                        budget_min FLOAT NOT NULL,
+                        budget_max FLOAT NOT NULL,
+                        currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+                        rate_period VARCHAR(32) NOT NULL DEFAULT 'fixed',
+                        budget_basis_notes TEXT,
+                        hiring_deadline DATETIME NOT NULL,
+                        reconfirm_by DATETIME NOT NULL,
+                        last_reconfirmed_at DATETIME,
+                        payment_verified BOOLEAN NOT NULL DEFAULT 0,
+                        payment_provider_ref VARCHAR(128),
+                        status VARCHAR(32) NOT NULL DEFAULT 'draft',
+                        review_state VARCHAR(32) NOT NULL DEFAULT 'draft',
+                        flagged_reason VARCHAR(256),
+                        abandonment_reason VARCHAR(256),
+                        duplicate_hash VARCHAR(64),
+                        is_sample BOOLEAN NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_status_histories (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        from_status VARCHAR(32),
+                        to_status VARCHAR(32) NOT NULL,
+                        action VARCHAR(64) NOT NULL,
+                        actor_id VARCHAR(36),
+                        reason VARCHAR(256),
+                        metadata_json JSON,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_clarification_requests (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        freelancer_id VARCHAR(36) NOT NULL,
+                        question TEXT NOT NULL,
+                        answer TEXT,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        is_public BOOLEAN NOT NULL DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        answered_at DATETIME
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_candidate_shortlists (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        candidate_id VARCHAR(36) NOT NULL,
+                        stage VARCHAR(32) NOT NULL DEFAULT 'shortlisted',
+                        notes TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_moderation_queue (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        flagged_by VARCHAR(32) NOT NULL DEFAULT 'ai_safety_scanner',
+                        reason_code VARCHAR(64) NOT NULL,
+                        evidence_summary TEXT NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending_review',
+                        reviewer_id VARCHAR(36),
+                        reviewer_notes TEXT,
+                        appeal_details TEXT,
+                        appealed_at DATETIME,
+                        resolved_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            # Phase 15 Tables
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_invitations (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        org_id VARCHAR(36) NOT NULL,
+                        freelancer_id VARCHAR(36) NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        decline_reason VARCHAR(256),
+                        invited_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        expires_at DATETIME NOT NULL,
+                        responded_at DATETIME
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_applications (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        freelancer_id VARCHAR(36) NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'submitted',
+                        structured_pitch TEXT NOT NULL,
+                        relevant_artifacts JSON,
+                        proposed_rate REAL NOT NULL,
+                        proposed_rate_period VARCHAR(32) NOT NULL DEFAULT 'fixed',
+                        estimated_days INTEGER,
+                        decline_reason VARCHAR(256),
+                        withdrawn_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_conversations (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        org_id VARCHAR(36) NOT NULL,
+                        freelancer_id VARCHAR(36) NOT NULL,
+                        application_id VARCHAR(36),
+                        status VARCHAR(32) NOT NULL DEFAULT 'active',
+                        last_message_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_messages (
+                        id VARCHAR(36) PRIMARY KEY,
+                        conversation_id VARCHAR(36) NOT NULL,
+                        sender_id VARCHAR(36) NOT NULL,
+                        sender_role VARCHAR(32) NOT NULL,
+                        body TEXT NOT NULL,
+                        attachments JSON,
+                        is_read BOOLEAN NOT NULL DEFAULT 0,
+                        read_at DATETIME,
+                        flagged_as_spam BOOLEAN NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_offers (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        application_id VARCHAR(36) NOT NULL,
+                        conversation_id VARCHAR(36),
+                        org_id VARCHAR(36) NOT NULL,
+                        freelancer_id VARCHAR(36) NOT NULL,
+                        creator_id VARCHAR(36) NOT NULL,
+                        creator_role VARCHAR(32) NOT NULL,
+                        version INTEGER NOT NULL DEFAULT 1,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending_review',
+                        contract_type VARCHAR(32) NOT NULL DEFAULT 'fixed_price',
+                        agreed_amount REAL NOT NULL,
+                        currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+                        milestones JSON,
+                        scope_summary TEXT NOT NULL,
+                        decision_deadline DATETIME NOT NULL,
+                        rejection_reason VARCHAR(256),
+                        lock_version INTEGER NOT NULL DEFAULT 1,
+                        accepted_at DATETIME,
+                        rejected_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_offer_revisions (
+                        id VARCHAR(36) PRIMARY KEY,
+                        offer_id VARCHAR(36) NOT NULL,
+                        version INTEGER NOT NULL,
+                        author_id VARCHAR(36) NOT NULL,
+                        author_role VARCHAR(32) NOT NULL,
+                        change_summary TEXT NOT NULL,
+                        contract_type VARCHAR(32) NOT NULL,
+                        agreed_amount REAL NOT NULL,
+                        milestones JSON,
+                        scope_summary TEXT NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_match_scores (
+                        id VARCHAR(36) PRIMARY KEY,
+                        project_id VARCHAR(36) NOT NULL,
+                        freelancer_id VARCHAR(36) NOT NULL,
+                        overall_score REAL NOT NULL,
+                        skill_score REAL NOT NULL,
+                        budget_score REAL NOT NULL,
+                        availability_score REAL NOT NULL,
+                        work_pref_score REAL NOT NULL,
+                        newcomer_boost REAL NOT NULL DEFAULT 0.0,
+                        breakdown_json JSON,
+                        missing_information_json JSON,
+                        hard_filter_passed BOOLEAN NOT NULL DEFAULT 1,
+                        calculated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            )
         if await _table_columns(conn, "jobs", dialect):
             await conn.execute(
                 text(

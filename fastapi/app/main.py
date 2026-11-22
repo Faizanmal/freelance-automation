@@ -18,9 +18,12 @@ from app.api.v1 import (
     health,
     integrations,
     jobs,
+    matching,
+    network,
     notifications,
     pipeline,
     preferences,
+    projects,
     roadmap,
     telemetry,
     trust,
@@ -221,6 +224,9 @@ def create_app() -> FastAPI:
     app.include_router(telemetry.router, prefix="/api/v1")
     app.include_router(trust.router, prefix="/api/v1")
     app.include_router(finance.router, prefix="/api/v1")
+    app.include_router(network.router, prefix="/api/v1")
+    app.include_router(projects.router, prefix="/api/v1")
+    app.include_router(matching.router, prefix="/api/v1")
 
     app.include_router(auth.router)
     app.include_router(billing.router)
@@ -238,6 +244,7 @@ def create_app() -> FastAPI:
     app.include_router(telemetry.router)
     app.include_router(trust.router)
     app.include_router(finance.router)
+    app.include_router(matching.router)
 
     @app.get("/")
     async def root() -> dict[str, object]:

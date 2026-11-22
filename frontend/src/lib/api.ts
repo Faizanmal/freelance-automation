@@ -2876,3 +2876,1058 @@ export async function deleteUserEarning(id: string) {
     auth: true,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Phase 13 — Verified Talent & Employer Network APIs
+// ---------------------------------------------------------------------------
+
+export async function getNetworkProfile() {
+  return request<{ profile: any }>("/network/profile", { auth: true });
+}
+
+export async function updateNetworkProfile(payload: {
+  headline?: string;
+  bio?: string;
+  primary_segment?: string;
+  years_experience?: number;
+  location_display?: string;
+}) {
+  return request<{ message: string; profile_id: string }>("/network/profile", {
+    method: "PUT",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function addNetworkSkill(payload: {
+  skill_name: string;
+  category?: string;
+  years_of_experience?: number;
+  skill_id?: string;
+}) {
+  return request<{ message: string; skill: any }>("/network/profile/skills", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteNetworkSkill(skillId: string) {
+  return request<{ message: string }>(`/network/profile/skills/${skillId}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
+export async function addNetworkArtifact(payload: {
+  title: string;
+  url: string;
+  artifact_type?: string;
+  contribution_role?: string;
+  description?: string;
+  artifact_id?: string;
+}) {
+  return request<{ message: string; artifact: any }>("/network/profile/artifacts", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteNetworkArtifact(artifactId: string) {
+  return request<{ message: string }>(`/network/profile/artifacts/${artifactId}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
+export async function updateNetworkAvailability(payload: {
+  status: string;
+  hours_per_week?: number;
+  available_from?: string;
+  expires_at?: string;
+}) {
+  return request<{ message: string; availability: any }>("/network/profile/availability", {
+    method: "PUT",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateNetworkRates(payload: {
+  min_rate: number;
+  max_rate?: number;
+  currency?: string;
+  rate_type?: string;
+}) {
+  return request<{ message: string; rates: any }>("/network/profile/rates", {
+    method: "PUT",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateNetworkConsent(payload: {
+  opt_in_directory: boolean;
+  allow_platform_contact?: boolean;
+  search_indexing_consent?: boolean;
+}) {
+  return request<{ message: string; consent: any }>("/network/profile/consent", {
+    method: "PUT",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function publishNetworkProfile() {
+  return request<{ message: string; status: string }>("/network/profile/publish", {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function unpublishNetworkProfile() {
+  return request<{ message: string; status: string }>("/network/profile/unpublish", {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function getNetworkPreview() {
+  return request<{ preview: any }>("/network/profile/preview", { auth: true });
+}
+
+export async function searchTalentDirectory(params: {
+  skills?: string[];
+  work_type?: string;
+  min_rate?: number;
+  max_rate?: number;
+  currency?: string;
+  availability?: string;
+  min_level?: number;
+  primary_segment?: string;
+  include_sample?: boolean;
+  limit?: number;
+  offset?: number;
+}) {
+  const q = new URLSearchParams();
+  if (params.skills) {
+    params.skills.forEach((s) => q.append("skills", s));
+  }
+  if (params.work_type) q.append("work_type", params.work_type);
+  if (params.min_rate !== undefined) q.append("min_rate", String(params.min_rate));
+  if (params.max_rate !== undefined) q.append("max_rate", String(params.max_rate));
+  if (params.currency) q.append("currency", params.currency);
+  if (params.availability) q.append("availability", params.availability);
+  if (params.min_level !== undefined) q.append("min_level", String(params.min_level));
+  if (params.primary_segment) q.append("primary_segment", params.primary_segment);
+  if (params.include_sample !== undefined) q.append("include_sample", String(params.include_sample));
+  if (params.limit !== undefined) q.append("limit", String(params.limit));
+  if (params.offset !== undefined) q.append("offset", String(params.offset));
+
+  const queryStr = q.toString() ? `?${q.toString()}` : "";
+  return request<{
+    total: number;
+    limit: number;
+    offset: number;
+    items: any[];
+    has_more: boolean;
+  }>(`/network/directory${queryStr}`, { auth: true });
+}
+
+export async function getPublicTalentProfile(profileId: string) {
+  return request<{ talent: any }>(`/network/directory/${profileId}`, { auth: true });
+}
+
+export async function createEmployerOrg(payload: {
+  name: string;
+  website?: string;
+  industry?: string;
+  org_domain?: string;
+  is_sample?: boolean;
+}) {
+  return request<{ message: string; organization: any }>("/network/organizations", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getEmployerOrgs() {
+  return request<{ organizations: any[] }>("/network/organizations", { auth: true });
+}
+
+export async function getEmployerOrgDetails(orgId: string) {
+  return request<{ organization: any }>(`/network/organizations/${orgId}`, { auth: true });
+}
+
+export async function inviteEmployerOrgMember(
+  orgId: string,
+  payload: { email: string; role: string }
+) {
+  return request<{ message: string; invitation: any }>(
+    `/network/organizations/${orgId}/invitations`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function acceptEmployerOrgInvitation(token: string) {
+  return request<{
+    message: string;
+    organization_id: string;
+    role: string;
+    seat_status: string;
+  }>(`/network/organizations/invitations/${token}/accept`, {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function updateEmployerOrgMemberRole(
+  orgId: string,
+  membershipId: string,
+  role: string
+) {
+  return request<{ message: string; role: string }>(
+    `/network/organizations/${orgId}/members/${membershipId}`,
+    {
+      method: "PUT",
+      auth: true,
+      body: JSON.stringify({ role }),
+    }
+  );
+}
+
+export async function revokeEmployerOrgSeat(orgId: string, membershipId: string) {
+  return request<{ message: string; seat_status: string }>(
+    `/network/organizations/${orgId}/members/${membershipId}`,
+    {
+      method: "DELETE",
+      auth: true,
+    }
+  );
+}
+
+export async function getEmployerOrgAuditLogs(orgId: string, limit: number = 50) {
+  return request<{ audit_logs: any[] }>(
+    `/network/organizations/${orgId}/audit-logs?limit=${limit}`,
+    { auth: true }
+  );
+}
+
+export async function createVerificationClaim(payload: {
+  claim_type: string;
+  profile_id?: string;
+  reviewer_notes?: string;
+}) {
+  return request<{ message: string; claim: any }>("/network/verification/claims", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function submitVerificationEvidence(
+  claimId: string,
+  payload: {
+    provider: string;
+    evidence_type: string;
+    provider_reference_id?: string;
+    evidence_payload: Record<string, unknown>;
+  }
+) {
+  return request<{ message: string; evidence_id: string }>(
+    `/network/verification/claims/${claimId}/evidence`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function correctVerificationEvidence(
+  evidenceId: string,
+  payload: {
+    correction_notes: string;
+    updated_payload?: Record<string, unknown>;
+    updated_reference_id?: string;
+  }
+) {
+  return request<{ message: string; evidence_id: string }>(
+    `/network/verification/evidence/${evidenceId}/correction`,
+    {
+      method: "PUT",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function runSandboxVerification(
+  claimId: string,
+  payload: {
+    user_handle_or_email: string;
+    target_resource: string;
+    claimed_role?: string;
+  }
+) {
+  return request<any>(`/network/verification/claims/${claimId}/sandbox-verify`, {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getNetworkReputation(
+  userId: string,
+  entityType: "freelancer" | "employer" = "freelancer"
+) {
+  return request<{ reputation: any }>(
+    `/network/reputation/${userId}?entity_type=${entityType}`,
+    { auth: true }
+  );
+}
+
+export async function submitMarketplaceReport(payload: {
+  target_type: string;
+  target_id: string;
+  report_type?: "report" | "appeal";
+  reason: string;
+  details: string;
+}) {
+  return request<{ message: string; report_id: string; status: string }>("/network/reports", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 14: Client Projects & Proof of Hiring Intent API
+// ---------------------------------------------------------------------------
+
+export interface ProjectTemplate {
+  title: string;
+  scope_level: "small" | "medium" | "large" | "enterprise";
+  primary_segment: string;
+  suggested_budget_range: [number, number];
+  suggested_timeline_days: number;
+  skills_required: string[];
+  deliverables: string[];
+  acceptance_criteria: string[];
+  boundaries: string[];
+  budget_basis_notes: string;
+}
+
+export interface ScopeClarificationResult {
+  deliverables: string[];
+  boundaries: string[];
+  acceptance_criteria: string[];
+  suggested_skills: string[];
+  budget_basis_notes: string;
+  unknowns: string[];
+  summary: string;
+  content_flag: boolean;
+  content_reason: string | null;
+  duplicate_hash: string;
+}
+
+export interface NativeProjectItem {
+  id: string;
+  org_id: string;
+  title: string;
+  status: string;
+  review_state?: string;
+  scope_level: string;
+  budget_min: number;
+  budget_max: number;
+  currency: string;
+  rate_period: string;
+  hiring_deadline: string;
+  reconfirm_by?: string;
+  created_at: string;
+  primary_segment?: string;
+  work_type?: string;
+  budget_basis_notes?: string;
+  skills_required?: string[];
+  acceptance_criteria?: string[];
+  hiring_intent_evidence?: HiringIntentEvidence;
+}
+
+export interface HiringIntentEvidence {
+  verified_org: boolean;
+  org_name: string;
+  verified_contact_method: boolean;
+  payment_method_status: string;
+  payment_verified: boolean;
+  unverified_payment_notice: string;
+  prior_hires_count: number;
+  response_rate_percent: number;
+  decision_deadline: string;
+  reconfirm_by: string;
+  freshness_status: "fresh" | "needs_reconfirmation" | "expired";
+  native_application_fee: number;
+}
+
+export interface CandidateShortlistEntry {
+  id: string;
+  candidate_id: string;
+  stage: "shortlisted" | "interviewing" | "offered" | "hired" | "declined";
+  notes?: string;
+  created_at: string;
+}
+
+export interface ProjectStatusHistoryEntry {
+  id: string;
+  from_status: string;
+  to_status: string;
+  action: string;
+  actor_id: string;
+  reason?: string;
+  created_at: string;
+}
+
+export interface ProjectClarificationItem {
+  id: string;
+  project_id: string;
+  freelancer_id: string;
+  freelancer_name?: string;
+  question: string;
+  answer?: string | null;
+  is_public: boolean;
+  status: "pending" | "answered" | "dismissed";
+  created_at: string;
+  answered_at?: string | null;
+}
+
+export async function getProjectTemplates() {
+  return request<{ templates: Record<string, ProjectTemplate> }>("/projects/templates", {
+    auth: true,
+  });
+}
+
+export async function clarifyProjectScope(payload: {
+  raw_description: string;
+  template_key?: string;
+  skills_hint?: string[];
+}) {
+  return request<{ clarification: ScopeClarificationResult }>("/projects/clarify-scope", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createProjectBrief(payload: {
+  org_id: string;
+  title: string;
+  raw_description: string;
+  budget_min: number;
+  budget_max: number;
+  hiring_deadline: string;
+  currency?: string;
+  rate_period?: "hourly" | "fixed" | "monthly_retainer";
+  scope_level?: "small" | "medium" | "large" | "enterprise";
+  work_type?: "remote" | "hybrid" | "onsite";
+  commitment_type?: "contract" | "full_time" | "part_time";
+  required_hours_per_week?: number;
+  skills_required?: string[];
+  acceptance_criteria?: string[];
+  milestone_outline?: Array<{ title: string; days: number; deliverable: string }>;
+  template_key?: string;
+  is_sample?: boolean;
+}) {
+  return request<{
+    message: string;
+    project: {
+      id: string;
+      org_id: string;
+      title: string;
+      status: string;
+      ai_clarification_approved: boolean;
+      ai_scope_summary: string | null;
+      budget_min: number;
+      budget_max: number;
+      currency: string;
+      hiring_deadline: string;
+    };
+  }>("/projects", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listProjects(params?: {
+  org_id?: string;
+  view?: "client" | "freelancer";
+  status_filter?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.org_id) query.append("org_id", params.org_id);
+  if (params?.view) query.append("view", params.view);
+  if (params?.status_filter) query.append("status_filter", params.status_filter);
+  const qs = query.toString();
+  return request<{ projects: NativeProjectItem[]; count: number }>(
+    `/projects${qs ? `?${qs}` : ""}`,
+    { auth: true }
+  );
+}
+
+export async function getProjectDetails(projectId: string) {
+  return request<{
+    project: NativeProjectItem & {
+      raw_description: string;
+      ai_scope_summary?: string;
+      ai_clarification_approved: boolean;
+      commitment_type: string;
+      required_hours_per_week: number;
+      milestone_outline?: any[];
+      is_client_owner: boolean;
+      shortlisted_candidates?: CandidateShortlistEntry[];
+      status_history?: ProjectStatusHistoryEntry[];
+      flagged_reason?: string;
+    };
+  }>(`/projects/${projectId}`, { auth: true });
+}
+
+export async function approveProjectAiScope(
+  projectId: string,
+  payload?: { custom_summary?: string }
+) {
+  return request<{ message: string; ai_clarification_approved: boolean }>(
+    `/projects/${projectId}/ai-scope/approve`,
+    {
+      method: "PUT",
+      auth: true,
+      body: JSON.stringify(payload || {}),
+    }
+  );
+}
+
+export async function submitProjectBrief(projectId: string) {
+  return request<{
+    message: string;
+    status: string;
+    review_state: string;
+    flagged_reason?: string;
+  }>(`/projects/${projectId}/submit`, {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function transitionProjectStatus(
+  projectId: string,
+  payload: {
+    target_status: string;
+    reason?: string;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  return request<{ message: string; status: string }>(
+    `/projects/${projectId}/transition`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function reconfirmProjectHiringIntent(projectId: string) {
+  return request<{ message: string; reconfirm_by: string }>(
+    `/projects/${projectId}/reconfirm`,
+    {
+      method: "POST",
+      auth: true,
+    }
+  );
+}
+
+export async function shortlistProjectCandidate(
+  projectId: string,
+  payload: { candidate_id: string; notes?: string }
+) {
+  return request<{ message: string; shortlist_id: string; stage: string }>(
+    `/projects/${projectId}/shortlist`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function updateProjectCandidateStage(
+  projectId: string,
+  candidateId: string,
+  payload: {
+    stage: "shortlisted" | "interviewing" | "offered" | "hired" | "declined";
+    notes?: string;
+  }
+) {
+  return request<{ message: string; stage: string }>(
+    `/projects/${projectId}/shortlist/${candidateId}`,
+    {
+      method: "PUT",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function submitProjectClarification(
+  projectId: string,
+  payload: { question: string }
+) {
+  return request<{ message: string; clarification_id: string }>(
+    `/projects/${projectId}/clarifications`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function answerProjectClarification(
+  clarificationId: string,
+  payload: { answer: string; is_public?: boolean }
+) {
+  return request<{ message: string; status: string }>(
+    `/projects/clarifications/${clarificationId}/answer`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function getProjectClarifications(
+  projectId: string,
+  includePending: boolean = false
+) {
+  return request<{ clarifications: ProjectClarificationItem[] }>(
+    `/projects/${projectId}/clarifications?include_pending=${includePending}`,
+    { auth: true }
+  );
+}
+
+export async function appealProjectModeration(
+  projectId: string,
+  payload: { appeal_details: string }
+) {
+  return request<{ message: string; queue_id: string }>(
+    `/projects/${projectId}/appeal`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function listModerationQueue(limit: number = 50) {
+  return request<{ queue: any[] }>(`/projects/moderation/queue?limit=${limit}`, {
+    auth: true,
+  });
+}
+
+export async function resolveModerationQueueEntry(
+  queueId: string,
+  payload: { decision: "approved" | "rejected"; reviewer_notes: string }
+) {
+  return request<{ message: string; status: string }>(
+    `/projects/moderation/${queueId}/resolve`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 15: Fair Marketplace Matching, Applications, Messaging & Negotiation
+// ---------------------------------------------------------------------------
+
+export type CandidateMatchItem = {
+  freelancer_id: string;
+  headline: string;
+  overall_score: number;
+  skill_score: number;
+  budget_score: number;
+  availability_score: number;
+  work_pref_score: number;
+  newcomer_boost: number;
+  reasons: string[];
+  missing_information: string[];
+  is_newcomer: boolean;
+  verification_level: number;
+};
+
+export type ProjectApplicationItem = {
+  id: string;
+  project_id: string;
+  freelancer_id: string;
+  structured_pitch: string;
+  relevant_artifacts: string[];
+  proposed_rate: number;
+  proposed_rate_period: string;
+  estimated_days: number;
+  status: string;
+  created_at: string;
+};
+
+export type ProjectConversationItem = {
+  id: string;
+  project_id: string;
+  freelancer_id: string;
+  org_id: string;
+  is_reported: boolean;
+  is_blocked: boolean;
+  last_message_at: string;
+  created_at: string;
+};
+
+export type ProjectMessageAttachment = {
+  name: string;
+  size_bytes: number;
+  content_type: string;
+  sha256_hash?: string;
+};
+
+export type ProjectMessageItem = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_role: string;
+  content: string;
+  attachments: ProjectMessageAttachment[];
+  read_at: string | null;
+  created_at: string;
+};
+
+export type ProjectOfferMilestone = {
+  title: string;
+  amount: number;
+  due_days: number;
+};
+
+export type ProjectOfferItem = {
+  id: string;
+  project_id: string;
+  org_id: string;
+  freelancer_id: string;
+  application_id: string;
+  agreed_amount: number;
+  currency: string;
+  contract_type: string;
+  milestones: ProjectOfferMilestone[];
+  scope_summary: string;
+  version: number;
+  status: string;
+  creator_role: string;
+  decision_deadline: string;
+  accepted_at: string | null;
+  declined_at: string | null;
+  created_at: string;
+};
+
+export type MarketplaceMetrics = {
+  mode: "simulated" | "actual";
+  disclaimer: string;
+  metrics: {
+    time_spent_by_each_side_sec: Record<string, number>;
+    relevant_candidate_rate: number;
+    response_latency_hours: number;
+    offer_acceptance_rate: number;
+    newcomer_inclusion_rate: number;
+    total_matches_computed: number;
+    total_applications: number;
+    total_offers_created: number;
+    total_offers_accepted: number;
+  };
+};
+
+export async function getProjectShortlist(
+  projectId: string,
+  params?: { limit?: number; request_more?: boolean; more_reason?: string }
+) {
+  const query = new URLSearchParams();
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.request_more) query.set("request_more", "true");
+  if (params?.more_reason) query.set("more_reason", params.more_reason);
+  return request<{
+    project_id: string;
+    shortlist: CandidateMatchItem[];
+    count: number;
+    requested_more: boolean;
+    more_reason?: string;
+  }>(`/matching/projects/${projectId}/shortlist?${query.toString()}`, {
+    auth: true,
+  });
+}
+
+export async function submitExpressionOfInterest(
+  projectId: string,
+  payload: {
+    structured_pitch: string;
+    relevant_artifacts?: string[];
+    proposed_rate?: number;
+    proposed_rate_period?: string;
+    estimated_days?: number;
+  }
+) {
+  return request<{ message: string; application_id: string; status: string }>(
+    `/matching/projects/${projectId}/apply`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function inviteTalentToProject(
+  projectId: string,
+  payload: { freelancer_id: string; invitation_note?: string }
+) {
+  return request<{ message: string; invitation_id: string; status: string }>(
+    `/matching/projects/${projectId}/invite`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function respondToProjectInvitation(
+  invitationId: string,
+  payload: { action: "accept" | "decline"; decline_reason?: string }
+) {
+  return request<{ message: string; status: string }>(
+    `/matching/invitations/${invitationId}/respond`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function listProjectApplications(projectId: string) {
+  return request<{ applications: ProjectApplicationItem[] }>(
+    `/matching/projects/${projectId}/applications`,
+    { auth: true }
+  );
+}
+
+export async function listFreelancerApplications() {
+  return request<{ applications: ProjectApplicationItem[] }>(
+    `/matching/freelancer/applications`,
+    { auth: true }
+  );
+}
+
+export async function withdrawApplication(applicationId: string) {
+  return request<{ message: string; status: string }>(
+    `/matching/applications/${applicationId}/withdraw`,
+    {
+      method: "POST",
+      auth: true,
+    }
+  );
+}
+
+export async function declineApplication(
+  applicationId: string,
+  payload?: { decline_reason?: string }
+) {
+  return request<{ message: string; status: string }>(
+    `/matching/applications/${applicationId}/decline`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload || {}),
+    }
+  );
+}
+
+export async function initiateProjectConversation(
+  projectId: string,
+  freelancerId: string,
+  applicationId?: string
+) {
+  return request<{ message: string; conversation_id: string; status: string }>(
+    `/matching/conversations`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({
+        project_id: projectId,
+        freelancer_id: freelancerId,
+        application_id: applicationId,
+      }),
+    }
+  );
+}
+
+export async function getProjectConversation(conversationId: string) {
+  return request<{ conversation: ProjectConversationItem }>(
+    `/matching/conversations/${conversationId}`,
+    { auth: true }
+  );
+}
+
+export async function getConversationMessages(
+  conversationId: string,
+  limit: number = 50
+) {
+  return request<{ messages: ProjectMessageItem[] }>(
+    `/matching/conversations/${conversationId}/messages?limit=${limit}`,
+    { auth: true }
+  );
+}
+
+export async function sendConversationMessage(
+  conversationId: string,
+  payload: { content: string; attachments?: ProjectMessageAttachment[] }
+) {
+  return request<{
+    message: string;
+    message_id: string;
+    has_masked_contacts: boolean;
+  }>(`/matching/conversations/${conversationId}/messages`, {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function reportProjectConversation(
+  conversationId: string,
+  payload: { reason: string; block_counterpart?: boolean }
+) {
+  return request<{ message: string; is_reported: boolean; is_blocked: boolean }>(
+    `/matching/conversations/${conversationId}/report`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function draftNegotiationTerms(payload: {
+  project_summary: string;
+  agreed_amount: number;
+  duration_weeks?: number;
+  milestone_count?: number;
+}) {
+  return request<{
+    draft_terms: {
+      scope_summary: string;
+      milestones: ProjectOfferMilestone[];
+      payment_terms: string;
+      notes: string;
+    };
+  }>(`/matching/negotiate/draft-terms`, {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createProjectOffer(
+  projectId: string,
+  payload: {
+    application_id: string;
+    agreed_amount: number;
+    contract_type?: string;
+    milestones?: ProjectOfferMilestone[];
+    scope_summary?: string;
+    decision_deadline_days?: number;
+    conversation_id?: string;
+  }
+) {
+  return request<{
+    message: string;
+    offer_id: string;
+    version: number;
+    status: string;
+  }>(`/matching/projects/${projectId}/offers`, {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function counterProposeOffer(
+  offerId: string,
+  payload: {
+    counter_amount?: number;
+    counter_milestones?: ProjectOfferMilestone[];
+    scope_summary?: string;
+  }
+) {
+  return request<{
+    message: string;
+    offer_id: string;
+    version: number;
+    status: string;
+  }>(`/matching/offers/${offerId}/counter`, {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function acceptProjectOffer(offerId: string) {
+  return request<{
+    message: string;
+    offer_id: string;
+    status: string;
+  }>(`/matching/offers/${offerId}/accept`, {
+    method: "POST",
+    auth: true,
+  });
+}
+
+export async function declineProjectOffer(
+  offerId: string,
+  payload?: { decline_reason?: string }
+) {
+  return request<{
+    message: string;
+    offer_id: string;
+    status: string;
+  }>(`/matching/offers/${offerId}/decline`, {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function listProjectOffers(projectId: string) {
+  return request<{ offers: ProjectOfferItem[] }>(
+    `/matching/projects/${projectId}/offers`,
+    { auth: true }
+  );
+}
+
+export async function getMarketplaceMetrics(mode: "simulated" | "actual" = "simulated") {
+  return request<MarketplaceMetrics>(`/matching/metrics?mode=${mode}`, {
+    auth: true,
+  });
+}
+
+

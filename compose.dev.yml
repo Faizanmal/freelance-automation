@@ -1,5 +1,3 @@
-version: "3.9"
-
 x-api-build: &api-build
   context: .
   dockerfile: fastapi/Dockerfile
@@ -14,23 +12,33 @@ x-api-volumes: &api-volumes
   - ./ai:/app/ai
   - ./notifications:/app/notifications
 
+x-api-extra-hosts: &api-extra-hosts
+  - "host.docker.internal:host-gateway"
+
+x-api-env-files: &api-env-files
+  - path: fastapi/.env
+    required: false
+  - path: .env
+    required: false
+
 services:
   api:
     build: *api-build
     command: sh -c "alembic -c database/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --reload"
     ports:
       - "${API_HOST_PORT:-8000}:8000"
+    extra_hosts: *api-extra-hosts
+    env_file: *api-env-files
     environment:
-      APP_ENV: development
-      DEBUG: "true"
-      PROJECT_NAME: Freelance Intelligence API
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/freelance
-      REDIS_URL: redis://redis:6379/0
-      REDIS_OPTIONAL: "true"
-      JWT_SECRET_KEY: docker-dev-secret
-      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
-      SCRAPE_ON_STARTUP: "true"
-      SCRAPE_SOURCES: serpapi_freelance,serpapi_jobs,serpapi_companies
+      APP_ENV: ${APP_ENV:-development}
+      DEBUG: ${DEBUG:-true}
+      PROJECT_NAME: ${PROJECT_NAME:-Freelance Intelligence API}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+      REDIS_OPTIONAL: ${REDIS_OPTIONAL:-true}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-docker-dev-secret}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      SCRAPE_ON_STARTUP: ${SCRAPE_ON_STARTUP:-true}
+      SCRAPE_SOURCES: ${SCRAPE_SOURCES:-serpapi_freelance,serpapi_jobs,serpapi_companies}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
@@ -40,62 +48,82 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       PYTHONPATH: /app/fastapi:/app
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_started
+        required: false
+      redis:
+        condition: service_started
+        required: true
     volumes: *api-volumes
 
   worker:
     build: *api-build
     command: celery -A workers.app.celery_app worker --loglevel=info --concurrency=2
+    extra_hosts: *api-extra-hosts
+    env_file: *api-env-files
     environment:
-      APP_ENV: development
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/freelance
-      REDIS_URL: redis://redis:6379/0
-      REDIS_OPTIONAL: "true"
-      JWT_SECRET_KEY: docker-dev-secret
+      APP_ENV: ${APP_ENV:-development}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+      REDIS_OPTIONAL: ${REDIS_OPTIONAL:-true}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-docker-dev-secret}
       PYTHONPATH: /app/fastapi:/app
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_started
+        required: false
+      redis:
+        condition: service_started
+        required: true
     volumes: *api-volumes
 
   beat:
     build: *api-build
     command: celery -A workers.app.celery_app beat --loglevel=info
+    extra_hosts: *api-extra-hosts
+    env_file: *api-env-files
     environment:
-      APP_ENV: development
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/freelance
-      REDIS_URL: redis://redis:6379/0
-      REDIS_OPTIONAL: "true"
-      JWT_SECRET_KEY: docker-dev-secret
+      APP_ENV: ${APP_ENV:-development}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+      REDIS_OPTIONAL: ${REDIS_OPTIONAL:-true}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-docker-dev-secret}
       PYTHONPATH: /app/fastapi:/app
     depends_on:
-      - redis
-      - worker
+      redis:
+        condition: service_started
+        required: true
+      worker:
+        condition: service_started
+        required: true
     volumes: *api-volumes
 
   db:
     image: postgres:16-alpine
+    profiles: ["db"]
     environment:
-      POSTGRES_DB: freelance
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-freelance}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
     restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
 
   adminer:
     image: adminer:latest
+    profiles: ["db", "tools"]
     restart: always
     ports:
-      - "8080:8080"
+      - "${ADMINER_PORT:-8080}:8080"
     depends_on:
-      - db
+      db:
+        condition: service_started
+        required: false
 
   frontend:
     image: node:22-alpine
@@ -108,7 +136,9 @@ services:
     volumes:
       - ./frontend:/app
     depends_on:
-      - api
+      api:
+        condition: service_started
+        required: true
 
 volumes:
   postgres_data:

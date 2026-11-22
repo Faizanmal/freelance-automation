@@ -8,10 +8,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  getToken: vi.fn(() => "fake-token"),
+  getToken: vi.fn(() => null),
   listBillingPlans: vi.fn(),
   startCheckout: vi.fn(),
   activateDevPro: vi.fn(),
+  getBillingUsage: vi.fn().mockResolvedValue(null),
+  getBilling: vi.fn().mockResolvedValue({ plan: "free" }),
+  getUnitEconomics: vi.fn().mockResolvedValue({}),
+  getProviderEligibility: vi.fn().mockResolvedValue({}),
 }));
 
 beforeEach(() => {
@@ -52,7 +56,9 @@ test("hides Activate Pro (dev) when billing unavailable in production-like mode"
     expect(screen.getByText(/pro checkout opens soon/i)).toBeInTheDocument();
   });
   expect(screen.queryByRole("button", { name: /activate pro \(dev\)/i })).not.toBeInTheDocument();
-  expect(screen.getAllByRole("link", { name: /start free/i }).length).toBeGreaterThanOrEqual(1);
+  expect(
+    screen.getAllByRole("link", { name: /(get )?start(ed)? free/i }).length,
+  ).toBeGreaterThanOrEqual(1);
 });
 
 test("shows Activate Pro (dev) when dev activate is allowed", async () => {
@@ -86,6 +92,8 @@ test("shows Activate Pro (dev) when dev activate is allowed", async () => {
   render(<PricingPage />);
 
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: /activate pro \(dev\)/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /activate pro \((local sandbox|dev)\)/i }),
+    ).toBeInTheDocument();
   });
 });

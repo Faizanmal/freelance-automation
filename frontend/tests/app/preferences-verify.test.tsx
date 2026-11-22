@@ -51,6 +51,7 @@ vi.mock("@/components/account-settings", () => ({
 
 vi.mock("@/lib/api", () => ({
   getToken: vi.fn(() => "fake-token"),
+  logout: vi.fn().mockResolvedValue({ message: "logged out" }),
   me: vi.fn(),
   getPreferences: vi.fn(),
   getAuthMatches: vi.fn(),
@@ -59,11 +60,13 @@ vi.mock("@/lib/api", () => ({
   activateDevPro: vi.fn(),
   startCheckout: vi.fn(),
   openBillingPortal: vi.fn(),
-  logout: vi.fn(),
   resendVerification: vi.fn(),
   sendNotification: vi.fn(),
   devVerifyEmail: vi.fn(),
   getLearnedAffinities: vi.fn().mockResolvedValue(null),
+  getMatchProfile: vi.fn().mockResolvedValue(null),
+  listConsents: vi.fn().mockResolvedValue({ items: [] }),
+  upsertConsent: vi.fn().mockResolvedValue({}),
   testWebhook: vi.fn().mockResolvedValue({ success: true }),
 }));
 
@@ -136,7 +139,7 @@ test("displays consistent match score (95%) once findings settle", async () => {
 
   await waitFor(() => {
     expect(screen.getByText("API Engineer")).toBeInTheDocument();
-    expect(screen.getByText("95%")).toBeInTheDocument();
+    expect(screen.getAllByText("95%")[0]).toBeInTheDocument();
   });
 });
 

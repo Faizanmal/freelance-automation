@@ -204,6 +204,17 @@ class Settings(BaseSettings):
     match_pipeline: str = Field("weighted_v1", alias="MATCH_PIPELINE")
     match_semantic_retrieval: bool = Field(False, alias="MATCH_SEMANTIC_RETRIEVAL")
 
+    # Phase 13 talent & employer network (marketplace foundation)
+    # Feature flagged native marketplace kept private until Gate 18.
+    feature_marketplace_enabled: bool = Field(False, alias="FEATURE_MARKETPLACE_ENABLED")
+    marketplace_status: str = Field("private_preview", alias="MARKETPLACE_STATUS")
+    marketplace_initial_segment: str = Field(
+        "ai_software_automation", alias="MARKETPLACE_INITIAL_SEGMENT"
+    )
+    marketplace_sandbox_verification_enabled: bool = Field(
+        True, alias="MARKETPLACE_SANDBOX_VERIFICATION_ENABLED"
+    )
+
     @field_validator("debug", mode="before")
     @classmethod
     def _parse_debug_flag(cls, value: object) -> bool:

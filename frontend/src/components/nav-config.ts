@@ -30,7 +30,11 @@ export const AUTH_NAV: NavItem[] = [
   { href: "/finance", label: "Financials", icon: "billing", section: "workspace" },
   { href: "/preferences", label: "Hunt Rules", icon: "rules", section: "workspace" },
   { href: "/notifications", label: "Alerts", icon: "alerts", section: "workspace" },
+  { href: "/talent", label: "Talent Directory", icon: "leads", section: "workspace" },
+  { href: "/talent/profile", label: "Talent Profile", icon: "account", section: "workspace" },
   { href: "/leads?filter=saved", label: "Saved Opportunities", icon: "saved", section: "management" },
+  { href: "/employer/settings", label: "Employer Workspace", icon: "account", section: "management" },
+  { href: "/employer/projects", label: "Client Projects", icon: "pipeline", section: "management" },
   {
     href: "/marketplace",
     label: "Marketplace",

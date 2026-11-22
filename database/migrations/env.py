@@ -6,9 +6,37 @@ import sys
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from alembic.ddl.impl import DefaultImpl
+from sqlalchemy import Column, MetaData, PrimaryKeyConstraint, String, Table, pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+# Ensure alembic_version table uses VARCHAR(128) for version_num to support descriptive migration tags
+_orig_version_table_impl = DefaultImpl.version_table_impl
+
+
+def _custom_version_table_impl(
+    self,
+    *,
+    version_table: str,
+    version_table_schema: str | None,
+    version_table_pk: bool,
+    **kw,
+) -> Table:
+    vt = Table(
+        version_table,
+        MetaData(),
+        Column("version_num", String(128), nullable=False),
+        schema=version_table_schema,
+    )
+    if version_table_pk:
+        vt.append_constraint(
+            PrimaryKeyConstraint("version_num", name=f"{version_table}_pkc")
+        )
+    return vt
+
+
+DefaultImpl.version_table_impl = _custom_version_table_impl
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -45,9 +73,24 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    try:
+        if connection.dialect.name == "postgresql":
+            connection.execute(
+                text("ALTER TABLE IF EXISTS alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);")
+            )
+    except Exception:
+        pass
+
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
+        try:
+            if connection.dialect.name == "postgresql":
+                connection.execute(
+                    text("ALTER TABLE IF EXISTS alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);")
+                )
+        except Exception:
+            pass
         context.run_migrations()
 
 
@@ -62,6 +105,7 @@ async def run_async_migrations() -> None:
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
+        await connection.commit()
 
     await connectable.dispose()
 

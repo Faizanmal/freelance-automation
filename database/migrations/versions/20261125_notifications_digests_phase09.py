@@ -16,6 +16,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Ensure alembic_version can store revision identifiers longer than 32 characters on PostgreSQL
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(sa.text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);"))
+
     # 1. Update user_preferences table
     op.add_column(
         "user_preferences",
