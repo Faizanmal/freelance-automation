@@ -289,18 +289,9 @@ def _anonymize_company(company: str | None) -> str:
 def _strip_raw_markdown(text: str) -> str:
     if not text:
         return ""
-    # Strip markdown headers (###)
-    s = re.sub(r"#+\s*", "", text)
-    # Strip links [text](url) -> text
-    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
-    # Strip formatting symbols (*, _, ~)
-    s = re.sub(r"[*_~]{1,3}", "", s)
-    # Strip blockquotes
-    s = re.sub(r"^\s*>\s*", "", s, flags=re.MULTILINE)
-    # Strip code backticks
-    s = s.replace("`", "")
-    # Normalize excessive whitespace
-    return re.sub(r"\s+", " ", s).strip()
+    from backend.application.services.listing_presentation import strip_markdown_noise
+
+    return strip_markdown_noise(text)
 
 
 def _to_public_teaser(candidate_dict: dict[str, Any]) -> dict[str, Any]:

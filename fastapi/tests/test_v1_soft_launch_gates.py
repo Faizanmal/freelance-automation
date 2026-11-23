@@ -88,6 +88,8 @@ class SoftLaunchGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pro.scrape_limit, 100)
 
     async def test_g6_hunter_failure_does_not_abort_wave(self) -> None:
+        from app.ingestion.policy_gate import GateDecision
+
         session = AsyncMock()
         service = ScrapeService(session)
 
@@ -116,7 +118,43 @@ class SoftLaunchGateTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self) -> None:
                 self.fetch = bad.fetch
 
+        def _allow_all(requested, **_kwargs):
+            selected = list(requested or [])
+            return selected, {name: GateDecision(True, "ok") for name in selected}
+
         with (
+            patch(
+                "backend.application.services.scrape_service.filter_sources",
+                side_effect=_allow_all,
+            ),
+            patch(
+                "backend.application.services.scrape_service.circuit_is_open",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "backend.application.services.scrape_service.budget_exceeded",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "backend.application.services.scrape_service.acquire_source_lease",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "backend.application.services.scrape_service.release_source_lease",
+                new=AsyncMock(),
+            ),
+            patch(
+                "backend.application.services.scrape_service.record_source_success",
+                new=AsyncMock(),
+            ),
+            patch(
+                "backend.application.services.scrape_service.record_source_failure",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "backend.application.services.scrape_service.quarantine_batch",
+                new=AsyncMock(return_value="q-1"),
+            ),
             patch(
                 "backend.application.services.scrape_service.SOURCE_REGISTRY",
                 {

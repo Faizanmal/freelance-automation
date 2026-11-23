@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.ingestion.sources import SOURCE_ATTRIBUTION
@@ -8,13 +9,30 @@ EXCERPT_CHARS = 480
 
 
 def strip_html(value: str) -> str:
-    import re
-
     return re.sub(r"<[^>]+>", " ", value or "")
 
 
+def strip_markdown_noise(value: str) -> str:
+    """Remove markdown headings and common scraper prefixes from public snippets."""
+    if not value:
+        return ""
+    text = value.replace("\r\n", "\n")
+    # Drop ATX headings and Setext-style remnants.
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+    text = re.sub(r"(?m)^\s{0,3}([-=]){3,}\s*$", "", text)
+    # Drop "Title: ..." lead-ins that Serp/ATS scrapers leave in.
+    text = re.sub(r"(?im)^\s*title\s*:\s*", "", text)
+    text = re.sub(r"(?i)\btitle\s*:\s*", "", text, count=1)
+    # Inline heading markers that survived as "### Foo".
+    text = re.sub(r"#{1,6}\s*", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"[*_~`]{1,3}", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def make_excerpt(description: str, *, limit: int = EXCERPT_CHARS) -> str:
-    clean = " ".join(strip_html(description).split())
+    clean = strip_markdown_noise(strip_html(description))
+    clean = " ".join(clean.split())
     if len(clean) <= limit:
         return clean
     return clean[: limit - 1].rstrip() + "…"

@@ -274,14 +274,18 @@ async def test_fx_service_reference_and_manual_override(test_db_session: AsyncSe
 async def test_fee_templates_system_and_custom(test_user: User, test_db_session: AsyncSession):
     svc = FeeTemplateService(test_db_session)
 
-    # 1. System templates exist and are verified
+    # 1. Non-marketplace system templates exist (Stripe + Custom)
     sys_templates = svc.get_system_templates()
-    assert len(sys_templates) >= 5
-    upwork_tpl = next(t for t in sys_templates if t["platform"] == "upwork" and t["region"] == "IN")
-    assert upwork_tpl["contract_service_fee_pct"] == 10.0
-    assert upwork_tpl["fee_tax_pct"] == 18.0
-    assert upwork_tpl["withholding_tax_pct"] == 0.1
-    assert "http" in upwork_tpl["source_url"]
+    assert len(sys_templates) >= 2
+    platforms = {t["platform"] for t in sys_templates}
+    assert "upwork" not in platforms
+    assert "fiverr" not in platforms
+    assert "freelancer" not in platforms
+    assert "direct_stripe" in platforms
+    assert "custom" in platforms
+    stripe_tpl = next(t for t in sys_templates if t["platform"] == "direct_stripe")
+    assert stripe_tpl["processor_fee_pct"] == 2.9
+    assert "http" in stripe_tpl["source_url"]
 
     # 2. Create custom template for user
     custom = await svc.create_custom_template(

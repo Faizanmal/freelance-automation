@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -51,17 +52,34 @@ def diversify(
     return primary + deferred
 
 
+def _normalize_title(title: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9\s]+", " ", (title or "").lower())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # Drop common source prefixes that differ across discovery modes.
+    for prefix in ("hiring:", "job:", "role:", "position:"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+    return cleaned
+
+
 def _dedupe_key(item: RankedMatch) -> str:
     job = item.job
-    canonical = (getattr(job, "canonical_id", None) or "").strip().lower()
-    if canonical:
-        return f"canonical:{canonical}"
+    # Prefer stable content identity over per-ingest canonical UUIDs so the same
+    # role from "Company careers" and "Jobs discovery" collapses together.
+    title = _normalize_title(job.title or "")
+    company = (job.company or "").strip().lower()
+    if title and company and company not in {"unknown", "n/a", "na"}:
+        return f"title:{title}|company:{company}"
     url = (job.url or "").strip().lower()
     if url:
         parsed = urlparse(url)
-        host_path = f"{parsed.netloc}{parsed.path}".rstrip("/")
+        host = (parsed.netloc or "").lower().removeprefix("www.")
+        path = (parsed.path or "").rstrip("/")
+        # Ignore tracking querystrings; keep host+path.
+        host_path = f"{host}{path}"
         if host_path:
             return f"url:{host_path}"
-    title = (job.title or "").strip().lower()
-    company = (job.company or "").strip().lower()
+    canonical = (getattr(job, "canonical_id", None) or "").strip().lower()
+    if canonical:
+        return f"canonical:{canonical}"
     return f"title:{title}|company:{company}"

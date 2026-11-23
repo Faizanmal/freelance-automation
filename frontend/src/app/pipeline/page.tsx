@@ -279,8 +279,9 @@ export default function PipelinePage() {
               variant="outline"
               className="inline-flex h-8 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs font-semibold"
               onClick={() => exportPipeline("ics")}
+              title="Download follow-ups as an .ics calendar file"
             >
-              <CalendarClock className="size-4" /> Calendar
+              <CalendarClock className="size-4" /> Export to calendar
             </Button>
           </div>
         }

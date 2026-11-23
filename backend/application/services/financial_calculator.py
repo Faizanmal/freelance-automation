@@ -176,16 +176,39 @@ class CalculationResult:
 
         itemized = []
         for b in self.breakdown:
+            # Skip the gross row — the UI already renders a single Gross Billed header.
+            if b.get("category") == "gross":
+                continue
+            # Always compute % and primary amount in the gross (base) currency so FX
+            # never inflates "Actual Bank Deposit" into e.g. 81000 / 8100%.
             amt = float(b["amount"])
             pct = round((amt / self.gross_amount) * 100.0, 2) if self.gross_amount > 0 else 0.0
+            target_amt = (
+                round(amt * float(self.actual_conversion_rate), 2)
+                if self.actual_conversion_rate and self.target_currency
+                and self.target_currency.upper() != self.currency.upper()
+                else amt
+            )
+            notes = b["description"]
+            if (
+                b.get("category") == "net_deposit"
+                and self.target_currency
+                and self.target_currency.upper() != self.currency.upper()
+                and self.actual_deposit_target is not None
+            ):
+                notes = (
+                    f"{notes} "
+                    f"({self.actual_deposit_target:,.2f} {self.target_currency})"
+                ).strip()
             itemized.append({
                 "name": b["name"],
                 "code": b["name"].lower().replace(" ", "_"),
                 "amount_base": amt,
-                "amount_target": round(amt * (self.actual_conversion_rate or 1.0), 2),
+                "amount_target": target_amt,
                 "pct_of_gross": pct,
                 "category": b["category"],
-                "notes": b["description"],
+                "currency": b.get("currency") or self.currency,
+                "notes": notes,
             })
 
         return {

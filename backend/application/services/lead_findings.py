@@ -336,9 +336,10 @@ class LeadFindingsService:
             ]
 
         cap = max(1, min(limit, 50))
-        active_findings = [
-            f for f in findings if f.job.id not in skipped
-        ][:cap]
+        # Cap the ranked list first, then exclude skips so All does not refill
+        # a replacement lead on reload (keeps All/Skipped stable across refresh).
+        capped = findings[:cap]
+        active_findings = [f for f in capped if f.job.id not in skipped]
         skipped_findings = (
             [f for f in findings if f.job.id in skipped][:25]
             if include_skipped
@@ -346,7 +347,7 @@ class LeadFindingsService:
         )
         findings = active_findings + skipped_findings
 
-        action_counts = {"draft_bid": 0, "watch": 0, "skip": len(skipped_findings)}
+        action_counts = {"draft_bid": 0, "watch": 0, "skip": len(skipped)}
 
         for finding in active_findings:
 
@@ -387,7 +388,7 @@ class LeadFindingsService:
 
             "total_findings": len(active_findings),
 
-            "skipped_count": len(skipped_findings),
+            "skipped_count": len(skipped),
 
             "freelance_focus": freelance_focus,
 

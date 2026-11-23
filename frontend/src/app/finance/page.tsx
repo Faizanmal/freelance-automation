@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useIsAuthenticated } from "@/lib/auth-state";
 import { getErrorMessage } from "@/lib/errors";
 import {
@@ -11,7 +11,6 @@ import {
   createUserEarning,
   deleteUserEarning,
   downloadEarningsExport,
-  getFxRates,
   getToken,
   InverseQuoteResponse,
   listFeeTemplates,
@@ -20,10 +19,28 @@ import {
 
 type TabKind = "calculator" | "inverse" | "earnings";
 
+const MARKETPLACE_PLATFORMS = new Set(["upwork", "fiverr", "freelancer"]);
+
+function formatMoney(amount: number, currency: string): string {
+  const code = (currency || "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${code} ${amount.toFixed(2)}`;
+  }
+}
+
 export default function FinancePage() {
   const [tab, setTab] = useState<TabKind>("calculator");
   const [isPending, startTransition] = useTransition();
   const [statusMsg, setStatusMsg] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const grossCalcSeq = useRef(0);
+  const inverseCalcSeq = useRef(0);
 
   // Fee templates
   const [templates, setTemplates] = useState<Awaited<ReturnType<typeof listFeeTemplates>>["templates"]>([]);
@@ -63,15 +80,18 @@ export default function FinancePage() {
   useEffect(() => {
     const token = getToken();
 
-    // Load templates
+    // Load templates (marketplace presets are filtered out)
     listFeeTemplates()
       .then((res) => {
-        setTemplates(res.templates || []);
+        const allowed = (res.templates || []).filter(
+          (tpl) => !MARKETPLACE_PLATFORMS.has(String(tpl.platform || "").toLowerCase()),
+        );
+        setTemplates(allowed);
+        if (!allowed.some((tpl) => tpl.id === selectedTemplateId) && allowed[0]) {
+          setSelectedTemplateId(allowed[0].id);
+        }
       })
       .catch(() => {});
-
-    // Initial calculation with default fixture ($800)
-    runGrossCalculation();
 
     if (token) {
       loadEarnings();
@@ -92,52 +112,104 @@ export default function FinancePage() {
     }
   };
 
-  function runGrossCalculation() {
+  function runGrossCalculation(overrides?: {
+    gross_amount?: number;
+    currency?: string;
+    target_currency?: string;
+    contract_service_fee_pct?: number;
+    fee_tax_pct?: number;
+    withholding_tax_pct?: number;
+    withdrawal_fee?: number;
+    withdrawal_count?: number;
+    processor_fee_pct?: number;
+    processor_fee_fixed?: number;
+    actual_fx_rate?: number | undefined;
+    benchmark_fx_rate?: number | undefined;
+    reported_bank_quote?: number | undefined;
+  }) {
+    const seq = ++grossCalcSeq.current;
+    const payload = {
+      gross_amount: overrides?.gross_amount ?? (Number(grossAmount) || 0),
+      currency: overrides?.currency ?? baseCurrency,
+      target_currency: overrides?.target_currency ?? targetCurrency,
+      contract_service_fee_pct: overrides?.contract_service_fee_pct ?? (Number(feePct) || 0),
+      fee_tax_pct: overrides?.fee_tax_pct ?? (Number(feeTaxPct) || 0),
+      withholding_tax_pct: overrides?.withholding_tax_pct ?? (Number(withholdingPct) || 0),
+      withholding_tax_base: "gross" as const,
+      withdrawal_fee: overrides?.withdrawal_fee ?? (Number(withdrawalFee) || 0),
+      withdrawal_count: overrides?.withdrawal_count ?? (Number(withdrawalCount) || 1),
+      processor_fee_pct: overrides?.processor_fee_pct ?? (Number(processorFeePct) || 0),
+      processor_fee_fixed: overrides?.processor_fee_fixed ?? (Number(processorFeeFixed) || 0),
+      actual_fx_rate:
+        overrides && "actual_fx_rate" in overrides
+          ? overrides.actual_fx_rate
+          : actualFxRate
+            ? Number(actualFxRate)
+            : undefined,
+      benchmark_fx_rate:
+        overrides && "benchmark_fx_rate" in overrides
+          ? overrides.benchmark_fx_rate
+          : benchmarkFxRate
+            ? Number(benchmarkFxRate)
+            : undefined,
+      reported_bank_quote:
+        overrides && "reported_bank_quote" in overrides
+          ? overrides.reported_bank_quote
+          : reportedQuote
+            ? Number(reportedQuote)
+            : undefined,
+    };
     startTransition(async () => {
       try {
-        const res = await calculateGrossToNet({
-          gross_amount: Number(grossAmount) || 0,
-          currency: baseCurrency,
-          target_currency: targetCurrency,
-          contract_service_fee_pct: Number(feePct) || 0,
-          fee_tax_pct: Number(feeTaxPct) || 0,
-          withholding_tax_pct: Number(withholdingPct) || 0,
-          withholding_tax_base: "gross",
-          withdrawal_fee: Number(withdrawalFee) || 0,
-          withdrawal_count: Number(withdrawalCount) || 1,
-          processor_fee_pct: Number(processorFeePct) || 0,
-          processor_fee_fixed: Number(processorFeeFixed) || 0,
-          actual_fx_rate: actualFxRate ? Number(actualFxRate) : undefined,
-          benchmark_fx_rate: benchmarkFxRate ? Number(benchmarkFxRate) : undefined,
-          reported_bank_quote: reportedQuote ? Number(reportedQuote) : undefined,
-        });
+        const res = await calculateGrossToNet(payload);
+        if (seq !== grossCalcSeq.current) return;
         setCalcResult(res);
         setStatusMsg(null);
       } catch (err: unknown) {
+        if (seq !== grossCalcSeq.current) return;
         setStatusMsg({ kind: "error", text: getErrorMessage(err, "") || "Failed to calculate" });
       }
     });
   }
 
-  const runInverseCalculation = () => {
+  const runInverseCalculation = (overrides?: {
+    target_net_amount?: number;
+    currency?: string;
+    hourly_hours?: number | undefined;
+    contract_service_fee_pct?: number;
+    fee_tax_pct?: number;
+    withholding_tax_pct?: number;
+    withdrawal_fee?: number;
+    processor_fee_pct?: number;
+    processor_fee_fixed?: number;
+  }) => {
+    const seq = ++inverseCalcSeq.current;
+    const payload = {
+      target_net_amount: overrides?.target_net_amount ?? (Number(targetNet) || 0),
+      currency: overrides?.currency ?? baseCurrency,
+      target_currency: undefined,
+      hourly_hours:
+        overrides && "hourly_hours" in overrides
+          ? overrides.hourly_hours
+          : hourlyHours
+            ? Number(hourlyHours)
+            : undefined,
+      contract_service_fee_pct: overrides?.contract_service_fee_pct ?? (Number(feePct) || 0),
+      fee_tax_pct: overrides?.fee_tax_pct ?? (Number(feeTaxPct) || 0),
+      withholding_tax_pct: overrides?.withholding_tax_pct ?? (Number(withholdingPct) || 0),
+      withdrawal_fee: overrides?.withdrawal_fee ?? (Number(withdrawalFee) || 0),
+      processor_fee_pct: overrides?.processor_fee_pct ?? (Number(processorFeePct) || 0),
+      processor_fee_fixed: overrides?.processor_fee_fixed ?? (Number(processorFeeFixed) || 0),
+      actual_fx_rate: undefined,
+    };
     startTransition(async () => {
       try {
-        const res = await calculateNetToGross({
-          target_net_amount: Number(targetNet) || 0,
-          currency: baseCurrency,
-          target_currency: undefined,
-          hourly_hours: hourlyHours ? Number(hourlyHours) : undefined,
-          contract_service_fee_pct: Number(feePct) || 0,
-          fee_tax_pct: Number(feeTaxPct) || 0,
-          withholding_tax_pct: Number(withholdingPct) || 0,
-          withdrawal_fee: Number(withdrawalFee) || 0,
-          processor_fee_pct: Number(processorFeePct) || 0,
-          processor_fee_fixed: Number(processorFeeFixed) || 0,
-          actual_fx_rate: undefined,
-        });
+        const res = await calculateNetToGross(payload);
+        if (seq !== inverseCalcSeq.current) return;
         setInverseResult(res);
         setStatusMsg(null);
       } catch (err: unknown) {
+        if (seq !== inverseCalcSeq.current) return;
         setStatusMsg({ kind: "error", text: getErrorMessage(err, "") || "Failed to calculate inverse quote" });
       }
     });
@@ -145,8 +217,22 @@ export default function FinancePage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      runGrossCalculation();
-    }, 250);
+      runGrossCalculation({
+        gross_amount: Number(grossAmount) || 0,
+        currency: baseCurrency,
+        target_currency: targetCurrency,
+        contract_service_fee_pct: Number(feePct) || 0,
+        fee_tax_pct: Number(feeTaxPct) || 0,
+        withholding_tax_pct: Number(withholdingPct) || 0,
+        withdrawal_fee: Number(withdrawalFee) || 0,
+        withdrawal_count: Number(withdrawalCount) || 1,
+        processor_fee_pct: Number(processorFeePct) || 0,
+        processor_fee_fixed: Number(processorFeeFixed) || 0,
+        actual_fx_rate: actualFxRate ? Number(actualFxRate) : undefined,
+        benchmark_fx_rate: benchmarkFxRate ? Number(benchmarkFxRate) : undefined,
+        reported_bank_quote: reportedQuote ? Number(reportedQuote) : undefined,
+      });
+    }, 200);
     return () => clearTimeout(timer);
   }, [
     grossAmount,
@@ -165,11 +251,23 @@ export default function FinancePage() {
   ]);
 
   useEffect(() => {
+    if (tab !== "inverse") return;
     const timer = setTimeout(() => {
-      runInverseCalculation();
-    }, 250);
+      runInverseCalculation({
+        target_net_amount: Number(targetNet) || 0,
+        currency: baseCurrency,
+        hourly_hours: hourlyHours ? Number(hourlyHours) : undefined,
+        contract_service_fee_pct: Number(feePct) || 0,
+        fee_tax_pct: Number(feeTaxPct) || 0,
+        withholding_tax_pct: Number(withholdingPct) || 0,
+        withdrawal_fee: Number(withdrawalFee) || 0,
+        processor_fee_pct: Number(processorFeePct) || 0,
+        processor_fee_fixed: Number(processorFeeFixed) || 0,
+      });
+    }, 200);
     return () => clearTimeout(timer);
   }, [
+    tab,
     targetNet,
     baseCurrency,
     hourlyHours,
@@ -338,17 +436,9 @@ export default function FinancePage() {
                   </option>
                 ))}
               </select>
-              {activeTemplate?.source_url && (
-                <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--text-muted)]">
-                  <span>Effective: {activeTemplate.effective_date}</span>
-                  <a
-                    href={activeTemplate.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[var(--accent)] underline hover:opacity-80"
-                  >
-                    Verified Official Policy ↗
-                  </a>
+              {activeTemplate?.effective_date && (
+                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  Effective: {activeTemplate.effective_date}
                 </div>
               )}
             </div>
@@ -601,12 +691,23 @@ export default function FinancePage() {
                           <td className="px-4 py-2.5">Gross Billed</td>
                           <td className="px-4 py-2.5 text-[var(--text-muted)]">—</td>
                           <td className="px-4 py-2.5 text-right">
-                            ${calcResult.calculation.gross_amount.toFixed(2)}
+                            {formatMoney(
+                              calcResult.calculation.gross_amount,
+                              calcResult.calculation.currency,
+                            )}
                           </td>
-                          <td className="px-4 py-2.5 text-right">100.0%</td>
+                          <td className="px-4 py-2.5 text-right">100.00%</td>
                           <td className="px-4 py-2.5 text-[var(--text-muted)]">Agreed contract price</td>
                         </tr>
-                        {calcResult.calculation.itemized_deductions.map((item, idx) => (
+                        {calcResult.calculation.itemized_deductions
+                          .filter((item) => item.category !== "gross" && !/gross billed/i.test(item.name))
+                          .map((item, idx) => {
+                            const amount = Number(item.amount_base) || 0;
+                            const pct =
+                              calcResult.calculation.gross_amount > 0
+                                ? (amount / calcResult.calculation.gross_amount) * 100
+                                : 0;
+                            return (
                           <tr key={idx} className="hover:bg-[var(--surface-sunken)]/20">
                             <td className="px-4 py-2 font-medium text-[var(--text)]">{item.name}</td>
                             <td className="px-4 py-2">
@@ -625,14 +726,15 @@ export default function FinancePage() {
                               )}
                             </td>
                             <td className="px-4 py-2 text-right font-medium">
-                              ${item.amount_base.toFixed(2)}
+                              {formatMoney(amount, calcResult.calculation.currency)}
                             </td>
                             <td className="px-4 py-2 text-right text-[var(--text-muted)]">
-                              {item.pct_of_gross.toFixed(2)}%
+                              {pct.toFixed(2)}%
                             </td>
                             <td className="px-4 py-2 text-[var(--text-muted)]">{item.notes}</td>
                           </tr>
-                        ))}
+                            );
+                          })}
                       </tbody>
                     </table>
                   </div>

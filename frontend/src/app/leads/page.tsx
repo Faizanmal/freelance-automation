@@ -531,26 +531,10 @@ function LeadsPageInner() {
     });
   };
 
-  const pickReason = (
-    status: "save" | "skip",
-  ): string | undefined => {
-    const options = status === "save" ? SAVE_REASONS : SKIP_REASONS;
-    const lines = options.map((o, i) => `${i + 1}. ${o.label}`).join("\n");
-    const answer = window.prompt(
-      `Optional reason (Enter 1–${options.length}, or leave blank):\n${lines}`,
-    );
-    if (!answer) return undefined;
-    const idx = Number.parseInt(answer.trim(), 10);
-    if (Number.isFinite(idx) && idx >= 1 && idx <= options.length) {
-      return options[idx - 1].id;
-    }
-    return answer.trim().slice(0, 64) || undefined;
-  };
-
   const updateLeadStatus = (
     jobId: number,
     status: "save" | "skip" | "pitched" | "won" | "clear",
-    opts?: { reason?: string; askReason?: boolean },
+    opts?: { reason?: string },
   ) => {
 
     if (!getToken()) {
@@ -561,11 +545,7 @@ function LeadsPageInner() {
 
     }
 
-    const reason =
-      opts?.reason ??
-      (opts?.askReason && (status === "save" || status === "skip")
-        ? pickReason(status)
-        : undefined);
+    const reason = opts?.reason;
 
     // Optimistic local update
 
@@ -607,6 +587,14 @@ function LeadsPageInner() {
               .slice(0, maxActive)
           : allNonSkipped;
       const skippedCount = skippedItems.length;
+      // Keep previously skipped leads that were already in the payload but are
+      // outside the current optimistic slice so skipped_count does not shrink.
+      const priorSkipped =
+        status === "skip"
+          ? Math.max(Number(current.skipped_count) || 0, skippedCount)
+          : status === "clear"
+            ? Math.max(0, (Number(current.skipped_count) || 0) - 1)
+            : Number(current.skipped_count) || skippedCount;
       const cappedItems = [...nonSkipped, ...skippedItems];
 
       return {
@@ -615,12 +603,12 @@ function LeadsPageInner() {
 
         total_findings: nonSkipped.length,
 
-        skipped_count: skippedCount,
+        skipped_count: priorSkipped,
 
         action_counts: {
           draft_bid: nonSkipped.filter((item) => item.action === "draft_bid").length,
           watch: nonSkipped.filter((item) => item.action === "watch").length,
-          skip: skippedCount,
+          skip: priorSkipped,
         },
 
         items: cappedItems,
@@ -791,14 +779,17 @@ function LeadsPageInner() {
   const statusCounts = useMemo(() => {
     const items = data?.items || [];
     const nonSkipped = items.filter((item) => item.user_status !== "skip");
+    const skippedFromItems = items.filter((item) => item.user_status === "skip").length;
     return {
-      all: nonSkipped.length,
+      // Prefer server totals so All/Skipped stay aligned across reload.
+      all: typeof data?.total_findings === "number" ? data.total_findings : nonSkipped.length,
       new: nonSkipped.filter((item) => !item.user_status).length,
       high: nonSkipped.filter((item) => item.score >= 0.7).length,
       saved: items.filter((item) => item.user_status === "save").length,
       pitched: items.filter((item) => item.user_status === "pitched" || item.user_status === "won").length,
       won: items.filter((item) => item.user_status === "won").length,
-      skipped: items.filter((item) => item.user_status === "skip").length,
+      skipped:
+        typeof data?.skipped_count === "number" ? data.skipped_count : skippedFromItems,
     };
   }, [data]);
 
@@ -1528,8 +1519,6 @@ function LeadsPageInner() {
 
                           finding.user_status === "save" ? "clear" : "save",
 
-                          finding.user_status === "save" ? undefined : { askReason: true },
-
                         )
 
                       }
@@ -1601,19 +1590,43 @@ function LeadsPageInner() {
 
                     </Button>
 
-                    <Button
-                      variant={finding.user_status === "skip" ? "outline" : "ghost"}
-                      size="sm"
-                      onClick={() =>
-                        updateLeadStatus(
-                          finding.job_id,
-                          finding.user_status === "skip" ? "clear" : "skip",
-                          finding.user_status === "skip" ? undefined : { askReason: true },
-                        )
-                      }
-                    >
-                      {finding.user_status === "skip" ? "Restore" : "Skip"}
-                    </Button>
+                    <div className="inline-flex flex-wrap items-center gap-1">
+                      <Button
+                        variant={finding.user_status === "skip" ? "outline" : "ghost"}
+                        size="sm"
+                        onClick={() =>
+                          updateLeadStatus(
+                            finding.job_id,
+                            finding.user_status === "skip" ? "clear" : "skip",
+                          )
+                        }
+                      >
+                        {finding.user_status === "skip" ? "Restore" : "Skip"}
+                      </Button>
+                      {finding.user_status !== "skip" && (
+                        <details className="relative">
+                          <summary className="cursor-pointer list-none rounded px-1.5 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]">
+                            reason
+                          </summary>
+                          <div className="absolute right-0 z-20 mt-1 flex min-w-[11rem] flex-col gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-md">
+                            {SKIP_REASONS.map((reason) => (
+                              <button
+                                key={reason.id}
+                                type="button"
+                                className="rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--surface-sunken)]"
+                                onClick={() =>
+                                  updateLeadStatus(finding.job_id, "skip", {
+                                    reason: reason.id,
+                                  })
+                                }
+                              >
+                                {reason.label}
+                              </button>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
 
                     <Button
                       variant="ghost"

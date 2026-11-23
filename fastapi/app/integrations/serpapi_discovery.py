@@ -89,6 +89,21 @@ HIGH_TRAFFIC_HOST_MARKERS: tuple[str, ...] = (
     "careerbuilder.com",
     "lensa.com",
     "snagajob.com",
+    # Aggregators / job boards / hire-me sites that look like opportunities but aren't.
+    "dailyremote.com",
+    "remoterocketship.com",
+    "jobleads.com",
+    "jobleads.co",
+    "turing.com",
+    "toptal.com",
+    "arc.dev",
+    "kickstartremote.com",
+    "app.joinhandshake.com",
+    "joinhandshake.com",
+    "starterindex.com",
+    "andrejgajdos.com",
+    "robinwieruch.de",
+    "apply.workable.com",
 )
 
 MARKETPLACE_BRAND_MARKERS: tuple[str, ...] = (

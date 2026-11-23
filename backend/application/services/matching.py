@@ -83,11 +83,37 @@ NON_OPPORTUNITY_URL_MARKERS = (
     "jobleads.com",
     "jobleads.co",
     "jobright.ai",
+    "dailyremote.com",
+    "remoterocketship.com",
+    "turing.com",
+    "toptal.com",
+    "arc.dev",
+    "kickstartremote.com",
+    "app.joinhandshake.com",
+    "joinhandshake.com",
+    "andrejgajdos.com",
+    "robinwieruch.de",
     "career.luxoft.com",
     "careers.cern",
+    "apply.workable.com",
+    ".teamtailor.com",
     "toptal.com/freelance",
     "toptal.com/developers",
 )
+
+# Host/path patterns that are careers hubs / ATS indexes rather than a single job post.
+CAREERS_HUB_URL_MARKERS = (
+    "careers.",
+    "apply.workable.com",
+    ".teamtailor.com",
+)
+
+PAGE_TYPE_JOB_POST = "job_post"
+PAGE_TYPE_LISTICLE = "listicle"
+PAGE_TYPE_BOARD_INDEX = "board_index"
+PAGE_TYPE_CAREERS_HUB = "careers_hub"
+PAGE_TYPE_PORTFOLIO = "portfolio"
+PAGE_TYPE_UNKNOWN = "unknown"
 
 NON_OPPORTUNITY_TEXT_RE = re.compile(
     r"(?:"
@@ -122,13 +148,89 @@ NON_OPPORTUNITY_TEXT_RE = re.compile(
 )
 
 
+def classify_page_type(
+    title: str | None,
+    description: str | None = None,
+    url: str | None = None,
+    company: str | None = None,
+) -> str:
+    """Classify a listing URL/text as job_post, listicle, board_index, careers_hub, or portfolio."""
+    url_lower = (url or "").lower()
+    blob = f"{title or ''} {description or ''} {company or ''}".lower()
+
+    host = ""
+    path = ""
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url_lower if "://" in url_lower else f"https://{url_lower}")
+        host = (parsed.hostname or "").lower()
+        path = (parsed.path or "").lower()
+    except Exception:
+        host = url_lower
+        path = url_lower
+
+    portfolio_hosts = ("andrejgajdos.com", "robinwieruch.de")
+    board_hosts = (
+        "dailyremote.com",
+        "remoterocketship.com",
+        "jobleads.com",
+        "jobleads.co",
+        "turing.com",
+        "toptal.com",
+        "arc.dev",
+        "kickstartremote.com",
+        "app.joinhandshake.com",
+        "joinhandshake.com",
+        "starterindex.com",
+    )
+    if any(host == h or host.endswith(f".{h}") for h in portfolio_hosts):
+        return PAGE_TYPE_PORTFOLIO
+    if any(host == h or host.endswith(f".{h}") for h in board_hosts):
+        return PAGE_TYPE_BOARD_INDEX
+    if (
+        host.startswith("careers.")
+        or host.endswith(".teamtailor.com")
+        or host == "apply.workable.com"
+        or host.endswith(".workable.com")
+        or any(marker in url_lower for marker in CAREERS_HUB_URL_MARKERS)
+    ):
+        # Keep deep links to a single opening; drop hub/index pages.
+        if not re.search(
+            r"/(?:jobs?|openings?|positions?|j)/[a-z0-9_-]{6,}",
+            path,
+        ):
+            return PAGE_TYPE_CAREERS_HUB
+        # Hub roots like /careers or /jobs with no slug.
+        if path.rstrip("/") in {"", "/careers", "/career", "/jobs", "/join-us", "/joinus"}:
+            return PAGE_TYPE_CAREERS_HUB
+    if NON_OPPORTUNITY_TEXT_RE.search(blob) and re.search(
+        r"\b(?:top\s+\d+|\d+\s+best|boilerplates?|starter\s+kits?|hire\s+me|work\s+with\s+me|my\s+portfolio)\b",
+        blob,
+    ):
+        if re.search(r"\b(?:hire\s+me|work\s+with\s+me|my\s+portfolio|available\s+for\s+hire)\b", blob):
+            return PAGE_TYPE_PORTFOLIO
+        if re.search(r"\b(?:top\s+\d+|\d+\s+best|boilerplates?|starter\s+kits?)\b", blob):
+            return PAGE_TYPE_LISTICLE
+    if any(marker in url_lower for marker in NON_OPPORTUNITY_URL_MARKERS):
+        if any(m in url_lower for m in ("/blog/", "/article/", "/guide/", "starterindex.com")):
+            return PAGE_TYPE_LISTICLE
+        return PAGE_TYPE_BOARD_INDEX
+    if NON_OPPORTUNITY_TEXT_RE.search(blob):
+        return PAGE_TYPE_LISTICLE
+    return PAGE_TYPE_JOB_POST
+
+
 def is_non_opportunity_noise(
     title: str | None,
     description: str | None = None,
     url: str | None = None,
     company: str | None = None,
 ) -> bool:
-    """Return True if a listing is a blog post, listicle, or procurement tender rather than a freelance/contract role."""
+    """Return True if a listing is a blog, board index, careers hub, portfolio, or tender."""
+    page_type = classify_page_type(title, description, url, company)
+    if page_type != PAGE_TYPE_JOB_POST:
+        return True
     url_lower = (url or "").lower()
     if any(marker in url_lower for marker in NON_OPPORTUNITY_URL_MARKERS):
         return True
