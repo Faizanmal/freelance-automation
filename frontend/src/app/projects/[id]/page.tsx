@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   AlertTriangle,
@@ -41,7 +42,7 @@ export default function NativeProjectDetailPage() {
   const params = useParams();
   const projectId = params?.id as string;
 
-  const [project, setProject] = useState<any | null>(null);
+  const [project, setProject] = useState<Awaited<ReturnType<typeof getProjectDetails>>["project"] | null>(null);
   const [clarifications, setClarifications] = useState<ProjectClarificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -92,8 +93,8 @@ export default function NativeProjectDetailPage() {
       );
       setMyApplications(thisProjectApps);
       setProjectOffers(offersRes.offers || []);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load project brief or project is not published.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load project brief or project is not published.");
     } finally {
       setLoading(false);
     }
@@ -124,8 +125,8 @@ export default function NativeProjectDetailPage() {
       setShowApplyModal(false);
       setSuccess("Expression of interest submitted successfully at $0.00 platform fee!");
       await loadProjectData(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to submit application");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to submit application");
     } finally {
       setSaving(false);
     }
@@ -138,8 +139,8 @@ export default function NativeProjectDetailPage() {
       await withdrawApplication(applicationId);
       setSuccess("Expression of interest gracefully withdrawn.");
       await loadProjectData(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to withdraw application");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to withdraw application");
     } finally {
       setSaving(false);
     }
@@ -153,11 +154,11 @@ export default function NativeProjectDetailPage() {
       await acceptProjectOffer(offerId);
       setSuccess("Offer accepted! Contract established.");
       await loadProjectData(projectId);
-    } catch (err: any) {
-      if (err?.message?.includes("Conflict") || err?.message?.includes("409") || err?.message?.includes("superseded")) {
+    } catch (err: unknown) {
+      if (getErrorMessage(err, "")?.includes("Conflict") || getErrorMessage(err, "")?.includes("409") || getErrorMessage(err, "")?.includes("superseded")) {
         setConflictWarning("Concurrency Conflict (409): This project position has already been filled or this offer has been superseded.");
       } else {
-        setError(err?.message || "Failed to accept offer");
+        setError(getErrorMessage(err, "") || "Failed to accept offer");
       }
     } finally {
       setSaving(false);
@@ -177,8 +178,8 @@ export default function NativeProjectDetailPage() {
       setShowCounterModal(false);
       setSuccess("Counter-proposal submitted for client review.");
       await loadProjectData(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to submit counter-proposal");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to submit counter-proposal");
     } finally {
       setSaving(false);
     }
@@ -202,8 +203,8 @@ export default function NativeProjectDetailPage() {
       // Reload clarifications
       const clarRes = await getProjectClarifications(projectId, false);
       setClarifications(clarRes.clarifications || []);
-    } catch (err: any) {
-      setError(err?.message || "Failed to submit clarification question.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to submit clarification question.");
     } finally {
       setSaving(false);
     }
@@ -233,7 +234,11 @@ export default function NativeProjectDetailPage() {
     );
   }
 
-  const intent = project?.hiring_intent_evidence;
+  if (!project) {
+    return <div className="container max-w-5xl mx-auto px-4 py-16 text-center text-muted-foreground">Project details are unavailable.</div>;
+  }
+
+  const intent = project.hiring_intent_evidence;
 
   return (
     <div className="container max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -416,7 +421,7 @@ export default function NativeProjectDetailPage() {
 
         {/* Right Column: Actions, Mutual Interest & Proof of Hiring Intent */}
         <div className="space-y-4">
-          {/* Mutual Interest & Application Card (100% Free / $0.00 Platform Fee) */}
+          {/* Mutual Interest & Application Card */}
           <div className="p-5 bg-card border border-border rounded-xl space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -591,7 +596,7 @@ export default function NativeProjectDetailPage() {
                 <div className="flex items-center justify-between py-1.5 border-b border-border">
                   <span className="text-muted-foreground">Application Fee:</span>
                   <span className="font-bold text-emerald-600">
-                    ${intent.native_application_fee.toFixed(2)} (100% Free)
+                    ${intent.native_application_fee.toFixed(2)} platform fee
                   </span>
                 </div>
               </div>
@@ -600,7 +605,7 @@ export default function NativeProjectDetailPage() {
             )}
 
             <div className="p-3 bg-secondary/30 rounded-lg text-[11px] text-muted-foreground leading-relaxed">
-              <strong className="text-foreground">Candidate Guarantee:</strong> Native project applications carry $0.00 platform fee. Clients are never permitted to request upfront payment or speculative unpaid tests.
+              <strong className="text-foreground">Application policy:</strong> This form shows the platform application fee before you express interest. Report requests for upfront payments or speculative unpaid tests for human review.
             </div>
           </div>
         </div>
@@ -647,7 +652,7 @@ export default function NativeProjectDetailPage() {
                   <label className="text-xs font-semibold text-foreground">Rate Period</label>
                   <select
                     value={proposedRatePeriod}
-                    onChange={(e: any) => setProposedRatePeriod(e.target.value)}
+                    onChange={(e) => setProposedRatePeriod(e.target.value as typeof proposedRatePeriod)}
                     className="w-full px-3 py-1.5 text-xs bg-background border border-border rounded"
                   >
                     <option value="hourly">Hourly ($/hr)</option>

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
-import { resendVerification, verifyEmail } from "@/lib/api";
+import { useIsAuthenticated } from "@/lib/auth-state";
+import { getToken, resendVerification, verifyEmail } from "@/lib/api";
 
 function VerifyEmailContent() {
   const router = useRouter();
@@ -12,15 +13,22 @@ function VerifyEmailContent() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const authed = useIsAuthenticated();
   const missingToken = !token;
 
   useEffect(() => {
+    const isAuthed = Boolean(getToken());
+
     if (!token) return;
 
     verifyEmail(token)
       .then(() => {
-        setMessage("Email has been successfully verified! You can now log in.");
-        setTimeout(() => router.push("/auth"), 3000);
+        if (isAuthed) {
+          setMessage("Email has been successfully verified!");
+        } else {
+          setMessage("Email has been successfully verified! You can now log in.");
+          setTimeout(() => router.push("/auth"), 3000);
+        }
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to verify email");
@@ -68,12 +76,26 @@ function VerifyEmailContent() {
         </div>
       ) : null}
       {error && <p className="text-[var(--ember)]">{error}</p>}
-      {message && <p className="text-[var(--signal)]">{message}</p>}
+      {message && (
+        <div className="space-y-4">
+          <p className="text-[var(--signal)]">{message}</p>
+          {authed ? (
+            <div>
+              <Link
+                href="/leads"
+                className="inline-flex rounded-full bg-[var(--signal)] px-5 py-2.5 font-semibold text-[var(--ink)] hover:opacity-90"
+              >
+                Go to your Desk &rarr;
+              </Link>
+            </div>
+          ) : null}
+        </div>
+      )}
       {!missingToken && !error && !message && <p className="text-[var(--mute)]">Verifying your email...</p>}
       
       <div className="pt-4">
-        <Link href="/auth" className="text-sm text-[var(--mute)] hover:text-[var(--signal)]">
-          &larr; Back to sign in
+        <Link href={authed ? "/leads" : "/auth"} className="text-sm text-[var(--mute)] hover:text-[var(--signal)]">
+          &larr; {authed ? "Back to your Desk" : "Back to sign in"}
         </Link>
       </div>
     </div>

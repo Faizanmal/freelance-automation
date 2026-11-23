@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   Building2,
@@ -29,10 +30,10 @@ import {
 } from "@/lib/api";
 
 export default function EmployerSettingsPage() {
-  const [orgs, setOrgs] = useState<any[]>([]);
+  const [orgs, setOrgs] = useState<Awaited<ReturnType<typeof getEmployerOrgs>>["organizations"]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
-  const [orgDetails, setOrgDetails] = useState<any>(null);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [orgDetails, setOrgDetails] = useState<Awaited<ReturnType<typeof getEmployerOrgDetails>>["organization"] | null>(null);
+  const [auditLogs, setAuditLogs] = useState<Awaited<ReturnType<typeof getEmployerOrgAuditLogs>>["audit_logs"]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -73,8 +74,8 @@ export default function EmployerSettingsPage() {
       if (res.organizations?.length > 0 && !selectedOrgId) {
         setSelectedOrgId(res.organizations[0].org_id);
       }
-    } catch (err: any) {
-      setError(err?.message || "Failed to load organizations");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load organizations");
     } finally {
       setLoading(false);
     }
@@ -85,8 +86,8 @@ export default function EmployerSettingsPage() {
       setSaving(true);
       const res = await getEmployerOrgDetails(orgId);
       setOrgDetails(res.organization);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load organization details");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load organization details");
     } finally {
       setSaving(false);
     }
@@ -111,8 +112,8 @@ export default function EmployerSettingsPage() {
       setOrgDomain("");
       await loadOrganizations();
       setSelectedOrgId(res.organization.id);
-    } catch (err: any) {
-      setError(err?.message || "Failed to create organization");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to create organization");
     } finally {
       setSaving(false);
     }
@@ -132,8 +133,8 @@ export default function EmployerSettingsPage() {
       setMessage("Member invited. Share the invitation token or link.");
       await loadOrgDetails(selectedOrgId);
       setInviteEmail("");
-    } catch (err: any) {
-      setError(err?.message || "Failed to invite member");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to invite member");
     } finally {
       setSaving(false);
     }
@@ -145,8 +146,8 @@ export default function EmployerSettingsPage() {
       await updateEmployerOrgMemberRole(selectedOrgId, membershipId, newRole);
       setMessage("Role updated successfully.");
       await loadOrgDetails(selectedOrgId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to update role");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to update role");
     }
   }
 
@@ -156,8 +157,8 @@ export default function EmployerSettingsPage() {
       await revokeEmployerOrgSeat(selectedOrgId, membershipId);
       setMessage("Member seat revoked.");
       await loadOrgDetails(selectedOrgId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to revoke seat");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to revoke seat");
     }
   }
 
@@ -168,8 +169,8 @@ export default function EmployerSettingsPage() {
       const res = await getEmployerOrgAuditLogs(selectedOrgId);
       setAuditLogs(res.audit_logs || []);
       setShowAuditLogs(true);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load audit logs");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load audit logs");
     } finally {
       setSaving(false);
     }
@@ -335,7 +336,7 @@ export default function EmployerSettingsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--border)]">
-                      {orgDetails.members?.map((m: any) => (
+                      {orgDetails.members?.map((m) => (
                         <tr key={m.id} className="text-[var(--text)]">
                           <td className="py-3 font-medium">{m.email}</td>
                           <td className="py-3">
@@ -506,7 +507,7 @@ export default function EmployerSettingsPage() {
               <form onSubmit={handleInviteMember} className="mt-4 space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-[var(--text-secondary)]">
-                    Colleague's Work Email
+                    Colleague&apos;s Work Email
                   </label>
                   <input
                     type="email"
@@ -571,7 +572,7 @@ export default function EmployerSettingsPage() {
               {auditLogs.length === 0 ? (
                 <p className="text-xs text-zinc-500">No seat audit records found.</p>
               ) : (
-                auditLogs.map((log: any) => (
+                auditLogs.map((log) => (
                   <div
                     key={log.id}
                     className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-xs"

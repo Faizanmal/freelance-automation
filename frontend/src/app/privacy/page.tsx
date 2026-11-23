@@ -42,10 +42,11 @@ export default function PrivacyPage() {
         <section>
           <h2 className="mb-3 text-xl font-semibold">4. Processors and sharing</h2>
           <p>
-            We share data with processors only as needed to run Signal Desk — for example hosting
-            (cloud VM / Vercel), database, email SMTP, search/discovery APIs (e.g. Tavily, SerpAPI),
-            Stripe for payments, and optional error monitoring. These parties process data under
-            their own terms and our instructions.
+            Depending on the features enabled for your account, service providers may process data
+            for hosting, databases, email delivery, public-source discovery, subscription billing,
+            site analytics, and error monitoring. The active provider list, processing locations,
+            and applicable transfer terms must be confirmed for the deployment before public
+            enrollment.
           </p>
         </section>
 
@@ -60,11 +61,16 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="mb-3 text-xl font-semibold">6. Cookies and analytics</h2>
+          <h2 className="mb-3 text-xl font-semibold">6. Analytics and browser storage</h2>
           <p>
             Sign-in uses a Bearer token stored in your browser (local storage), not an HttpOnly
-            session cookie. Optional analytics cookies run only after consent where required. See
-            the in-app cookie banner for controls.
+            session cookie. Optional site analytics load only after you accept the site analytics
+            banner. Product outcome events (currently lead save, skip, and external apply click)
+            require separate analytics consent in the account privacy center. These events do not
+            include prompts, private messages, listing identifiers, or financial amounts. Revoking
+            consent stops new product events; account deletion removes associated events. See the
+            in-app controls. The precise retention period and active provider list must be confirmed
+            before public enrollment.
           </p>
         </section>
 

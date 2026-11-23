@@ -132,11 +132,16 @@ export default function FreelanceJobsDirectoryPage() {
       />
 
       <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[var(--text)]">Browse by Specialty</h2>
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--text)]">Browse by Specialty</h2>
+            <p className="text-xs text-[var(--text-muted)]">
+              Contracts frequently match multiple skills (e.g. Python + React), so category counts reflect overlapping skill tags across unique opportunities.
+            </p>
+          </div>
           {data?.total_active ? (
-            <span className="text-xs text-[var(--text-muted)]">
-              {data.total_active} active opportunities indexed
+            <span className="shrink-0 text-xs font-medium text-[var(--text-muted)]">
+              {data.total_active} unique opportunities indexed
             </span>
           ) : null}
         </div>

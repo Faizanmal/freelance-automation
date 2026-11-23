@@ -46,11 +46,13 @@ def candidate_to_opportunity(
     evidence = [
         FieldEvidence(field="work_type", value=work_type, source="classifier", note=";".join(wt_evidence)),
     ]
-    if candidate.budget_min is not None or candidate.budget_max is not None:
+    candidate_bmin = getattr(candidate, "budget_min", None)
+    candidate_bmax = getattr(candidate, "budget_max", None)
+    if candidate_bmin is not None or candidate_bmax is not None:
         evidence.append(
             FieldEvidence(
                 field="compensation",
-                value={"min": candidate.budget_min, "max": candidate.budget_max},
+                value={"min": candidate_bmin, "max": candidate_bmax},
                 source=candidate.source_name,
                 note="period_unknown_no_fx",
             )
@@ -69,14 +71,14 @@ def candidate_to_opportunity(
         summary=None,
         employer=candidate.company,
         work_type=work_type,
-        compensation_min=candidate.budget_min,
-        compensation_max=candidate.budget_max,
+        compensation_min=getattr(candidate, "budget_min", None),
+        compensation_max=getattr(candidate, "budget_max", None),
         compensation_currency=meta.get("currency") if isinstance(meta.get("currency"), str) else None,
         compensation_period="unknown",
         location=str(loc) if loc else None,
         remote_eligible=remote,
         skills=tags[:40],
-        posted_at=candidate.posted_at,
+        posted_at=getattr(candidate, "posted_at", None),
         first_seen_at=now,
         last_seen_at=now,
         last_checked_at=now,

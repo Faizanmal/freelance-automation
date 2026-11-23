@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   Briefcase,
@@ -9,7 +10,6 @@ import {
   Clock,
   ExternalLink,
   Filter,
-  Github,
   Mail,
   RefreshCw,
   Search,
@@ -20,10 +20,10 @@ import {
   UserCheck,
   X,
 } from "lucide-react";
-import { getNetworkReputation, searchTalentDirectory } from "@/lib/api";
+import { getNetworkReputation, searchTalentDirectory, type TalentDirectoryItem } from "@/lib/api";
 
 export default function TalentDirectoryPage() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<Awaited<ReturnType<typeof searchTalentDirectory>>["items"]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,18 +40,14 @@ export default function TalentDirectoryPage() {
   const [includeSample, setIncludeSample] = useState(false);
 
   // Evidence Drawer Modal
-  const [selectedTalent, setSelectedTalent] = useState<any>(null);
-  const [talentReputation, setTalentReputation] = useState<any>(null);
+  const [selectedTalent, setSelectedTalent] = useState<TalentDirectoryItem | null>(null);
+  const [talentReputation, setTalentReputation] = useState<Awaited<ReturnType<typeof getNetworkReputation>>["reputation"] | null>(null);
   const [loadingReputation, setLoadingReputation] = useState(false);
 
   // Contact Modal
-  const [contactTalent, setContactTalent] = useState<any>(null);
+  const [contactTalent, setContactTalent] = useState<TalentDirectoryItem | null>(null);
   const [contactMsg, setContactMsg] = useState("");
   const [contactSuccess, setContactSuccess] = useState(false);
-
-  useEffect(() => {
-    fetchDirectory();
-  }, [selectedSkills, workType, currency, minRate, maxRate, availability, minLevel, includeSample]);
 
   async function fetchDirectory() {
     try {
@@ -70,12 +66,17 @@ export default function TalentDirectoryPage() {
       });
       setItems(res.items);
       setTotal(res.total);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load talent directory");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load talent directory");
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void fetchDirectory(), 0);
+    return () => window.clearTimeout(timer);
+  }, [selectedSkills, workType, currency, minRate, maxRate, availability, minLevel, includeSample]);
 
   function handleAddSkillFilter(e: React.FormEvent) {
     e.preventDefault();
@@ -90,7 +91,7 @@ export default function TalentDirectoryPage() {
     setSelectedSkills(selectedSkills.filter((s) => s !== skill));
   }
 
-  async function handleOpenEvidenceDrawer(talent: any) {
+  async function handleOpenEvidenceDrawer(talent: TalentDirectoryItem) {
     setSelectedTalent(talent);
     try {
       setLoadingReputation(true);
@@ -103,7 +104,7 @@ export default function TalentDirectoryPage() {
     }
   }
 
-  function handleOpenContact(talent: any) {
+  function handleOpenContact(talent: TalentDirectoryItem) {
     setContactTalent(talent);
     setContactMsg("");
     setContactSuccess(false);
@@ -366,7 +367,7 @@ export default function TalentDirectoryPage() {
 
                 {/* Skills */}
                 <div className="mt-4 flex flex-wrap gap-1.5">
-                  {talent.top_skills?.map((sk: any) => (
+                  {talent.top_skills?.map((sk) => (
                     <span
                       key={sk.name}
                       className={`rounded px-2 py-0.5 text-[10px] font-medium ${

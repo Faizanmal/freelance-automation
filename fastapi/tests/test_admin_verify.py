@@ -36,10 +36,13 @@ class AdminVerifyTests(unittest.IsolatedAsyncioTestCase):
         session.refresh = AsyncMock()
         session.add = MagicMock()
 
-        admin = SimpleNamespace(is_superuser=True)
+        admin = SimpleNamespace(id="admin-1", is_superuser=True)
         updated = await update_user(
             user_id="u1",
-            user_in=UserAdminUpdate(is_verified=True),
+            user_in=UserAdminUpdate(
+                is_verified=True,
+                reason="Manual verification after reviewing KYC documents",
+            ),
             current_user=admin,  # type: ignore[arg-type]
             session=session,
         )
@@ -58,8 +61,11 @@ class AdminVerifyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as ctx:
             await update_user(
                 user_id="missing",
-                user_in=UserAdminUpdate(is_verified=True),
-                current_user=SimpleNamespace(is_superuser=True),  # type: ignore[arg-type]
+                user_in=UserAdminUpdate(
+                    is_verified=True,
+                    reason="Attempted verification for missing account lookup",
+                ),
+                current_user=SimpleNamespace(id="admin-1", is_superuser=True),  # type: ignore[arg-type]
                 session=session,
             )
         self.assertEqual(ctx.exception.status_code, 404)

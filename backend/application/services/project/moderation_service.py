@@ -80,6 +80,8 @@ class ModerationService:
         reviewer_id: str,
         decision: str,  # "approved" or "rejected"
         reviewer_notes: str,
+        *,
+        commit: bool = True,
     ) -> ProjectModerationQueue:
         stmt = (
             select(ProjectModerationQueue)
@@ -122,5 +124,6 @@ class ModerationService:
             )
             self.session.add(history)
 
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
         return entry

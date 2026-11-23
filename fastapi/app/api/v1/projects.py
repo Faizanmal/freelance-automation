@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_active_superuser, get_current_user
+from app.api.dependencies import get_current_active_superuser, get_current_user, require_roles
 from backend.application.services.network.org_service import OrgService
 from backend.application.services.project import (
     ClarificationService,
@@ -23,6 +23,7 @@ from backend.application.services.project import (
 )
 from config.settings import get_settings
 from database.core.session import get_db
+from database.models.audit import AuditEvent
 from database.models.project import PROJECT_LIFECYCLE_STAGES
 from database.models.user import User
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -111,7 +112,7 @@ class AppealPayload(BaseModel):
 
 class ModerationDecisionPayload(BaseModel):
     decision: Literal["approved", "rejected"]
-    reviewer_notes: str = Field(min_length=2, max_length=4000)
+    reviewer_notes: str = Field(min_length=10, max_length=4000)
 
 
 # -------------------------------------------------------------------------
@@ -607,7 +608,7 @@ async def appeal_project(
 
 @router.get("/moderation/queue")
 async def list_moderation_queue(
-    superuser: Annotated[User, Depends(get_current_active_superuser)],
+    superuser: Annotated[User, Depends(require_roles("marketplace_moderator"))],
     session: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(default=50, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -620,7 +621,7 @@ async def list_moderation_queue(
 async def resolve_moderation(
     queue_id: str,
     payload: ModerationDecisionPayload,
-    superuser: Annotated[User, Depends(get_current_active_superuser)],
+    superuser: Annotated[User, Depends(require_roles("marketplace_moderator"))],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     service = ModerationService(session)
@@ -630,9 +631,15 @@ async def resolve_moderation(
             reviewer_id=superuser.id,
             decision=payload.decision,
             reviewer_notes=payload.reviewer_notes,
+            commit=False,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    session.add(AuditEvent(action="native_project_moderation_resolved", user_id=superuser.id, meta={
+        "queue_id": queue_id, "decision": payload.decision, "reason": payload.reviewer_notes[:500],
+    }))
+    await session.commit()
 
     return {"message": f"Moderation resolved as {entry.status}", "status": entry.status}
 

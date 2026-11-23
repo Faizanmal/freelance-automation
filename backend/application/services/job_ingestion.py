@@ -74,6 +74,17 @@ class JobIngestionService:
     ) -> dict[str, object]:
         # Google Jobs / board tokens can exceed jobs.source_id VARCHAR(512).
         candidate.source_id = _fit_source_id(candidate.source_id)
+
+        from backend.application.services.matching import is_non_opportunity_noise
+
+        if is_non_opportunity_noise(
+            candidate.title, candidate.description, candidate.url, candidate.company
+        ):
+            return {
+                "action": "rejected",
+                "reason": "non_opportunity_noise",
+            }
+
         existing = await self.repository.get_by_source(
             candidate.source_name, candidate.source_id
         )

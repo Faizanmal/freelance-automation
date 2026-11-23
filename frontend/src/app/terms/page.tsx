@@ -7,7 +7,7 @@ export default function TermsPage() {
 
       <div className="space-y-6 leading-relaxed text-[var(--fog)]">
         <p className="text-sm text-[var(--mute)]">
-          Last updated: October 31, 2026. Operator: Signal Desk (contact{" "}
+          Last updated: October 31, 2026. Signal Desk is the product name. The legal contracting entity and service jurisdiction must be identified before open public signup or paid access. Contact{" "}
           <a className="text-[var(--signal)]" href="mailto:support@signaldesk.com">
             support@signaldesk.com
           </a>
@@ -63,10 +63,11 @@ export default function TermsPage() {
         <section>
           <h2 className="mb-3 text-xl font-semibold">6. Subscriptions and payments</h2>
           <p>
-            Paid subscriptions (Pro) are billed in advance on a recurring basis via Stripe. You may
-            cancel anytime through the billing portal; access continues through the paid period
-            unless otherwise stated by Stripe. Refunds are provided as required by law or at our
-            discretion. Failed or past-due payments may revert the account to Free limits.
+            Paid subscriptions are available only when checkout is enabled for your account and
+            region. The checkout must show the applicable price, currency, billing cadence, taxes,
+            cancellation process, and refund terms before a charge is made. If those terms are not
+            shown, do not complete a purchase. Signal Desk does not currently offer marketplace
+            escrow, protected payments, or contractor payouts.
           </p>
         </section>
 

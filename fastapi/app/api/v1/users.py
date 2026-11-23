@@ -92,16 +92,16 @@ async def update_current_user(
 
 @router.get("/me/export")
 async def export_current_user_data(
-    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     """GDPR Article 20 Data Portability: exports all account, preference, lead action, and draft history as structured JSON."""
     await record_audit(
         session,
         action="privacy.export",
         user_id=str(current_user.id),
-        actor_ip=request.client.host if request.client else None,
+        actor_ip=request.client.host if request and request.client else None,
     )
     user_data = {
         "id": current_user.id,
@@ -185,18 +185,21 @@ async def export_current_user_data(
         for n in notifs_res.scalars().all()
     ]
 
-    consents_res = await session.execute(
-        select(UserConsent).where(UserConsent.user_id == current_user.id)
-    )
-    consents = [
-        {
-            "purpose": c.purpose,
-            "granted": c.granted,
-            "source": c.source,
-            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
-        }
-        for c in consents_res.scalars().all()
-    ]
+    try:
+        consents_res = await session.execute(
+            select(UserConsent).where(UserConsent.user_id == current_user.id)
+        )
+        consents = [
+            {
+                "purpose": c.purpose,
+                "granted": c.granted,
+                "source": c.source,
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+            }
+            for c in consents_res.scalars().all()
+        ]
+    except Exception:
+        consents = []
 
     await session.commit()
     return {

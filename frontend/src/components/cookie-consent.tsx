@@ -35,7 +35,7 @@ export function CookieConsent() {
     <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--background)] border-t border-[var(--mute)]/20 p-4 shadow-lg">
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="text-sm text-[var(--fog)] text-center sm:text-left">
-          We use optional analytics cookies to understand site traffic. Job alerts and sign-in work either way. See our{" "}
+          Optional site analytics load only if you accept. Product outcome tracking needs separate account consent. Core service features work either way. See our{" "}
           <a href="/privacy" className="text-[var(--signal)] underline hover:no-underline">Privacy Policy</a> and{" "}
           <a href="/terms" className="text-[var(--signal)] underline hover:no-underline">Terms of Service</a>.
         </div>
@@ -58,11 +58,13 @@ export function Analytics() {
 
   useEffect(() => {
     if (!allowed) return;
+    const domain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN?.trim();
+    if (!domain) return;
     if (document.getElementById("plausible-script")) return;
     const script = document.createElement("script");
     script.id = "plausible-script";
     script.defer = true;
-    script.dataset.domain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN || "signaldesk.com";
+    script.dataset.domain = domain;
     script.src = "https://plausible.io/js/script.js";
     document.body.appendChild(script);
   }, [allowed]);
@@ -72,29 +74,19 @@ export function Analytics() {
 
 export function ClientErrorReporter() {
   useEffect(() => {
-    const send = (message: string, stack?: string) => {
-      const body = JSON.stringify({
-        message: message.slice(0, 500),
-        stack: stack ? stack.slice(0, 4000) : undefined,
-        path: window.location.pathname,
-      });
-      fetch(`${getApiBase()}/telemetry/client-error`, {
+    const send = (kind: "runtime_error" | "unhandled_rejection") => {
+      const apiBase = getApiBase();
+      if (!apiBase) return;
+      fetch(`${apiBase}/telemetry/client-error`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body,
+        body: JSON.stringify({ kind }),
         keepalive: true,
       }).catch(() => undefined);
     };
 
-    const onError = (event: ErrorEvent) => {
-      send(event.message || "Frontend error", event.error instanceof Error ? event.error.stack : undefined);
-    };
-    const onRejection = (event: PromiseRejectionEvent) => {
-      const reason = event.reason;
-      const message = reason instanceof Error ? reason.message : String(reason);
-      const stack = reason instanceof Error ? reason.stack : undefined;
-      send(message || "Unhandled rejection", stack);
-    };
+    const onError = () => send("runtime_error");
+    const onRejection = () => send("unhandled_rejection");
 
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);

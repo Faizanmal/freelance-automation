@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   AlertTriangle,
@@ -67,10 +68,10 @@ import {
 } from "@/lib/api";
 
 export default function EmployerProjectsPage() {
-  const [orgs, setOrgs] = useState<any[]>([]);
+  const [orgs, setOrgs] = useState<Awaited<ReturnType<typeof getEmployerOrgs>>["organizations"]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string>("");
   const [projects, setProjects] = useState<NativeProjectItem[]>([]);
-  const [selectedProject, setSelectedProject] = useState<any | null>(null);
+  const [selectedProject, setSelectedProject] = useState<Awaited<ReturnType<typeof getProjectDetails>>["project"] | null>(null);
   const [templates, setTemplates] = useState<Record<string, ProjectTemplate>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -118,7 +119,7 @@ export default function EmployerProjectsPage() {
   const [messages, setMessages] = useState<ProjectMessageItem[]>([]);
   const [messageContent, setMessageContent] = useState("");
   const [offers, setOffers] = useState<ProjectOfferItem[]>([]);
-  const [draftedTerms, setDraftedTerms] = useState<any | null>(null);
+  const [draftedTerms, setDraftedTerms] = useState<Awaited<ReturnType<typeof draftNegotiationTerms>>["draft_terms"] | null>(null);
   const [draftingTerms, setDraftingTerms] = useState(false);
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [offerTargetAppId, setOfferTargetAppId] = useState("");
@@ -151,8 +152,8 @@ export default function EmployerProjectsPage() {
       if (orgRes.organizations?.length > 0) {
         setSelectedOrgId(orgRes.organizations[0].org_id);
       }
-    } catch (err: any) {
-      setError(err?.message || "Failed to load initial project workspace data");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load initial project workspace data");
     } finally {
       setLoading(false);
     }
@@ -163,8 +164,8 @@ export default function EmployerProjectsPage() {
       setLoading(true);
       const res = await listProjects({ org_id: orgId, view: "client" });
       setProjects(res.projects || []);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load client projects");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load client projects");
     } finally {
       setLoading(false);
     }
@@ -179,8 +180,8 @@ export default function EmployerProjectsPage() {
       setActiveTab("details");
       loadClarifications(projectId);
       loadMatchingAndNegotiation(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load project details");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load project details");
     } finally {
       setSaving(false);
     }
@@ -190,7 +191,7 @@ export default function EmployerProjectsPage() {
     try {
       const res = await getProjectClarifications(projectId, true);
       setClarifications(res.clarifications || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Non-fatal
     }
   }
@@ -210,7 +211,7 @@ export default function EmployerProjectsPage() {
       setMatches(shortlistRes.shortlist || []);
       setApplications(appRes.applications || []);
       setOffers(offersRes.offers || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Non-fatal
     } finally {
       setLoadingMatches(false);
@@ -228,8 +229,8 @@ export default function EmployerProjectsPage() {
       });
       setSuccess("Invitation extended to candidate!");
       await loadMatchingAndNegotiation(selectedProject.id);
-    } catch (err: any) {
-      setError(err?.message || "Failed to invite talent");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to invite talent");
     } finally {
       setSaving(false);
     }
@@ -255,8 +256,8 @@ export default function EmployerProjectsPage() {
       const msgRes = await getConversationMessages(res.conversation_id);
       setMessages(msgRes.messages || []);
       setSuccess("Discussion opened with candidate.");
-    } catch (err: any) {
-      setError(err?.message || "Failed to open discussion");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to open discussion");
     } finally {
       setSaving(false);
     }
@@ -274,8 +275,8 @@ export default function EmployerProjectsPage() {
       const msgRes = await getConversationMessages(activeConvId);
       setMessages(msgRes.messages || []);
       setSuccess("Message delivered.");
-    } catch (err: any) {
-      setError(err?.message || "Failed to send message");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to send message");
     } finally {
       setSaving(false);
     }
@@ -296,8 +297,8 @@ export default function EmployerProjectsPage() {
       setOfferScopeInput(res.draft_terms.scope_summary);
       setOfferAmountInput(selectedProject.budget_min || 3000);
       setSuccess("Negotiation assistant drafted milestone outline and scope terms.");
-    } catch (err: any) {
-      setError(err?.message || "Failed to draft negotiation terms");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to draft negotiation terms");
     } finally {
       setDraftingTerms(false);
     }
@@ -326,8 +327,8 @@ export default function EmployerProjectsPage() {
       setShowOfferModal(false);
       setSuccess("Formal offer created in pending review!");
       await loadMatchingAndNegotiation(selectedProject.id);
-    } catch (err: any) {
-      setError(err?.message || "Failed to create offer");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to create offer");
     } finally {
       setSaving(false);
     }
@@ -343,11 +344,11 @@ export default function EmployerProjectsPage() {
       setSuccess("Offer accepted! Project position is now filled.");
       await loadMatchingAndNegotiation(selectedProject.id);
       await viewProjectDetails(selectedProject.id);
-    } catch (err: any) {
-      if (err?.message?.includes("Conflict") || err?.message?.includes("409") || err?.message?.includes("superseded")) {
+    } catch (err: unknown) {
+      if (getErrorMessage(err, "")?.includes("Conflict") || getErrorMessage(err, "")?.includes("409") || getErrorMessage(err, "")?.includes("superseded")) {
         setConflictWarning("Concurrency Conflict (409): This project position has already been filled by another accepted offer, or this offer has been superseded.");
       } else {
-        setError(err?.message || "Failed to accept offer");
+        setError(getErrorMessage(err, "") || "Failed to accept offer");
       }
     } finally {
       setSaving(false);
@@ -382,8 +383,8 @@ export default function EmployerProjectsPage() {
       });
       setClarificationResult(res.clarification);
       setAiApproved(false);
-    } catch (err: any) {
-      setError(err?.message || "Failed to clarify project scope");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to clarify project scope");
     } finally {
       setClarifyingScope(false);
     }
@@ -432,8 +433,8 @@ export default function EmployerProjectsPage() {
       setSuccess("Project brief created as draft! Next: approve the AI scope summary and publish.");
       await loadProjects(selectedOrgId);
       await viewProjectDetails(res.project.id);
-    } catch (err: any) {
-      setError(err?.message || "Failed to create project brief");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to create project brief");
     } finally {
       setSaving(false);
     }
@@ -447,8 +448,8 @@ export default function EmployerProjectsPage() {
       setAiApproved(true);
       setSuccess("AI Scope Clarification approved! You can now submit your project for review or publishing.");
       await viewProjectDetails(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to approve scope");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to approve scope");
     } finally {
       setSaving(false);
     }
@@ -462,8 +463,8 @@ export default function EmployerProjectsPage() {
       setSuccess(res.message);
       await loadProjects(selectedOrgId);
       await viewProjectDetails(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to submit project");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to submit project");
     } finally {
       setSaving(false);
     }
@@ -480,8 +481,8 @@ export default function EmployerProjectsPage() {
       setSuccess(res.message);
       await loadProjects(selectedOrgId);
       await viewProjectDetails(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to transition project status");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to transition project status");
     } finally {
       setSaving(false);
     }
@@ -495,8 +496,8 @@ export default function EmployerProjectsPage() {
       setSuccess(`Hiring intent reconfirmed! Active through: ${new Date(res.reconfirm_by).toLocaleDateString()}`);
       await loadProjects(selectedOrgId);
       await viewProjectDetails(projectId);
-    } catch (err: any) {
-      setError(err?.message || "Failed to reconfirm hiring intent");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to reconfirm hiring intent");
     } finally {
       setSaving(false);
     }
@@ -517,8 +518,8 @@ export default function EmployerProjectsPage() {
       setCandidateNotesToAdd("");
       setSuccess("Candidate shortlisted!");
       await viewProjectDetails(selectedProject.id);
-    } catch (err: any) {
-      setError(err?.message || "Failed to shortlist candidate");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to shortlist candidate");
     } finally {
       setSaving(false);
     }
@@ -526,7 +527,7 @@ export default function EmployerProjectsPage() {
 
   async function handleUpdateCandidateStage(
     candidateId: string,
-    stage: "shortlisted" | "interviewing" | "offered" | "hired" | "declined"
+    stage: CandidateShortlistEntry["stage"]
   ) {
     if (!selectedProject) return;
     try {
@@ -535,8 +536,8 @@ export default function EmployerProjectsPage() {
       await updateProjectCandidateStage(selectedProject.id, candidateId, { stage });
       setSuccess(`Candidate stage updated to ${stage}`);
       await viewProjectDetails(selectedProject.id);
-    } catch (err: any) {
-      setError(err?.message || "Failed to update candidate stage");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to update candidate stage");
     } finally {
       setSaving(false);
     }
@@ -556,8 +557,8 @@ export default function EmployerProjectsPage() {
       if (selectedProject) {
         await loadClarifications(selectedProject.id);
       }
-    } catch (err: any) {
-      setError(err?.message || "Failed to answer question");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to answer question");
     } finally {
       setSaving(false);
     }
@@ -576,8 +577,8 @@ export default function EmployerProjectsPage() {
       setAppealDetails("");
       setSuccess("Appeal submitted for human moderation review.");
       await viewProjectDetails(selectedProject.id);
-    } catch (err: any) {
-      setError(err?.message || "Failed to submit appeal");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to submit appeal");
     } finally {
       setSaving(false);
     }
@@ -986,7 +987,7 @@ export default function EmployerProjectsPage() {
                     <label className="text-xs font-semibold text-foreground">Rate Structure</label>
                     <select
                       value={ratePeriod}
-                      onChange={(e: any) => setRatePeriod(e.target.value)}
+                      onChange={(e) => setRatePeriod(e.target.value as "hourly" | "fixed" | "monthly_retainer")}
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md"
                     >
                       <option value="fixed">Fixed Price Milestone</option>
@@ -998,7 +999,7 @@ export default function EmployerProjectsPage() {
                     <label className="text-xs font-semibold text-foreground">Scope Level</label>
                     <select
                       value={scopeLevel}
-                      onChange={(e: any) => setScopeLevel(e.target.value)}
+                      onChange={(e) => setScopeLevel(e.target.value as "small" | "medium" | "large" | "enterprise")}
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md"
                     >
                       <option value="small">Small (1-2 weeks)</option>
@@ -1011,7 +1012,7 @@ export default function EmployerProjectsPage() {
                     <label className="text-xs font-semibold text-foreground">Work Arrangement</label>
                     <select
                       value={workType}
-                      onChange={(e: any) => setWorkType(e.target.value)}
+                      onChange={(e) => setWorkType(e.target.value as "remote" | "hybrid" | "onsite")}
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md"
                     >
                       <option value="remote">Fully Remote</option>
@@ -1205,7 +1206,7 @@ export default function EmployerProjectsPage() {
                         <div className="flex items-center gap-2">
                           <select
                             value={c.stage}
-                            onChange={(e: any) => handleUpdateCandidateStage(c.candidate_id, e.target.value)}
+                            onChange={(e) => handleUpdateCandidateStage(c.candidate_id, e.target.value as CandidateShortlistEntry["stage"])}
                             className="px-2 py-1 text-xs bg-background border border-border rounded font-medium"
                           >
                             <option value="shortlisted">Shortlisted</option>
@@ -1222,13 +1223,13 @@ export default function EmployerProjectsPage() {
               </div>
 
               {/* Status Audit Trail */}
-              {selectedProject.status_history?.length > 0 && (
+              {Boolean(selectedProject.status_history?.length) && (
                 <div className="space-y-2 pt-4 border-t border-border">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     Status Audit History
                   </h3>
                   <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                    {selectedProject.status_history.map((h: any) => (
+                    {(selectedProject.status_history ?? []).map((h) => (
                       <div key={h.id} className="text-[11px] text-muted-foreground flex items-center justify-between bg-secondary/20 px-2.5 py-1.5 rounded">
                         <span>
                           <strong>{h.from_status}</strong> → <strong>{h.to_status}</strong> ({h.action})
@@ -1656,7 +1657,7 @@ export default function EmployerProjectsPage() {
                 <span className="font-bold text-foreground">AI Drafted Scope & Milestones:</span>
                 <p className="text-muted-foreground">{draftedTerms.scope_summary}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                  {draftedTerms.milestones?.map((ms: any, i: number) => (
+                  {draftedTerms.milestones?.map((ms, i) => (
                     <div key={i} className="p-2 bg-secondary/30 rounded flex justify-between">
                       <span>{ms.title} (due day {ms.due_days})</span>
                       <strong>${ms.amount}</strong>

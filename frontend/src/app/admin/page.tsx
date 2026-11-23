@@ -8,6 +8,11 @@ import {
   adminListSources,
   adminListUsers,
   adminModerationQueue,
+  adminProjectModerationQueue,
+  adminResolveProjectModeration,
+  adminSupportQueue,
+  adminResolveSupportCase,
+  opsAssignRole,
   adminReviewListingReport,
   adminSourceQuarantine,
   adminTriggerStaleSweep,
@@ -32,6 +37,9 @@ export default function AdminDashboardPage() {
   const [quarantineOpen, setQuarantineOpen] = useState(0);
   const [quarantinePreview, setQuarantinePreview] = useState<Array<Record<string, unknown>>>([]);
   const [modQueue, setModQueue] = useState<Array<Record<string, unknown>>>([]);
+  const [projectQueue, setProjectQueue] = useState<Array<{ id: string; project_id: string; reason_code: string; status: string }>>([]);
+  const [supportCases, setSupportCases] = useState<Array<{ id: string; category: string; status: string; summary: string }>>([]);
+  const [disputeCount, setDisputeCount] = useState(0);
   const [quality, setQuality] = useState<Record<string, number> | null>(null);
   const [sweepResult, setSweepResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +54,10 @@ export default function AdminDashboardPage() {
       adminInventoryQuality(),
       adminSourceQuarantine(10),
       adminModerationQueue("open", 20),
+      adminProjectModerationQueue(20),
+      adminSupportQueue(20),
     ])
-      .then(([usersData, telemetryData, sourcesData, qualityData, quarantineData, modData]) => {
+      .then(([usersData, telemetryData, sourcesData, qualityData, quarantineData, modData, projectData, supportData]) => {
         setUsers(usersData);
         setTelemetry(telemetryData);
         setSources(sourcesData.sources || []);
@@ -56,6 +66,9 @@ export default function AdminDashboardPage() {
         setQuality(qualityData.quality || null);
         setQuarantinePreview(quarantineData.items || []);
         setModQueue(modData.items || []);
+        setProjectQueue(projectData.queue || []);
+        setSupportCases(supportData.cases || []);
+        setDisputeCount(supportData.disputes?.length || 0);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -77,10 +90,16 @@ export default function AdminDashboardPage() {
     userId: string,
     data: { is_active?: boolean; is_superuser?: boolean; is_verified?: boolean; plan?: string },
   ) => {
+    const needsReason = data.is_active !== undefined || data.is_verified !== undefined || data.is_superuser !== undefined;
+    const reason = needsReason ? window.prompt("Reason for this account action (recorded in the audit trail):")?.trim() : undefined;
+    if (needsReason && (!reason || reason.length < 10)) {
+      setError("Enter a reason of at least 10 characters; the account action was not applied.");
+      return;
+    }
     startTransition(async () => {
       try {
         setError(null);
-        const updated = await adminUpdateUser(userId, data);
+        const updated = await adminUpdateUser(userId, { ...data, ...(reason ? { reason } : {}) });
         setUsers(users.map((u) => (u.id === userId ? updated : u)));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to update user");
@@ -105,10 +124,15 @@ export default function AdminDashboardPage() {
   };
 
   const handleToggleSource = (key: string, currentlyDisabled: boolean) => {
+    const reason = window.prompt(`Reason to ${currentlyDisabled ? "enable" : "disable"} source ${key} (recorded in the audit trail):`)?.trim();
+    if (!reason || reason.length < 10) {
+      setError("Enter a reason of at least 10 characters; the source setting was not changed.");
+      return;
+    }
     startTransition(async () => {
       try {
         setError(null);
-        await adminDisableSource(key, !currentlyDisabled);
+        await adminDisableSource(key, !currentlyDisabled, reason);
         const sourcesData = await adminListSources();
         setSources(sourcesData.sources || []);
       } catch (err) {
@@ -118,15 +142,61 @@ export default function AdminDashboardPage() {
   };
 
   const handleReviewReport = (reportId: number, outcome: string) => {
+    const notes = window.prompt("Document the moderation reason (at least 10 characters):")?.trim();
+    if (!notes || notes.length < 10) {
+      setError("A moderation reason of at least 10 characters is required.");
+      return;
+    }
     startTransition(async () => {
       try {
         setError(null);
-        await adminReviewListingReport(reportId, { outcome, status: "resolved" });
+        await adminReviewListingReport(reportId, { outcome, notes, status: "resolved" });
         const modData = await adminModerationQueue("open", 20);
         setModQueue(modData.items || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to review report");
       }
+    });
+  };
+
+  const handleProjectDecision = (queueId: string, decision: "approved" | "rejected") => {
+    const reason = window.prompt("Document the project review reason (at least 10 characters):")?.trim();
+    if (!reason || reason.length < 10) {
+      setError("A moderation reason of at least 10 characters is required.");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await adminResolveProjectModeration(queueId, decision, reason);
+        const refreshed = await adminProjectModerationQueue(20);
+        setProjectQueue(refreshed.queue || []);
+      } catch (err) { setError(err instanceof Error ? err.message : "Failed to resolve project review"); }
+    });
+  };
+
+  const handleSupportResolve = (caseId: string) => {
+    const reason = window.prompt("Document the support resolution (at least 10 characters):")?.trim();
+    if (!reason || reason.length < 10) {
+      setError("A support resolution of at least 10 characters is required.");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await adminResolveSupportCase(caseId, reason);
+        const refreshed = await adminSupportQueue(20);
+        setSupportCases(refreshed.cases || []);
+      } catch (err) { setError(err instanceof Error ? err.message : "Failed to resolve support case"); }
+    });
+  };
+
+  const handleRoleChange = (userId: string, role: "user" | "client" | "freelancer" | "marketplace_moderator" | "support_agent" | "source_operator") => {
+    const reason = window.prompt("Reason for granting/revoking this operator role (at least 10 characters):")?.trim();
+    if (!reason || reason.length < 10) { setError("An operator role change requires a recorded reason."); return; }
+    startTransition(async () => {
+      try {
+        const updated = await opsAssignRole(userId, role, reason);
+        setUsers((current) => current.map((u) => u.id === userId ? { ...u, account_role: updated.account_role } : u));
+      } catch (err) { setError(err instanceof Error ? err.message : "Failed to update operator role"); }
     });
   };
 
@@ -330,6 +400,33 @@ export default function AdminDashboardPage() {
             </ul>
           )}
         </Card>
+        <Card className="p-4 border-white/10 bg-white/[0.02]">
+          <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">Native project moderation</p>
+          <p className="text-[11px] text-[var(--fog)] mb-3">Human review only. Decisions are recorded with a reason.</p>
+          {projectQueue.length === 0 ? <p className="text-xs text-[var(--mute)]">No open project reviews.</p> : (
+            <ul className="space-y-3 text-xs text-[var(--fog)]">
+              {projectQueue.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2">
+                <span>Project {item.project_id} · {item.reason_code} · {item.status}</span>
+                <span className="space-x-2">
+                  <Button variant="outline" className="text-xs py-1 h-7" disabled={pending} onClick={() => handleProjectDecision(item.id, "approved")}>Approve</Button>
+                  <Button variant="outline" className="text-xs py-1 h-7" disabled={pending} onClick={() => handleProjectDecision(item.id, "rejected")}>Request changes</Button>
+                </span>
+              </li>)}
+            </ul>
+          )}
+        </Card>
+        <Card className="p-4 border-white/10 bg-white/[0.02]">
+          <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">Support and dispute queue</p>
+          <p className="text-[11px] text-[var(--fog)] mb-3">{disputeCount} open dispute reports · payment exceptions are unavailable because payments are not integrated.</p>
+          {supportCases.length === 0 ? <p className="text-xs text-[var(--mute)]">No open support cases.</p> : (
+            <ul className="space-y-3 text-xs text-[var(--fog)]">
+              {supportCases.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2">
+                <span>{item.category} · {item.summary}</span>
+                <Button variant="outline" className="text-xs py-1 h-7" disabled={pending} onClick={() => handleSupportResolve(item.id)}>Resolve</Button>
+              </li>)}
+            </ul>
+          )}
+        </Card>
       </section>
 
       {/* User Management Table */}
@@ -349,18 +446,16 @@ export default function AdminDashboardPage() {
             {users.map((user) => (
               <tr key={user.id} className="hover:bg-white/[0.02] transition">
                 <td className="px-6 py-4">
-                  <div className="font-medium text-[var(--paper)]">{user.email}</div>
-                  <div className="text-[11px] text-[var(--mute)] mt-1">ID: {user.id.slice(0, 8)}...</div>
+                  <div className="font-medium text-[var(--paper)]">Account {user.id.slice(0, 8)}…</div>
                 </td>
                 <td className="px-6 py-4 capitalize text-[var(--signal)]">
                   {user.plan}
                 </td>
                 <td className="px-6 py-4">
-                  {user.is_superuser ? (
-                    <span className="text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-md">Admin</span>
-                  ) : (
-                    <span className="text-[var(--mute)]">User</span>
-                  )}
+                  <span className="mr-2 text-[var(--mute)]">{user.is_superuser ? "Superuser" : user.account_role || "user"}</span>
+                  {!user.is_superuser && <select value={user.account_role || "user"} onChange={(e) => handleRoleChange(user.id, e.target.value as "user" | "client" | "freelancer" | "marketplace_moderator" | "support_agent" | "source_operator")} disabled={pending} className="bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-[var(--fog)]">
+                    <option value="user">User</option><option value="client">Client</option><option value="freelancer">Freelancer</option><option value="marketplace_moderator">Moderator</option><option value="support_agent">Support agent</option><option value="source_operator">Source operator</option>
+                  </select>}
                 </td>
                 <td className="px-6 py-4">
                   {user.is_active ? (

@@ -5,23 +5,18 @@ import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { getApiBase } from "@/lib/api";
 
-type ReadyStatus = {
-  status?: string;
-  checks?: {
-    database?: string;
-    redis?: string;
-    workers?: string;
-  };
-};
-
 export default function StatusPage() {
   const [liveStatus, setLiveStatus] = useState<string>("Checking...");
-  const [readyStatus, setReadyStatus] = useState<ReadyStatus | null>(null);
 
   useEffect(() => {
     async function checkHealth() {
+      const apiBase = getApiBase();
+      if (!apiBase) {
+        setLiveStatus("Not configured");
+        return;
+      }
       try {
-        const liveRes = await fetch(`${getApiBase()}/health/live`);
+        const liveRes = await fetch(`${apiBase}/health/live`);
         if (liveRes.ok) {
           setLiveStatus("Operational");
         } else {
@@ -31,15 +26,6 @@ export default function StatusPage() {
         setLiveStatus("Down");
       }
 
-      try {
-        const readyRes = await fetch(`${getApiBase()}/health/ready`);
-        if (readyRes.ok) {
-          const data = await readyRes.json();
-          setReadyStatus(data);
-        }
-      } catch {
-        setReadyStatus(null);
-      }
     }
     checkHealth();
     const interval = setInterval(checkHealth, 30000);
@@ -67,51 +53,24 @@ export default function StatusPage() {
         >
           System Status
         </motion.h1>
-        <p className="mt-4 text-[var(--fog)]">Real-time status of the Signal Desk API, databases, and scrapers.</p>
+        <p className="mt-4 text-[var(--fog)]">A basic live reachability check for the public API. It does not report dependency health or incident history.</p>
       </section>
 
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6 pb-6 border-b border-white/5">
           <div>
-            <h2 className="text-xl font-semibold text-[var(--paper)]">API endpoints</h2>
-            <p className="text-sm text-[var(--mute)]">Core routing and job matching API</p>
+            <h2 className="text-xl font-semibold text-[var(--paper)]">Public API</h2>
+            <p className="text-sm text-[var(--mute)]">Reachability only</p>
           </div>
           <span className={`px-3 py-1 rounded-full text-sm border font-medium ${getStatusColor(liveStatus)}`}>
             {liveStatus}
           </span>
         </div>
 
-        <div className="flex items-center justify-between mb-6 pb-6 border-b border-white/5">
-          <div>
-            <h2 className="text-xl font-semibold text-[var(--paper)]">Database cluster</h2>
-            <p className="text-sm text-[var(--mute)]">Main PostgreSQL database</p>
-          </div>
-          <span className={`px-3 py-1 rounded-full text-sm border font-medium ${getStatusColor(readyStatus?.checks?.database || "Checking...")}`}>
-            {readyStatus?.checks?.database === "ok" ? "Operational" : readyStatus ? "Degraded" : "Checking..."}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-[var(--paper)]">Background workers</h2>
-            <p className="text-sm text-[var(--mute)]">Celery tasks & discovery hunters</p>
-          </div>
-          <span className={`px-3 py-1 rounded-full text-sm border font-medium ${getStatusColor(readyStatus?.checks?.workers === "ok" ? "Operational" : readyStatus?.checks?.workers === "idle" ? "Checking..." : readyStatus?.checks?.redis === "ok" ? "Operational" : "Down")}`}>
-            {readyStatus?.checks?.workers === "ok"
-              ? "Operational"
-              : readyStatus?.checks?.workers === "idle"
-              ? "Standby / Idle"
-              : readyStatus?.checks?.redis === "ok"
-              ? "Operational"
-              : readyStatus
-              ? "Degraded"
-              : "Checking..."}
-          </span>
-        </div>
       </Card>
       
       <p className="text-center text-sm text-[var(--mute)] mt-4">
-        Checks are automatically performed every 30 seconds.
+        The check repeats every 30 seconds. This is not an uptime commitment.
       </p>
     </motion.div>
   );

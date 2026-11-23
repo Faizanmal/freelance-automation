@@ -146,6 +146,7 @@ class ListingReportService:
         outcome: str,
         notes: str | None = None,
         new_status: str = "resolved",
+        commit: bool = True,
     ) -> dict[str, Any]:
         report = await self.session.get(ListingReport, report_id)
         if not report:
@@ -168,8 +169,9 @@ class ListingReportService:
             "in_review",
         } else "resolved"
         report.resolved_at = datetime.now(UTC)
-        await self.session.commit()
-        await self.session.refresh(report)
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(report)
         return {"ok": True, "report": self.to_dict(report)}
 
     async def request_correction(

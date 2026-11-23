@@ -369,9 +369,9 @@ describe("Phase 15: Fair Marketplace Matching, Applications & Direct Negotiation
   it("displays freelancer $0.00 expression of interest and bilateral offer acceptance", async () => {
     render(<NativeProjectDetailPage />);
 
-    // Verify zero application fee guarantee
+    // Verify application fee disclosure
     await waitFor(() => {
-      expect(screen.getByText("$0.00 (100% Free)")).toBeInTheDocument();
+      expect(screen.getByText("$0.00 platform fee")).toBeInTheDocument();
       expect(screen.getByText("Your Expression of Interest")).toBeInTheDocument();
     });
 

@@ -19,7 +19,7 @@ const PURPOSES = [
   {
     id: "analytics",
     label: "Product analytics",
-    help: "Anonymous traffic metrics (Plausible) after banner consent.",
+    help: "Optional, minimal product outcome events. No prompts or message contents; revoke anytime.",
   },
   {
     id: "product_email",

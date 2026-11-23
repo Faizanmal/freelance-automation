@@ -156,24 +156,33 @@ def extract_budget(text: str | None) -> BudgetSignal | None:
     """Find the most explicit currency amount (or range) mentioned in text.
 
     Requires a currency marker so "5 years" or "10 developers" never match.
-    An amount with an explicit unit ("$80/hr") wins over unlabeled ones.
+    Plausible contract compensation ranges win over incidental tool pricing.
     """
     if not text:
         return None
     sample = text[:_SCAN_LIMIT]
-    first: tuple[float, float | None, BudgetPeriod, str] | None = None
+    candidates: list[tuple[float, float | None, BudgetPeriod, str]] = []
     for match in _AMOUNT_RE.finditer(sample):
         parsed = _parse_match(match)
-        if parsed is None:
-            continue
-        if parsed[2] != "unknown":
-            first = parsed
-            break
-        if first is None:
-            first = parsed
-    if first is None:
+        if parsed is not None:
+            candidates.append(parsed)
+    if not candidates:
         return None
-    low, high, period, currency = first
+
+    def _candidate_score(cand: tuple[float, float | None, BudgetPeriod, str]) -> tuple[int, float]:
+        low, high, period, _ = cand
+        top = high if high is not None else low
+        if period == "annual" or top >= 10_000:
+            return (3, top)
+        if period in {"hourly", "daily", "weekly"}:
+            return (2, top)
+        if period == "monthly" or (period == "fixed" and top >= 200):
+            return (1, top)
+        return (0, top)
+
+    candidates.sort(key=_candidate_score, reverse=True)
+    best = candidates[0]
+    low, high, period, currency = best
     top = high if high is not None else low
     if period == "unknown":
         period = infer_period(top, sample)
@@ -296,6 +305,12 @@ def describe_budget(
     """Format a persisted job's budget using its stored period and currency."""
     period = stored_period(enrichment, budget_min, budget_max)
     currency = (enrichment or {}).get("budget_currency")
+    top = budget_max if budget_max is not None else budget_min
+    if top is not None:
+        if period == "monthly" and top < 100:
+            return None
+        if period == "hourly" and top < 5:
+            return None
     return format_budget(budget_min, budget_max, period, currency)
 
 
@@ -316,6 +331,17 @@ def _parse_match(
         return None
     unit = match.group("unit") or match.group("adverb")
     period = normalize_period(unit) if unit else "unknown"
+
+    # Reject implausible rates for developer compensation (e.g. incidental SaaS pricing like $9/mo)
+    top_val = high if high is not None else low
+    if period == "monthly" and top_val < 100:
+        return None
+    if period == "hourly" and top_val < 5:
+        return None
+
+    # Leave unlabeled K / large amounts as unknown so extract_budget can apply
+    # surrounding context (e.g. "fixed budget $3k-$5k" vs "$120k salary").
+
     currency = _CURRENCY_CODES.get(match.group("cur").lower(), "USD")
     return low, high, period, currency
 

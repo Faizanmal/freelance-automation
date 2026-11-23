@@ -1,4 +1,14 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "");
+const API_BASE = configuredApiUrl || (
+  process.env.NODE_ENV !== "production" ? "http://127.0.0.1:8000/api/v1" : ""
+);
+
+function requireApiBase(): string {
+  if (!API_BASE) {
+    throw new Error("The service is not configured yet. Please try again later.");
+  }
+  return API_BASE;
+}
 
 const TOKEN_KEY = "signal_desk_token";
 const REFRESH_KEY = "signal_desk_refresh";
@@ -300,7 +310,7 @@ async function tryRefreshSession(): Promise<boolean> {
     const refresh = getRefreshToken();
     if (!refresh) return false;
     try {
-      const response = await fetch(`${API_BASE}/auth/refresh`, {
+      const response = await fetch(`${requireApiBase()}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -419,6 +429,8 @@ export async function request<T>(
   init?: RequestInit & { auth?: boolean; timeoutMs?: number; _retried?: boolean },
 ): Promise<T> {
 
+  const apiBase = requireApiBase();
+
   const headers: Record<string, string> = {
 
     "Content-Type": "application/json",
@@ -455,7 +467,7 @@ export async function request<T>(
 
   try {
 
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(`${apiBase}${path}`, {
 
       ...init,
 
@@ -540,6 +552,45 @@ export async function request<T>(
 
   return response.json() as Promise<T>;
 
+}
+
+export async function downloadAuthenticatedFile(path: string, filename: string): Promise<void> {
+  const token = getToken();
+  if (!token) throw new Error("Sign in to download this file.");
+  const send = () => fetch(`${requireApiBase()}${path}`, {
+    headers: { Authorization: `Bearer ${getToken() || token}` },
+    cache: "no-store",
+  });
+  let response = await send();
+  if (response.status === 401 && await tryRefreshSession()) response = await send();
+  if (!response.ok) {
+    if (response.status === 401) {
+      setToken(null);
+      setRefreshToken(null);
+      throw new Error("Session expired. Please sign in again.");
+    }
+    throw new Error("Could not download this file.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function downloadPipelineExport(format: "csv" | "ics"): Promise<void> {
+  return downloadAuthenticatedFile(
+    `/pipeline/export.${format}`,
+    format === "csv" ? "pipeline-export.csv" : "pipeline-followups.ics",
+  );
+}
+
+export function downloadEarningsExport(): Promise<void> {
+  return downloadAuthenticatedFile("/finance/earnings/export", "earnings.csv");
 }
 
 
@@ -1481,7 +1532,7 @@ export async function login(email: string, password: string, totp_code?: string)
 
   try {
 
-    response = await fetch(`${API_BASE}/auth/login`, {
+    response = await fetch(`${requireApiBase()}/auth/login`, {
 
       method: "POST",
 
@@ -1563,7 +1614,7 @@ export async function loginWithGoogle(payload: {
 
   try {
 
-    response = await fetch(`${API_BASE}/auth/google`, {
+    response = await fetch(`${requireApiBase()}/auth/google`, {
 
       method: "POST",
 
@@ -1647,7 +1698,7 @@ export async function loginWithGitHub(payload: {
 
   try {
 
-    response = await fetch(`${API_BASE}/auth/github`, {
+    response = await fetch(`${requireApiBase()}/auth/github`, {
 
       method: "POST",
 
@@ -2037,7 +2088,7 @@ export async function adminUpdateUser(
 
   userId: string,
 
-  data: { is_active?: boolean; is_superuser?: boolean; is_verified?: boolean; plan?: string },
+  data: { is_active?: boolean; is_superuser?: boolean; is_verified?: boolean; plan?: string; reason?: string },
 
 ) {
 
@@ -2184,13 +2235,13 @@ export async function adminSourceQuarantine(limit = 50) {
   );
 }
 
-export async function adminDisableSource(sourceKey: string, disabled: boolean) {
+export async function adminDisableSource(sourceKey: string, disabled: boolean, reason: string) {
   return request<{ status: string; source: string; operator_disabled: boolean }>(
     `/admin/sources/${encodeURIComponent(sourceKey)}/disable`,
     {
       method: "POST",
       auth: true,
-      body: JSON.stringify({ disabled }),
+      body: JSON.stringify({ disabled, reason }),
     },
   );
 }
@@ -2248,6 +2299,169 @@ export async function adminReviewListingReport(
   return request<{ ok: boolean; report?: Record<string, unknown> }>(
     `/trust/moderation/reports/${reportId}/review`,
     { method: "POST", auth: true, body: JSON.stringify(body) },
+  );
+}
+
+export type AdminProjectModerationItem = {
+  id: string;
+  project_id: string;
+  reason_code: string;
+  status: string;
+  created_at?: string | null;
+};
+
+export async function adminProjectModerationQueue(limit = 50) {
+  return request<{ queue: AdminProjectModerationItem[] }>(
+    `/projects/moderation/queue?limit=${limit}`, { auth: true },
+  );
+}
+
+export async function adminResolveProjectModeration(
+  queueId: string, decision: "approved" | "rejected", reviewer_notes: string,
+) {
+  return request<{ status: string }>(`/projects/moderation/${encodeURIComponent(queueId)}/resolve`, {
+    method: "POST", auth: true, body: JSON.stringify({ decision, reviewer_notes }),
+  });
+}
+
+export type AdminSupportCase = {
+  id: string;
+  category: string;
+  status: string;
+  summary: string;
+  created_at?: string | null;
+};
+
+export async function adminSupportQueue(limit = 50) {
+  return request<{ cases: AdminSupportCase[]; disputes: Array<Record<string, unknown>>; payment_exceptions: { available: boolean; reason: string } }>(
+    `/ops/support-queue?limit=${limit}`, { auth: true },
+  );
+}
+
+export async function opsModerationQueues(limit = 50) {
+  return request<{
+    projects: Array<{ id: string; project_id: string; reason: string; status: string; appeal_summary?: string | null }>;
+    listing_reports: Array<{ id: number; job_id: number; reason: string; status: string; summary?: string | null }>;
+    marketplace_reports: Array<{ id: string; target_type: string; target_id: string; report_type: string; reason: string; status: string }>;
+    verification_claims: Array<{ id: string; claim_type: string; status: string }>;
+    payment_exceptions: { available: boolean; reason: string };
+  }>(`/ops/queues?limit=${limit}`, { auth: true });
+}
+
+export async function opsSourcePolicies() {
+  return request<{ sources: AdminSourcePolicy[] }>("/ops/sources", { auth: true });
+}
+
+export async function opsSetSourceDisabled(sourceKey: string, disabled: boolean, reason: string) {
+  return request<{ source: string; operator_disabled: boolean }>(`/ops/sources/${encodeURIComponent(sourceKey)}`, {
+    method: "POST", auth: true, body: JSON.stringify({ disabled, reason }),
+  });
+}
+
+export async function opsExpireDueClaims(reason: string) {
+  return request<{ expired_count: number; checked_at: string }>("/ops/verification/expire-due", {
+    method: "POST", auth: true, body: JSON.stringify({ reason }),
+  });
+}
+
+export async function opsReviewVerificationClaim(claimId: string, status: "verified" | "rejected" | "revoked", reason: string) {
+  return request<{ claim_id: string; status: string; expires_at?: string | null }>(`/ops/verification/claims/${encodeURIComponent(claimId)}/review`, {
+    method: "POST", auth: true, body: JSON.stringify({ status, reason }),
+  });
+}
+
+export async function opsGetVerificationClaim(claimId: string) {
+  return request<{ id: string; claim_type: string; status: string; evidence: Array<{ id: string; provider: string; evidence_type: string; is_valid: boolean; submitted_at?: string | null; provider_reference_present: boolean }> }>(
+    `/ops/verification/claims/${encodeURIComponent(claimId)}`, { auth: true },
+  );
+}
+
+export async function opsGetMarketplaceReport(reportId: string) {
+  return request<{ id: string; target_type: string; target_id: string; report_type: string; reason: string; details?: string | null; status: string }>(
+    `/ops/marketplace-reports/${encodeURIComponent(reportId)}`, { auth: true },
+  );
+}
+
+export async function opsResolveMarketplaceReport(reportId: string, status: "resolved" | "dismissed" | "in_review", resolution_note: string) {
+  return request<{ id: string; status: string; reviewer: string }>(`/ops/marketplace-reports/${encodeURIComponent(reportId)}/resolve`, {
+    method: "POST", auth: true, body: JSON.stringify({ status, resolution_note }),
+  });
+}
+
+export async function opsWaitlistSummary() {
+  return request<{ counts_by_persona: Record<string, number>; concierge_contact_consented: number; customer_count_claim: false }>(
+    "/ops/waitlist/summary", { auth: true },
+  );
+}
+
+export async function opsAudit(limit = 50) {
+  return request<{ items: Array<{ id: string; action: string; actor_id?: string | null; meta?: Record<string, unknown> | null; created_at?: string | null }> }>(
+    `/ops/audit?limit=${limit}`, { auth: true },
+  );
+}
+
+export async function opsAssignRole(userId: string, role: "user" | "client" | "freelancer" | "marketplace_moderator" | "support_agent" | "source_operator", reason: string) {
+  return request<{ user_id: string; account_role: string }>(`/ops/users/${encodeURIComponent(userId)}/role`, {
+    method: "POST", auth: true, body: JSON.stringify({ role, reason }),
+  });
+}
+
+export async function opsMarketplaceMetrics(since?: string) {
+  const suffix = since ? `?since=${encodeURIComponent(since)}` : "";
+  return request<{
+    window_start: string | null;
+    generated_at: string;
+    mode: string;
+    instrumentation_status: string;
+    metrics: Array<{ name: string; value: number | null; status: string; sample_size: number | string | null; basis: string }>;
+  }>(`/ops/metrics${suffix}`, { auth: true });
+}
+
+export async function opsProductLearning() {
+  return request<{
+    window_start: string | null;
+    generated_at: string;
+    mode: string;
+    environments: Record<string, Record<string, { events: number | null; people: number | null; status: string }>>;
+    dictionary: string[];
+    limitations: string[];
+  }>("/ops/product-learning", { auth: true });
+}
+
+export type MarketplaceWaitlistEntry = { id: string; persona: "client" | "freelancer"; status: string; concierge_consent: boolean };
+
+export async function joinMarketplaceWaitlist(persona: "client" | "freelancer", waitlistConsent: boolean, conciergeConsent: boolean) {
+  return request<{ entry_id: string; status: string; concierge_consent: boolean }>("/ops/waitlist", {
+    method: "POST", auth: true,
+    body: JSON.stringify({ persona, waitlist_consent: waitlistConsent, concierge_consent: conciergeConsent }),
+  });
+}
+
+export async function getMyMarketplaceWaitlist() {
+  return request<{ items: MarketplaceWaitlistEntry[] }>("/ops/waitlist/mine", { auth: true });
+}
+
+export async function leaveMarketplaceWaitlist(entryId: string) {
+  return request<{ entry_id: string; status: string; concierge_consent: boolean }>(`/ops/waitlist/${encodeURIComponent(entryId)}`, {
+    method: "DELETE", auth: true,
+  });
+}
+
+export async function adminResolveSupportCase(caseId: string, resolution_note: string) {
+  return request<{ case_id: string; status: string }>(`/ops/support-cases/${encodeURIComponent(caseId)}/resolve`, {
+    method: "POST", auth: true, body: JSON.stringify({ status: "resolved", resolution_note }),
+  });
+}
+
+export async function adminResolveDispute(disputeId: string, outcome: "resolved_client" | "resolved_freelancer" | "no_action", resolution_note: string) {
+  return request<{ dispute_id: string; status: string; reviewer: string; provider_escalation: string }>(`/ops/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+    method: "POST", auth: true, body: JSON.stringify({ outcome, resolution_note }),
+  });
+}
+
+export async function adminGetDisputeDetails(disputeId: string) {
+  return request<{ id: string; contract_id: string; reason: string; statement: string; evidence: unknown[]; addenda: Array<{ statement: string; evidence: unknown[]; created_at?: string | null }> }>(
+    `/ops/disputes/${encodeURIComponent(disputeId)}`, { auth: true },
   );
 }
 
@@ -2333,6 +2547,27 @@ export async function postMatchFeedback(body: {
     auth: true,
     body: JSON.stringify(body),
   });
+}
+
+export async function recordProductEvent(
+  eventName: string,
+  surface: "discovery" | "native_marketplace" | "billing" | "alerts" | "support",
+) {
+  return request<{ accepted: number; duplicates: number; environment: string }>(
+    "/telemetry/product-events",
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({
+        events: [{
+          event_key: crypto.randomUUID(),
+          event_name: eventName,
+          occurred_at: new Date().toISOString(),
+          surface,
+        }],
+      }),
+    },
+  );
 }
 
 export async function testWebhook(webhookUrl?: string) {
@@ -2881,8 +3116,172 @@ export async function deleteUserEarning(id: string) {
 // Phase 13 — Verified Talent & Employer Network APIs
 // ---------------------------------------------------------------------------
 
+export interface NetworkSkillItem {
+  id: string;
+  skill_name: string;
+  category: string;
+  years_of_experience: number;
+  verification_status: string;
+}
+
+export interface NetworkArtifactItem {
+  id: string;
+  title: string;
+  url: string;
+  artifact_type: string;
+  contribution_role: string;
+  description: string | null;
+  verification_status: string;
+}
+
+export interface NetworkProfileItem {
+  id: string;
+  headline: string | null;
+  bio: string | null;
+  primary_segment: string;
+  years_experience: number;
+  location_display: string | null;
+  is_published: boolean;
+  status: string;
+  is_sample: boolean;
+  contact_allowed: boolean;
+  search_indexing_consent: boolean;
+  availability: { status: string; hours_per_week: number; expires_at: string | null; is_expired?: boolean } | null;
+  rate_preference: { min_rate: number; max_rate: number | null; currency: string; rate_type: string } | null;
+  skills: NetworkSkillItem[];
+  portfolio_artifacts: NetworkArtifactItem[];
+  verified_claims: Array<{ id: string; claim_type: string; level: number; claim_source: string; verified_at: string | null }>;
+  is_owner_view: boolean;
+  listing_consent: { opt_in_directory: boolean; allow_platform_contact: boolean; search_indexing_consent: boolean; consented_at: string | null } | null;
+}
+
+export interface TalentDirectoryItem {
+  id: string;
+  headline: string | null;
+  bio: string | null;
+  primary_segment: string;
+  years_experience: number;
+  location_display: string | null;
+  is_sample: boolean;
+  contact_allowed: boolean;
+  search_indexing_consent: boolean;
+  verification_level: number;
+  is_newcomer: boolean;
+  availability: { status: string; hours_per_week: number; expires_at: string | null } | null;
+  rates: { min_rate: number; max_rate: number | null; currency: string; rate_type: string } | null;
+  top_skills: Array<{ name: string; verified: boolean }>;
+  verified_artifacts_count: number;
+}
+
+export interface NetworkReputation {
+  user_id: string;
+  entity_type: string;
+  has_sufficient_data: boolean;
+  status_label: string;
+  sample_size: number;
+  min_sample_required: number;
+  newcomer_fair_exposure: boolean;
+  components: {
+    response_rate_pct: number | null;
+    avg_response_minutes: number | null;
+    confirmed_deliveries_count: number;
+    repeat_hire_rate_pct: number | null;
+    disputes_resolved_pct: number | null;
+    paid_transactions_volume_usd: number;
+  };
+  audit: { manipulation_checks_passed: boolean; excluded_suspicious_events?: number; decay_applied: boolean };
+}
+
+export interface EmployerOrganizationSummary {
+  org_id: string;
+  name: string;
+  slug: string;
+  role: string;
+  seat_status: string;
+  domain_verified: boolean;
+  verification_status: string;
+}
+
+export interface EmployerOrganizationMember {
+  id: string;
+  user_id: string;
+  email: string;
+  role: string;
+  seat_status: string;
+  invitation_token: string | null;
+  invited_at: string | null;
+  accepted_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface EmployerOrganizationDetails {
+  id: string;
+  name: string;
+  slug: string;
+  website: string | null;
+  industry: string;
+  org_domain: string | null;
+  domain_verified: boolean;
+  verification_status: string;
+  my_role: string;
+  members: EmployerOrganizationMember[];
+}
+
+export interface OrganizationAuditLog {
+  id: string;
+  action: string;
+  actor_id: string;
+  target_user_id: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  details: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface VerificationClaimSummary {
+  id: string;
+  claim_type: string;
+  level: number;
+  claim_source: string;
+  status: string;
+}
+
+export interface FeeTemplate {
+  id: string;
+  name: string;
+  platform: string;
+  currency: string;
+  contract_service_fee_pct: number;
+  fee_tax_pct: number;
+  withholding_tax_pct: number;
+  withdrawal_fee: number;
+  processor_fee_pct: number;
+  processor_fee_fixed: number;
+}
+
+export interface UserEarningItem {
+  id: string;
+  project_title: string;
+  client_name: string | null;
+  platform: string;
+  currency: string;
+  gross_amount: number;
+  net_received_in_bank: number;
+  invoice_status: "draft" | "invoiced" | "paid" | "cancelled";
+  payment_date: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface UserEarningsSummary {
+  cash_received: number;
+  pipeline_estimated_gross: number;
+  effective_take_home_rate_pct: number;
+  platform_fees_paid: number;
+}
+
 export async function getNetworkProfile() {
-  return request<{ profile: any }>("/network/profile", { auth: true });
+  return request<{ profile: NetworkProfileItem }>("/network/profile", { auth: true });
 }
 
 export async function updateNetworkProfile(payload: {
@@ -2905,7 +3304,7 @@ export async function addNetworkSkill(payload: {
   years_of_experience?: number;
   skill_id?: string;
 }) {
-  return request<{ message: string; skill: any }>("/network/profile/skills", {
+  return request<{ message: string; skill: NetworkSkillItem }>("/network/profile/skills", {
     method: "POST",
     auth: true,
     body: JSON.stringify(payload),
@@ -2927,7 +3326,7 @@ export async function addNetworkArtifact(payload: {
   description?: string;
   artifact_id?: string;
 }) {
-  return request<{ message: string; artifact: any }>("/network/profile/artifacts", {
+  return request<{ message: string; artifact: NetworkArtifactItem }>("/network/profile/artifacts", {
     method: "POST",
     auth: true,
     body: JSON.stringify(payload),
@@ -2947,7 +3346,7 @@ export async function updateNetworkAvailability(payload: {
   available_from?: string;
   expires_at?: string;
 }) {
-  return request<{ message: string; availability: any }>("/network/profile/availability", {
+  return request<{ message: string; availability: NonNullable<NetworkProfileItem["availability"]> }>("/network/profile/availability", {
     method: "PUT",
     auth: true,
     body: JSON.stringify(payload),
@@ -2960,7 +3359,7 @@ export async function updateNetworkRates(payload: {
   currency?: string;
   rate_type?: string;
 }) {
-  return request<{ message: string; rates: any }>("/network/profile/rates", {
+  return request<{ message: string; rates: NonNullable<NetworkProfileItem["rate_preference"]> }>("/network/profile/rates", {
     method: "PUT",
     auth: true,
     body: JSON.stringify(payload),
@@ -2972,7 +3371,7 @@ export async function updateNetworkConsent(payload: {
   allow_platform_contact?: boolean;
   search_indexing_consent?: boolean;
 }) {
-  return request<{ message: string; consent: any }>("/network/profile/consent", {
+  return request<{ message: string; consent: NonNullable<NetworkProfileItem["listing_consent"]> }>("/network/profile/consent", {
     method: "PUT",
     auth: true,
     body: JSON.stringify(payload),
@@ -2994,7 +3393,7 @@ export async function unpublishNetworkProfile() {
 }
 
 export async function getNetworkPreview() {
-  return request<{ preview: any }>("/network/profile/preview", { auth: true });
+  return request<{ preview: NetworkProfileItem }>("/network/profile/preview", { auth: true });
 }
 
 export async function searchTalentDirectory(params: {
@@ -3030,13 +3429,13 @@ export async function searchTalentDirectory(params: {
     total: number;
     limit: number;
     offset: number;
-    items: any[];
+    items: TalentDirectoryItem[];
     has_more: boolean;
   }>(`/network/directory${queryStr}`, { auth: true });
 }
 
 export async function getPublicTalentProfile(profileId: string) {
-  return request<{ talent: any }>(`/network/directory/${profileId}`, { auth: true });
+  return request<{ talent: TalentDirectoryItem }>(`/network/directory/${profileId}`, { auth: true });
 }
 
 export async function createEmployerOrg(payload: {
@@ -3046,7 +3445,7 @@ export async function createEmployerOrg(payload: {
   org_domain?: string;
   is_sample?: boolean;
 }) {
-  return request<{ message: string; organization: any }>("/network/organizations", {
+  return request<{ message: string; organization: Pick<EmployerOrganizationDetails, "id" | "name" | "slug" | "industry" | "org_domain" | "domain_verified" | "verification_status"> }>("/network/organizations", {
     method: "POST",
     auth: true,
     body: JSON.stringify(payload),
@@ -3054,18 +3453,18 @@ export async function createEmployerOrg(payload: {
 }
 
 export async function getEmployerOrgs() {
-  return request<{ organizations: any[] }>("/network/organizations", { auth: true });
+  return request<{ organizations: EmployerOrganizationSummary[] }>("/network/organizations", { auth: true });
 }
 
 export async function getEmployerOrgDetails(orgId: string) {
-  return request<{ organization: any }>(`/network/organizations/${orgId}`, { auth: true });
+  return request<{ organization: EmployerOrganizationDetails }>(`/network/organizations/${orgId}`, { auth: true });
 }
 
 export async function inviteEmployerOrgMember(
   orgId: string,
   payload: { email: string; role: string }
 ) {
-  return request<{ message: string; invitation: any }>(
+  return request<{ message: string; invitation: { membership_id: string; email: string; role: string; seat_status: string; invitation_token: string } }>(
     `/network/organizations/${orgId}/invitations`,
     {
       method: "POST",
@@ -3113,7 +3512,7 @@ export async function revokeEmployerOrgSeat(orgId: string, membershipId: string)
 }
 
 export async function getEmployerOrgAuditLogs(orgId: string, limit: number = 50) {
-  return request<{ audit_logs: any[] }>(
+  return request<{ audit_logs: OrganizationAuditLog[] }>(
     `/network/organizations/${orgId}/audit-logs?limit=${limit}`,
     { auth: true }
   );
@@ -3124,7 +3523,7 @@ export async function createVerificationClaim(payload: {
   profile_id?: string;
   reviewer_notes?: string;
 }) {
-  return request<{ message: string; claim: any }>("/network/verification/claims", {
+  return request<{ message: string; claim: VerificationClaimSummary }>("/network/verification/claims", {
     method: "POST",
     auth: true,
     body: JSON.stringify(payload),
@@ -3176,7 +3575,7 @@ export async function runSandboxVerification(
     claimed_role?: string;
   }
 ) {
-  return request<any>(`/network/verification/claims/${claimId}/sandbox-verify`, {
+  return request<{ success: boolean; reason?: string; result?: { verified_role?: string; commit_count?: number } }>(`/network/verification/claims/${claimId}/sandbox-verify`, {
     method: "POST",
     auth: true,
     body: JSON.stringify(payload),
@@ -3187,7 +3586,7 @@ export async function getNetworkReputation(
   userId: string,
   entityType: "freelancer" | "employer" = "freelancer"
 ) {
-  return request<{ reputation: any }>(
+  return request<{ reputation: NetworkReputation }>(
     `/network/reputation/${userId}?entity_type=${entityType}`,
     { auth: true }
   );
@@ -3240,6 +3639,7 @@ export interface ScopeClarificationResult {
 export interface NativeProjectItem {
   id: string;
   org_id: string;
+  org_name?: string;
   title: string;
   status: string;
   review_state?: string;
@@ -3387,7 +3787,7 @@ export async function getProjectDetails(projectId: string) {
       ai_clarification_approved: boolean;
       commitment_type: string;
       required_hours_per_week: number;
-      milestone_outline?: any[];
+      milestone_outline?: ProjectOfferMilestone[];
       is_client_owner: boolean;
       shortlisted_candidates?: CandidateShortlistEntry[];
       status_history?: ProjectStatusHistoryEntry[];
@@ -3535,7 +3935,7 @@ export async function appealProjectModeration(
 }
 
 export async function listModerationQueue(limit: number = 50) {
-  return request<{ queue: any[] }>(`/projects/moderation/queue?limit=${limit}`, {
+  return request<{ queue: Array<Record<string, unknown>> }>(`/projects/moderation/queue?limit=${limit}`, {
     auth: true,
   });
 }
@@ -3922,6 +4322,10 @@ export async function listProjectOffers(projectId: string) {
     `/matching/projects/${projectId}/offers`,
     { auth: true }
   );
+}
+
+export async function getProjectOffers(projectId: string) {
+  return listProjectOffers(projectId);
 }
 
 export async function getMarketplaceMetrics(mode: "simulated" | "actual" = "simulated") {

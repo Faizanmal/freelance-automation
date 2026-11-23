@@ -419,6 +419,8 @@ async def test_content_policy_safety_scanner_negative_tests(phase14_client):
     assert "submitted" in res_appeal.json()["message"].lower()
 
     # 6. Superuser views moderation queue and resolves appeal
+    # Endpoint is gated by require_roles(...)->get_current_user (superusers pass).
+    app.dependency_overrides[get_current_user] = lambda: superuser
     app.dependency_overrides[get_current_active_superuser] = lambda: superuser
     res_queue = await client.get("/api/v1/projects/moderation/queue")
     assert res_queue.status_code == 200
@@ -594,3 +596,44 @@ async def test_reconfirmation_stale_expiration_and_idor(phase14_client):
     app.dependency_overrides[get_current_user] = lambda: alice
     res_check = await client.get(f"/api/v1/projects/{p_id}")
     assert res_check.json()["project"]["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_phase17_role_separated_ops_support_and_waitlist(phase14_client):
+    client, app, session_maker = phase14_client
+    async with session_maker() as session:
+        alice = await session.get(User, "user-alice-client")
+        bob = await session.get(User, "user-bob-dev")
+        superuser = await session.get(User, "user-admin-staff")
+
+    app.dependency_overrides[get_current_user] = lambda: alice
+    denied_moderation = await client.get("/api/v1/ops/queues")
+    assert denied_moderation.status_code == 403
+    case = await client.post("/api/v1/ops/support-cases", json={
+        "category": "project", "summary": "Need help with a brief for client@example.com"
+    })
+    assert case.status_code == 201, case.text
+    mine = await client.get("/api/v1/ops/support-cases/mine")
+    assert mine.status_code == 200
+    assert "client@example.com" not in str(mine.json())
+    assert "summary" not in mine.json()["items"][0]
+
+    missing_consent = await client.post("/api/v1/ops/waitlist", json={"persona": "client", "concierge_consent": True})
+    assert missing_consent.status_code == 422
+    joined = await client.post("/api/v1/ops/waitlist", json={"persona": "client", "waitlist_consent": True, "concierge_consent": False})
+    assert joined.status_code == 201, joined.text
+    left = await client.delete(f"/api/v1/ops/waitlist/{joined.json()['entry_id']}")
+    assert left.status_code == 200
+    assert left.json()["concierge_consent"] is False
+
+    app.dependency_overrides[get_current_user] = lambda: superuser
+    assigned = await client.post(f"/api/v1/ops/users/{bob.id}/role", json={"role": "support_agent", "reason": "Provide limited support queue coverage during pilot."})
+    assert assigned.status_code == 200, assigned.text
+    bob.account_role = "support_agent"
+    app.dependency_overrides[get_current_user] = lambda: bob
+    support = await client.get("/api/v1/ops/support-queue")
+    assert support.status_code == 200
+    denied_moderation = await client.get("/api/v1/ops/queues")
+    assert denied_moderation.status_code == 403
+    resolved = await client.post(f"/api/v1/ops/support-cases/{case.json()['case_id']}/resolve", json={"status": "resolved", "resolution_note": "Referred the requester to the project brief guide."})
+    assert resolved.status_code == 200, resolved.text

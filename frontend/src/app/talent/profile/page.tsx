@@ -2,13 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   Briefcase,
   CheckCircle2,
   Clock,
   Eye,
-  Github,
   Globe,
   Lock,
   Plus,
@@ -35,10 +35,11 @@ import {
   updateNetworkConsent,
   updateNetworkProfile,
   updateNetworkRates,
+  type NetworkArtifactItem,
 } from "@/lib/api";
 
 export default function TalentProfileEditorPage() {
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<Awaited<ReturnType<typeof getNetworkProfile>>["profile"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -80,11 +81,11 @@ export default function TalentProfileEditorPage() {
   const [searchIndexingConsent, setSearchIndexingConsent] = useState(false);
 
   // Preview Modal
-  const [previewData, setPreviewData] = useState<any>(null);
+  const [previewData, setPreviewData] = useState<Awaited<ReturnType<typeof getNetworkPreview>>["preview"] | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
   // Sandbox Verification Modal
-  const [verifyingArtifact, setVerifyingArtifact] = useState<any>(null);
+  const [verifyingArtifact, setVerifyingArtifact] = useState<NetworkArtifactItem | null>(null);
   const [verificationFeedback, setVerificationFeedback] = useState<string | null>(null);
 
   useEffect(() => {
@@ -124,8 +125,8 @@ export default function TalentProfileEditorPage() {
         setAllowContact(Boolean(p.listing_consent.allow_platform_contact));
         setSearchIndexingConsent(Boolean(p.listing_consent.search_indexing_consent));
       }
-    } catch (err: any) {
-      setError(err?.message || "Failed to load talent profile");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load talent profile");
     } finally {
       setLoading(false);
     }
@@ -146,8 +147,8 @@ export default function TalentProfileEditorPage() {
       });
       setMessage("Profile details saved successfully.");
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Failed to save profile details");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to save profile details");
     } finally {
       setSaving(false);
     }
@@ -165,8 +166,8 @@ export default function TalentProfileEditorPage() {
       });
       setSkillName("");
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Failed to add skill");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to add skill");
     } finally {
       setSaving(false);
     }
@@ -176,8 +177,8 @@ export default function TalentProfileEditorPage() {
     try {
       await deleteNetworkSkill(id);
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Failed to remove skill");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to remove skill");
     }
   }
 
@@ -197,8 +198,8 @@ export default function TalentProfileEditorPage() {
       setArtifactUrl("");
       setArtifactDesc("");
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Failed to add portfolio artifact");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to add portfolio artifact");
     } finally {
       setSaving(false);
     }
@@ -208,8 +209,8 @@ export default function TalentProfileEditorPage() {
     try {
       await deleteNetworkArtifact(id);
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Failed to remove artifact");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to remove artifact");
     }
   }
 
@@ -230,8 +231,8 @@ export default function TalentProfileEditorPage() {
       });
       setMessage("Availability and rates updated.");
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Failed to update availability or rates");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to update availability or rates");
     } finally {
       setSaving(false);
     }
@@ -248,14 +249,15 @@ export default function TalentProfileEditorPage() {
       });
       setMessage("Privacy and consent settings saved.");
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Failed to update privacy consent");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to update privacy consent");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleTogglePublish() {
+    if (!profile) return;
     try {
       setSaving(true);
       setMessage(null);
@@ -268,8 +270,8 @@ export default function TalentProfileEditorPage() {
         setMessage("Profile published! You are now discoverable in the talent directory.");
       }
       await loadProfile();
-    } catch (err: any) {
-      setError(err?.message || "Publish action failed. Verify opt-in consent is enabled.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Publish action failed. Verify opt-in consent is enabled.");
     } finally {
       setSaving(false);
     }
@@ -280,12 +282,13 @@ export default function TalentProfileEditorPage() {
       const res = await getNetworkPreview();
       setPreviewData(res.preview);
       setShowPreview(true);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load preview");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "") || "Failed to load preview");
     }
   }
 
-  async function handleRunSandboxVerification(artifact: any) {
+  async function handleRunSandboxVerification(artifact: NetworkArtifactItem) {
+    if (!profile) return;
     try {
       setVerificationFeedback("Verifying GitHub repository and commits via Sandbox...");
       // In sandbox mode, call verification endpoint
@@ -302,8 +305,8 @@ export default function TalentProfileEditorPage() {
       } else {
         setVerificationFeedback(`Verification rejected: ${res.reason}`);
       }
-    } catch (err: any) {
-      setVerificationFeedback(err?.message || "Verification failed");
+    } catch (err: unknown) {
+      setVerificationFeedback(getErrorMessage(err, "") || "Verification failed");
     }
   }
 
@@ -505,7 +508,7 @@ export default function TalentProfileEditorPage() {
 
         {/* Current skills */}
         <div className="mt-4 flex flex-wrap gap-2">
-          {profile?.skills?.map((s: any) => (
+          {profile?.skills?.map((s) => (
             <div
               key={s.id}
               className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-1.5 text-xs text-[var(--text)]"
@@ -593,7 +596,7 @@ export default function TalentProfileEditorPage() {
 
         {/* Artifacts List */}
         <div className="mt-4 space-y-3">
-          {profile?.portfolio_artifacts?.map((art: any) => (
+          {profile?.portfolio_artifacts?.map((art) => (
             <div
               key={art.id}
               className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-4"
@@ -961,7 +964,7 @@ export default function TalentProfileEditorPage() {
                 <p className="text-sm text-[var(--text-secondary)]">{previewData.bio}</p>
               )}
               <div className="flex flex-wrap gap-2">
-                {previewData.skills?.map((s: any) => (
+                {previewData.skills?.map((s) => (
                   <span
                     key={s.id}
                     className="rounded bg-[var(--surface-hover)] px-2.5 py-1 text-xs font-semibold text-[var(--text)]"

@@ -186,7 +186,9 @@ class Settings(BaseSettings):
     email_from: str | None = Field(None, alias="EMAIL_FROM")
     resend_api_key: str | None = Field(None, alias="RESEND_API_KEY")
 
-    # Stripe billing (optional until keys are set)
+    # Stripe billing (disabled by default, regardless of credentials)
+    stripe_checkout_enabled: bool = Field(False, alias="STRIPE_CHECKOUT_ENABLED")
+    stripe_live_charges_enabled: bool = Field(False, alias="STRIPE_LIVE_CHARGES_ENABLED")
     stripe_secret_key: str | None = Field(None, alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(None, alias="STRIPE_WEBHOOK_SECRET")
     stripe_price_pro: str | None = Field(None, alias="STRIPE_PRICE_PRO")
@@ -294,7 +296,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "CORS_ORIGINS must list explicit frontend origins in production"
             )
-        if (
+        if self.stripe_enabled and (
             self.stripe_secret_key
             and self.stripe_price_pro
             and not self.stripe_webhook_secret
@@ -325,7 +327,13 @@ class Settings(BaseSettings):
 
     @property
     def stripe_enabled(self) -> bool:
-        return bool(self.stripe_secret_key and self.stripe_price_pro)
+        if not (self.stripe_checkout_enabled and self.stripe_secret_key and self.stripe_price_pro):
+            return False
+        # Production checkout is opt-in separately from credentials, so adding a
+        # key alone can never enable a customer charge.
+        if self.is_production and not self.stripe_live_charges_enabled:
+            return False
+        return True
 
 
 @lru_cache

@@ -191,8 +191,12 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
     return { job_id: jobId, status: currentStatus };
   });
   vi.mocked(api.postMatchFeedback).mockImplementation(async (payload) => {
-    currentStatus = payload.kind === "clear" ? null : (payload.kind as any);
-    return { message: "Feedback saved", kind: payload.kind } as any;
+    currentStatus = payload.kind === "clear"
+      ? null
+      : payload.kind === "save" || payload.kind === "skip"
+        ? payload.kind
+        : null;
+    return { job_id: payload.job_id, status: currentStatus, feedback_kind: payload.kind };
   });
 
   render(<LeadsPage />);

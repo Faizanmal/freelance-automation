@@ -286,6 +286,23 @@ def _anonymize_company(company: str | None) -> str:
     return f"{clean[:2]}••• ({clean.split()[0][:1]}*)"
 
 
+def _strip_raw_markdown(text: str) -> str:
+    if not text:
+        return ""
+    # Strip markdown headers (###)
+    s = re.sub(r"#+\s*", "", text)
+    # Strip links [text](url) -> text
+    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
+    # Strip formatting symbols (*, _, ~)
+    s = re.sub(r"[*_~]{1,3}", "", s)
+    # Strip blockquotes
+    s = re.sub(r"^\s*>\s*", "", s, flags=re.MULTILINE)
+    # Strip code backticks
+    s = s.replace("`", "")
+    # Normalize excessive whitespace
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _to_public_teaser(candidate_dict: dict[str, Any]) -> dict[str, Any]:
     from backend.application.services.budget_parser import describe_budget
 
@@ -294,6 +311,7 @@ def _to_public_teaser(candidate_dict: dict[str, Any]) -> dict[str, Any]:
         candidate_dict.get("budget_max"),
         candidate_dict.get("enrichment"),
     )
+    raw_excerpt = candidate_dict.get("description_excerpt") or candidate_dict.get("description") or ""
     return {
         "id": candidate_dict["id"],
         "title": candidate_dict["title"],
@@ -304,7 +322,7 @@ def _to_public_teaser(candidate_dict: dict[str, Any]) -> dict[str, Any]:
         "tags": (candidate_dict.get("tags") or [])[:6],
         "budget_label": budget_label,
         "posted_at": candidate_dict.get("posted_at") or candidate_dict.get("created_at"),
-        "description_excerpt": (candidate_dict.get("description_excerpt") or "")[:220],
+        "description_excerpt": _strip_raw_markdown(raw_excerpt)[:220],
     }
 
 
@@ -571,9 +589,45 @@ async def proposal_draft(
             digest_mode=False,
             alert_email=current_user.email,
         )
-    return await ProposalDraftService().draft(
-        user=current_user, preferences=prefs, job=job, kind=kind
-    )
+    try:
+        return await ProposalDraftService().draft(
+            user=current_user, preferences=prefs, job=job, kind=kind
+        )
+    except Exception as err:
+        logger.exception("Proposal draft generation error for job %s: %s", job_id, err)
+        service = ProposalDraftService()
+        template_fields = service._template_form_fields(
+            user=current_user, preferences=prefs, job=job
+        )
+        followup_pitch = service._template_followup_pitch(user=current_user, job=job)
+        initial_pitch = str(template_fields.get("proposal") or "")
+        draft_text = followup_pitch if kind == "followup" else initial_pitch
+        apply_email = extract_apply_email(job)
+        return {
+            "job_id": job.id,
+            "title": job.title,
+            "source_name": job.source_name,
+            "source_url": job.url,
+            "apply_email": apply_email,
+            "email_subject": f"Following up: {job.title}" if kind == "followup" else f"Contract inquiry: {job.title}",
+            "provider": "template",
+            "kind": kind,
+            "draft": draft_text,
+            "initial_draft": initial_pitch,
+            "followup_draft": followup_pitch,
+            "outreach_links": {
+                "initial": build_outreach_links(
+                    apply_email, f"Contract inquiry: {job.title}", initial_pitch
+                ),
+                "followup": build_outreach_links(
+                    apply_email, f"Following up: {job.title}", followup_pitch
+                ),
+            },
+            "form_fields": template_fields,
+            "disclaimer": (
+                "Review and customize before sending. Signal Desk never auto-applies or contacts clients on your behalf."
+            ),
+        }
 
 
 @router.post("/{job_id}/apply")

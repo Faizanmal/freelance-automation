@@ -7,9 +7,10 @@ import { AppShell } from "@/components/app-shell";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { SkipLink } from "@/components/skip-link";
 import { ToastProvider } from "@/components/ui/toast";
+import { getSiteUrl, shouldIndexSite } from "@/lib/site-url";
 import "./globals.css";
 
-const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://signaldesk.com";
+const siteUrl = getSiteUrl();
 
 // Self-hosted: next/font/google intermittently fails CI when Google returns
 // extensionless /l/font?kit=… URLs (vercel/next.js#99114).
@@ -40,7 +41,7 @@ export const metadata: Metadata = {
     title: "Signal Desk — Freelance opportunity intelligence",
     description:
       "External discovery desk for freelancers: Hunt Rules, ranked leads, digest. Pitch on the original listing.",
-    url: siteUrl,
+    url: "/",
     siteName: "Signal Desk",
     locale: "en_US",
     type: "website",
@@ -52,8 +53,8 @@ export const metadata: Metadata = {
       "External discovery desk for freelancers: Hunt Rules, ranked leads, digest. Pitch on the original listing.",
   },
   robots: {
-    index: true,
-    follow: true,
+    index: shouldIndexSite(),
+    follow: shouldIndexSite(),
   },
 };
 

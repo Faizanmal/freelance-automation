@@ -339,13 +339,13 @@ describe("Phase 14 Client Workspace & Proof of Hiring Intent UI", () => {
     });
   });
 
-  it("renders Freelancer Native Project Detail with zero-fee guarantee and Q&A", async () => {
+  it("renders Freelancer Native Project Detail with fee disclosure and Q&A", async () => {
     render(<NativeProjectDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Distributed Agent Pipeline")).toBeInTheDocument();
       expect(screen.getByText("Proof of Hiring Intent")).toBeInTheDocument();
-      expect(screen.getByText("$0.00 (100% Free)")).toBeInTheDocument();
+      expect(screen.getByText("$0.00 platform fee")).toBeInTheDocument();
       expect(screen.getByText("Unverified / Not Funded")).toBeInTheDocument();
       expect(screen.getByText("Public Clarification Q&A")).toBeInTheDocument();
       expect(

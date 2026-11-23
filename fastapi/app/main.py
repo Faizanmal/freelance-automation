@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1 import (
@@ -13,6 +15,7 @@ from app.api.v1 import (
     auth,
     billing,
     copilot,
+    contracts,
     feedback,
     finance,
     health,
@@ -21,6 +24,7 @@ from app.api.v1 import (
     matching,
     network,
     notifications,
+    ops,
     pipeline,
     preferences,
     projects,
@@ -64,6 +68,7 @@ from database.models.listing_report import (  # noqa: F401
     ListingReport,
     ListingReportCorrection,
 )
+from database.models.audit import AuditEvent
 from fastapi import FastAPI
 
 logger = get_logger(__name__)
@@ -122,6 +127,20 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await ensure_missing_columns(engine)
+    # Restore reversible source kill switches from durable operator audit records.
+    async with get_session() as session:
+        controls = await session.execute(
+            select(AuditEvent).where(AuditEvent.action.in_([
+                "source_operator_disabled", "source_operator_enabled"
+            ])).order_by(AuditEvent.created_at.desc())
+        )
+        seen_sources: set[str] = set()
+        from app.ingestion.governance import set_operator_disabled
+        for control in controls.scalars().all():
+            source_key = (control.meta or {}).get("source_key")
+            if source_key and source_key not in seen_sources:
+                set_operator_disabled(source_key, control.action == "source_operator_disabled")
+                seen_sources.add(source_key)
     logger.info("Database schema ready (%s)", settings.database_url.split("://")[0])
 
     stop_event = asyncio.Event()
@@ -217,6 +236,8 @@ def create_app() -> FastAPI:
     app.include_router(preferences.router, prefix="/api/v1")
     app.include_router(pipeline.router, prefix="/api/v1")
     app.include_router(copilot.router, prefix="/api/v1")
+    app.include_router(contracts.router, prefix="/api/v1")
+    app.include_router(ops.router, prefix="/api/v1")
     app.include_router(users.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")
     app.include_router(roadmap.router, prefix="/api/v1")
@@ -237,6 +258,8 @@ def create_app() -> FastAPI:
     app.include_router(preferences.router)
     app.include_router(pipeline.router)
     app.include_router(copilot.router)
+    app.include_router(contracts.router)
+    app.include_router(ops.router)
     app.include_router(users.router)
     app.include_router(admin.router)
     app.include_router(roadmap.router)
@@ -276,14 +299,15 @@ def create_app() -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc):
         rid = get_request_id(request)
-        logger.warning("Validation error: %s request_id=%s", exc.errors(), rid)
+        errs = jsonable_encoder(exc.errors())
+        logger.warning("Validation error: %s request_id=%s", errs, rid)
         return _json_error(
             request,
             error_envelope(
-                detail=exc.errors(),
+                detail=errs,
                 code="validation_error",
                 request_id=rid,
-                errors=exc.errors(),
+                errors=errs,
             ),
             422,
         )

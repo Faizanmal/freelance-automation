@@ -84,7 +84,7 @@ export default function HelpCenterPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         <Link href="#getting-started" className="block">
           <Card className="h-full p-6 text-center hover:bg-white/[0.02] transition">
-            <h2 className="text-xl font-semibold text-[var(--paper)] mb-2">Getting Started</h2>
+            <h3 className="text-xl font-semibold text-[var(--paper)] mb-2">Quick Start Guide</h3>
             <p className="text-sm text-[var(--mute)]">Five steps from signup to your first leads</p>
           </Card>
         </Link>
@@ -97,7 +97,7 @@ export default function HelpCenterPage() {
         <a href="mailto:support@signaldesk.com" className="block">
           <Card className="h-full p-6 text-center hover:bg-white/[0.02] transition">
             <h2 className="text-xl font-semibold text-[var(--paper)] mb-2">Contact Support</h2>
-            <p className="text-sm text-[var(--mute)]">Email support@signaldesk.com for human help</p>
+            <p className="text-sm text-[var(--mute)]">Account questions: support@signaldesk.com</p>
           </Card>
         </a>
       </div>

@@ -104,15 +104,18 @@ class ProposalDraftService:
         form_fields = template_fields
 
         if any_llm_configured():
-            llm_fields, llm_provider = await self._maybe_llm_form_fields(
-                job=job,
-                preferences=preferences,
-                user=user,
-                fallback=template_fields,
-            )
-            if llm_fields:
-                form_fields = llm_fields
-                provider = llm_provider
+            try:
+                llm_fields, llm_provider = await self._maybe_llm_form_fields(
+                    job=job,
+                    preferences=preferences,
+                    user=user,
+                    fallback=template_fields,
+                )
+                if llm_fields:
+                    form_fields = llm_fields
+                    provider = llm_provider
+            except Exception:
+                provider = "template"
 
         initial_pitch = str(form_fields.get("proposal") or "")
         followup_pitch = self._template_followup_pitch(user=user, job=job)
@@ -257,17 +260,22 @@ class ProposalDraftService:
                 timeout=30.0,
             )
             parsed = json.loads(result.content)
-            return self._merge_llm_fields(fallback, parsed), result.provider
-        except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
+            return self._merge_llm_fields(fallback, parsed, user=user), result.provider
+        except Exception:
             return None, "template"
 
     def _merge_llm_fields(
-        self, fallback: dict[str, Any], parsed: dict[str, Any]
+        self, fallback: dict[str, Any], parsed: dict[str, Any], user: User | None = None
     ) -> dict[str, Any]:
         merged = dict(fallback)
         proposal = parsed.get("proposal") or parsed.get("draft")
         if isinstance(proposal, str) and proposal.strip():
-            merged["proposal"] = proposal.strip()
+            prop_text = proposal.strip()
+            if user:
+                name = (user.full_name or user.email.split("@")[0]).strip()
+                if name and name not in prop_text:
+                    prop_text = f"{prop_text}\n\nBest regards,\n{name}"
+            merged["proposal"] = prop_text
         if "bid_amount" in parsed:
             merged["bid_amount"] = self._to_float(parsed.get("bid_amount"))
         if isinstance(parsed.get("currency"), str) and parsed["currency"].strip():

@@ -483,13 +483,17 @@ class FinancialCalculator:
                     description=f"Difference between benchmark rate ({inp.benchmark_fx_rate}) and offered rate ({inp.actual_conversion_rate}).",
                 )
             )
+        deposit_desc = "Estimated cash landing in your bank account."
+        if target_curr and target_curr != base_curr and net_target_d is not None:
+            deposit_desc = f"Estimated cash landing in your bank account (~{net_target_d:,.2f} {target_curr})."
+
         breakdown.append(
             FeeBreakdownItem(
                 name="Actual Bank Deposit",
                 category="net_deposit",
-                amount=float(net_target_d if net_target_d is not None else net_amount_d),
-                currency=target_curr or base_curr,
-                description="Estimated cash landing in your bank account.",
+                amount=float(net_amount_d),
+                currency=base_curr,
+                description=deposit_desc,
             )
         )
 

@@ -16,6 +16,7 @@ from database.models.crm import (
     LeadTask,
     PipelineUndoEvent,
 )
+from database.models.contracts import ContractChangeOrder, ContractDispute, ContractDisputeAddendum, ContractEvent, ContractMilestone, ProjectContract
 from database.models.finance import (
     FeeTemplateRecord,
     FxRateCacheRecord,
@@ -51,12 +52,14 @@ from database.models.network import (
     VerificationEvidence,
     WorkAvailability,
 )
+from database.models.product_event import ProductEvent
 from database.models.notification import (
     DigestSentJob,
     NotificationDelivery,
     NotificationOutbox,
     NotificationRecord,
 )
+from database.models.operations import MarketplaceSupportCase, MarketplaceWaitlistEntry
 from database.models.preference import UserPreferences
 from database.models.project import (
     NativeProject,
@@ -78,6 +81,11 @@ __all__ = [
     "BillingWebhookEvent",
     "CancellationFeedback",
     "CopilotDraft",
+    "ContractDispute",
+    "ContractDisputeAddendum",
+    "ContractChangeOrder",
+    "ContractEvent",
+    "ContractMilestone",
     "DigestSentJob",
     "EmployerOrg",
     "FeeTemplateRecord",
@@ -92,6 +100,8 @@ __all__ = [
     "ListingReport",
     "ListingReportCorrection",
     "MarketplaceReport",
+    "MarketplaceSupportCase",
+    "MarketplaceWaitlistEntry",
     "NativeProject",
     "NotificationDelivery",
     "NotificationOutbox",
@@ -104,6 +114,7 @@ __all__ = [
     "ProjectCandidateShortlist",
     "ProjectClarificationRequest",
     "ProjectConversation",
+    "ProjectContract",
     "ProjectInvitation",
     "ProjectMatchScore",
     "ProjectMessage",
@@ -127,6 +138,7 @@ __all__ = [
     "UsageRecord",
     "User",
     "UserConsent",
+    "ProductEvent",
     "UserEarningRecord",
     "UserLeadAction",
     "UserPreferences",

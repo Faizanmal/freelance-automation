@@ -257,6 +257,17 @@ function PreferencesPageInner() {
             {user
               ? `Configure your discovery engine · ${user.email}`
               : "Loading…"}
+            {user ? (
+              user.is_verified ? (
+                <span className="ml-2 inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Verified
+                </span>
+              ) : (
+                <span className="ml-2 inline-flex items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  Unverified
+                </span>
+              )
+            ) : null}
             {billing ? (
               <span className="ml-2 inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--accent-muted)] px-2 py-0.5 text-xs font-semibold tracking-wide text-[var(--accent)] uppercase">
                 {billing.is_pro ? "PRO" : "FREE"}
@@ -925,7 +936,7 @@ function PreferencesPageInner() {
                   </Button>
                 ) : (
                   <p className="text-sm text-[var(--text-muted)]">
-                    Pro checkout opens soon. Your free Hunt Rules and leads stay with you when upgrades unlock.
+                    Pro checkout opens soon. Start free today — your Hunt Rules and leads stay with you when upgrades unlock.
                   </p>
                 )
               ) : billing.stripe_enabled ? (

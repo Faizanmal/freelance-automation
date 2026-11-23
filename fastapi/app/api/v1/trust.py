@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from app.api.dependencies import get_current_active_superuser, get_current_user
-from pydantic import BaseModel, Field
+from app.api.dependencies import get_current_user, require_roles
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.services.trust.employer_research import (
@@ -18,6 +18,7 @@ from backend.application.services.trust.listing_reports import (
 from backend.application.services.trust.service import TrustIntelligenceService
 from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepository
 from database.core.session import get_db
+from database.models.audit import AuditEvent
 from database.models.user import User
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -49,6 +50,12 @@ class ReportReviewRequest(BaseModel):
     ]
     notes: str | None = Field(default=None, max_length=2000)
     status: Literal["resolved", "dismissed", "corrected", "in_review"] = "resolved"
+
+    @model_validator(mode="after")
+    def review_requires_reason(self):
+        if not self.notes or len(self.notes.strip()) < 10:
+            raise ValueError("Moderation review requires a reason of at least 10 characters")
+        return self
 
 
 class CorrectionRequest(BaseModel):
@@ -169,7 +176,7 @@ async def request_report_correction(
 
 @router.get("/moderation/queue")
 async def moderation_queue(
-    user: Annotated[User, Depends(get_current_active_superuser)],
+    user: Annotated[User, Depends(require_roles("marketplace_moderator"))],
     session: Annotated[AsyncSession, Depends(get_db)],
     status: str | None = Query("open"),
     limit: int = Query(50, ge=1, le=200),
@@ -182,7 +189,7 @@ async def moderation_queue(
 async def review_report(
     report_id: int,
     body: ReportReviewRequest,
-    user: Annotated[User, Depends(get_current_active_superuser)],
+    user: Annotated[User, Depends(require_roles("marketplace_moderator"))],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     result = await ListingReportService(session).review(
@@ -191,7 +198,13 @@ async def review_report(
         outcome=body.outcome,
         notes=body.notes,
         new_status=body.status,
+        commit=False,
     )
     if not result.get("ok"):
         raise HTTPException(status_code=404 if result.get("error") == "not_found" else 400, detail=result.get("error"))
+    session.add(AuditEvent(action="listing_report_reviewed", user_id=user.id, meta={
+        "report_id": report_id, "outcome": body.outcome, "status": body.status,
+        "reason": body.notes[:500] if body.notes else None,
+    }))
+    await session.commit()
     return result

@@ -78,6 +78,15 @@ NON_OPPORTUNITY_URL_MARKERS = (
     "hashnode.dev",
     "freecodecamp.org",
     "hackernoon.com",
+    "starterindex.com",
+    "remoteleaf.com",
+    "jobleads.com",
+    "jobleads.co",
+    "jobright.ai",
+    "career.luxoft.com",
+    "careers.cern",
+    "toptal.com/freelance",
+    "toptal.com/developers",
 )
 
 NON_OPPORTUNITY_TEXT_RE = re.compile(
@@ -85,6 +94,18 @@ NON_OPPORTUNITY_TEXT_RE = re.compile(
     r"\btop\s+\d+\b"
     r"|\b\d+\s+best\s+(?:freelance|remote|python|react|developer|software|web|contract|companies|platforms|sites|tools|agencies)\b"
     r"|\bbest\s+(?:freelance|remote)\s+(?:websites|platforms|sites|job\s+boards|marketplaces|companies)\b"
+    r"|\btop\s+\d+\s+[\w\s-]+\s+(?:tools|libraries|frameworks|packages|extensions|resources|courses|books|blogs|websites|tips|tricks|practices|plugins|platforms|boilerplates|starter\s+kits?)\b"
+    r"|\b(?:starter\s+kits?|boilerplates?|awesome-[\w-]+)\b"
+    r"|\b(?:python|react|frontend|backend|fullstack|software|developer|freelance|remote)\s+job\s+board\b"
+    r"|\bfind\s+(?:freelance|remote)\s+(?:jobs|work|projects|gigs)\s+on\b"
+    r"|\bwelcome\s+to\s+(?:the\s+)?(?:job\s+board|careers?\s+portal|talent\s+network)\b"
+    r"|\bbrowse\s+\d+[\d,]*\s+(?:remote|freelance|tech)\s+jobs\b"
+    r"|\b(?:hire\s+me|work\s+with\s+me|about\s+me|my\s+portfolio|my\s+resume|developer\s+for\s+hire|freelancer\s+for\s+hire|available\s+for\s+hire)\b"
+    r"|\bi\s+am\s+a\s+(?:freelance|full-?stack|senior|frontend|backend|software)\s+(?:developer|engineer|consultant)\s+(?:available|offering|looking\s+for\s+clients)\b"
+    r"|\bcontact\s+me\s+to\s+(?:discuss|hire|collaborate)\b"
+    r"|\bexplore\s+careers\s+at\b"
+    r"|\b(?:why|life)\s+(?:work\s+)?at\s+[\w\s-]+\b"
+    r"|\bjoin\s+our\s+talent\s+(?:community|pool|network)\b"
     r"|\bhow\s+to\s+(?:become|hire|find|get|start|land|choose)\b"
     r"|\b(?:ultimate|complete|definitive|step-by-step|beginner'?s?)\s+guide\b"
     r"|\b(?:salary\s+guide|interview\s+questions|resume\s+template|cover\s+letter\s+template)\b"

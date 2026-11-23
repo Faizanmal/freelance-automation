@@ -21,6 +21,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import select
 from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_user
@@ -591,3 +592,67 @@ async def test_evaluation_metrics_and_synthetic_liquidity_disclaimer(phase15_cli
     assert data["relevant_candidate_rate"] > 0.8
     assert data["avg_response_latency_hours"] > 0
     assert "Synthetic benchmarks must never be used to claim market liquidity" in data["disclaimer"]
+
+
+@pytest.mark.asyncio
+async def test_phase16_contract_only_flow_and_disabled_funding(phase15_client):
+    """Accepted offer -> bilateral contract -> delivery/approval; funding stays unavailable."""
+    from database.models.contracts import ContractMilestone, ProjectContract
+
+    client, app, session_maker = phase15_client
+    async with session_maker() as session:
+        alice = await session.get(User, "user-alice-client")
+        bob = await session.get(User, "user-bob-dev")
+        application = ProjectApplication(
+            id=str(uuid4()), project_id="proj-distributed-agent", freelancer_id=bob.id,
+            status="negotiating", structured_pitch="Experienced backend engineer with delivery history.",
+            proposed_rate=3000.0,
+        )
+        session.add(application)
+        await session.commit()
+
+    as_user(app, alice)
+    offer_response = await client.post(
+        "/api/v1/matching/projects/proj-distributed-agent/offers",
+        json={"application_id": application.id, "agreed_amount": 3000.0,
+              "contract_type": "fixed_price", "milestones": [{"title": "Delivery", "amount": 3000, "deliverable": "Source and handoff"}]},
+    )
+    assert offer_response.status_code == 201, offer_response.text
+    offer_id = offer_response.json()["offer_id"]
+    as_user(app, bob)
+    assert (await client.post(f"/api/v1/matching/offers/{offer_id}/accept")).status_code == 200
+
+    capabilities = await client.get("/api/v1/contracts/capabilities")
+    assert capabilities.status_code == 200
+    assert capabilities.json()["mode"] == "contract_only"
+    assert capabilities.json()["live_payments_enabled"] is False
+    assert not any(capabilities.json()["supported"].values())
+
+    as_user(app, alice)
+    created = await client.post(f"/api/v1/contracts/from-offer/{offer_id}")
+    assert created.status_code == 201, created.text
+    contract_id = created.json()["contract_id"]
+    assert created.json()["snapshot"]["offer_version"] == 1
+    assert (await client.post(f"/api/v1/contracts/{contract_id}/acknowledge")).json()["state"] == "awaiting_acknowledgments"
+    as_user(app, bob)
+    assert (await client.post(f"/api/v1/contracts/{contract_id}/acknowledge")).json()["state"] == "active"
+
+    async with session_maker() as session:
+        contract = await session.get(ProjectContract, contract_id)
+        milestone = (await session.execute(select(ContractMilestone).where(ContractMilestone.contract_id == contract_id))).scalar_one()
+        assert contract.snapshot["amount"] == "3000.0"
+        milestone_id = milestone.id
+
+    for state in ("ready", "in_progress", "submitted"):
+        response = await client.post(f"/api/v1/contracts/{contract_id}/milestones/{milestone_id}/transition", json={"state": state})
+        assert response.status_code == 200, response.text
+    as_user(app, alice)
+    approved = await client.post(f"/api/v1/contracts/{contract_id}/milestones/{milestone_id}/transition", json={"state": "approved"})
+    assert approved.status_code == 200, approved.text
+    disabled = await client.post(f"/api/v1/contracts/{contract_id}/milestones/{milestone_id}/transition", json={"state": "paid"})
+    assert disabled.status_code == 409
+    assert "disabled" in disabled.json()["detail"]
+
+    report = await client.post(f"/api/v1/contracts/{contract_id}/disputes", json={"reason": "quality", "statement": "The delivered item does not meet the agreed acceptance criteria."})
+    assert report.status_code == 201, report.text
+    assert report.json()["review"] == "human_required"

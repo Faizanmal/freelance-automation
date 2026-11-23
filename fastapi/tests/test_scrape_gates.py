@@ -14,6 +14,7 @@ from fastapi import HTTPException
 class ScrapeGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_unverified_user_cannot_scrape(self) -> None:
         user = SimpleNamespace(
+            id="scrape-gate-unverified",
             is_verified=False,
             plan="free",
             subscription_status="inactive",
@@ -31,6 +32,7 @@ class ScrapeGateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_verified_scrape_returns_sync_stats(self) -> None:
         user = SimpleNamespace(
+            id="scrape-gate-verified-sync",
             is_verified=True,
             plan="free",
             subscription_status="inactive",
@@ -55,7 +57,13 @@ class ScrapeGateTests(unittest.IsolatedAsyncioTestCase):
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=summary)
 
-        with patch("app.api.v1.jobs.ScrapeService", return_value=mock_service):
+        with (
+            patch("app.api.v1.jobs.ScrapeService", return_value=mock_service),
+            patch(
+                "app.api.v1.jobs.daily_scrape_quota.check_and_consume",
+                new=AsyncMock(return_value=1),
+            ),
+        ):
             result = await scrape_jobs(
                 ScrapeRequest(sources=["remoteok"], limit=5, background=False),
                 session=AsyncMock(),
@@ -70,6 +78,7 @@ class ScrapeGateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_background_falls_back_to_sync_when_celery_unavailable(self) -> None:
         user = SimpleNamespace(
+            id="scrape-gate-verified-bg",
             is_verified=True,
             plan="free",
             subscription_status="inactive",
@@ -88,6 +97,10 @@ class ScrapeGateTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.api.v1.jobs.ScrapeService", return_value=mock_service),
+            patch(
+                "app.api.v1.jobs.daily_scrape_quota.check_and_consume",
+                new=AsyncMock(return_value=1),
+            ),
             patch(
                 "workers.availability.celery_workers_online",
                 return_value=False,

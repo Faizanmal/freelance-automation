@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { useIsAuthenticated } from "@/lib/auth-state";
 import {
   activateDevPro,
   getBillingUsage,
@@ -24,7 +25,7 @@ import { cn } from "@/lib/cn";
 
 export default function PricingPage() {
   const router = useRouter();
-  const [authed, setAuthed] = useState(false);
+  const authed = useIsAuthenticated();
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [devActivateAllowed, setDevActivateAllowed] = useState(false);
@@ -33,13 +34,12 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState(false);
   const [userUsage, setUserUsage] = useState<UserUsageStatus | null>(null);
-  const [unitEconomics, setUnitEconomics] = useState<any | null>(null);
-  const [providerEligibility, setProviderEligibility] = useState<any | null>(null);
+  const [unitEconomics, setUnitEconomics] = useState<Awaited<ReturnType<typeof getUnitEconomics>> | null>(null);
+  const [providerEligibility, setProviderEligibility] = useState<Awaited<ReturnType<typeof getProviderEligibility>> | null>(null);
   const [showTransparency, setShowTransparency] = useState(false);
 
   useEffect(() => {
     const token = getToken();
-    setAuthed(Boolean(token));
 
     startTransition(async () => {
       try {
@@ -102,21 +102,20 @@ export default function PricingPage() {
   return (
     <div className="flex flex-1 flex-col gap-10 max-w-6xl mx-auto px-4 py-8">
       <PageHeader
-        eyebrow="Honest Pricing & Unit Economics"
+        eyebrow="Transparent Pricing & Plans"
         title="Predictable tools, honest subscriptions"
-        description="Core discovery, save/skip, basic matching, native applications, and safety are 100% Free Forever. Pro raises AI copilot quotas and multichannel alerts — Pro never buys or modifies intrinsic matching rank."
+        description="Core discovery, save/skip, and basic matching are included in the Free plan. Pro raises AI copilot quotas and multichannel alerts; paying never boosts a match score or ranking position."
       />
 
-      {/* Honest Marketplace Guarantee Banner */}
+      {/* Ranking policy */}
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs text-emerald-900 dark:text-emerald-100 flex items-start gap-3">
         <ShieldCheck className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
         <div>
           <span className="font-semibold text-emerald-800 dark:text-emerald-300">
-            Our Ranking Neutrality & Data Privacy Guarantee:
+            Ranking policy:
           </span>
           <p className="mt-0.5 opacity-90">
-            Paying for Pro does not boost or manipulate match scores. Freelancer rankings are 100% organic and based strictly on candidate relevance.
-            If you cancel, you keep full access to your saved leads, Hunt Rules, and data exports. No lock-in, no hidden overages.
+            Pro does not change match scores or ranking position. Lead ordering uses relevance to your Hunt Rules. Current plan limits and included features are listed below.
           </p>
         </div>
       </div>
@@ -190,11 +189,11 @@ export default function PricingPage() {
               >
                 {isPro ? (
                   <Badge variant="accent" className="absolute top-4 right-4">
-                    Hypothesis (\$19/mo)
+                    Pro
                   </Badge>
                 ) : (
                   <span className="absolute top-4 right-4 rounded bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                    100% Free Forever
+                    Free plan
                   </span>
                 )}
                 <div className="flex items-baseline justify-between gap-3">
@@ -228,7 +227,7 @@ export default function PricingPage() {
                         {upgrading
                           ? "Working…"
                           : stripeEnabled
-                            ? "Upgrade to Pro ($19/mo)"
+                            ? `Upgrade to Pro (${plan.price_label})`
                             : "Activate Pro (Local Sandbox)"}
                       </Button>
                     ) : (
@@ -257,102 +256,6 @@ export default function PricingPage() {
       )}
 
       {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-
-      {/* Sustainable Unit Economics & India Compliance Collapsible */}
-      <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-semibold text-[var(--text)]">
-              Transparent Unit Economics & India Entity Audit
-            </h3>
-            <p className="text-xs text-[var(--text-muted)]">
-              We treat our \$19/mo price as an honest hypothesis backed by sustainable cost accounting, not arbitrarily extracted rents.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowTransparency(!showTransparency)}
-            className="rounded border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--border)]"
-          >
-            {showTransparency ? "Hide Audit" : "View Breakdown ↗"}
-          </button>
-        </div>
-
-        {showTransparency && (
-          <div className="mt-6 space-y-6 border-t border-[var(--border)] pt-5">
-            {/* Scenarios Table */}
-            {unitEconomics?.scenarios && (
-              <div>
-                <h4 className="text-sm font-semibold text-[var(--text)]">Unit Economics Across Usage Tiers</h4>
-                <div className="mt-3 overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="border-b border-[var(--border)] bg-[var(--surface-sunken)] text-[var(--text-muted)] uppercase">
-                      <tr>
-                        <th className="px-3 py-2">Usage Tier</th>
-                        <th className="px-3 py-2 text-right">Hunts/Mo</th>
-                        <th className="px-3 py-2 text-right">AI Copilot</th>
-                        <th className="px-3 py-2 text-right">Direct COGS</th>
-                        <th className="px-3 py-2 text-right">Stripe Fee</th>
-                        <th className="px-3 py-2 text-right">Gross Margin</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--border)]">
-                      {unitEconomics.scenarios.map((sc: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-[var(--surface-sunken)]/20">
-                          <td className="px-3 py-2 font-medium text-[var(--text)]">
-                            {sc.name}
-                            <span className="block text-[10px] text-[var(--text-muted)]">{sc.description}</span>
-                          </td>
-                          <td className="px-3 py-2 text-right">{sc.monthly_hunts}</td>
-                          <td className="px-3 py-2 text-right">{sc.monthly_copilot_runs} runs</td>
-                          <td className="px-3 py-2 text-right font-medium text-rose-600 dark:text-rose-400">
-                            \${sc.total_cogs.toFixed(2)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-[var(--text-muted)]">
-                            \${sc.payment_processor_fee.toFixed(2)}
-                          </td>
-                          <td className="px-3 py-2 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                            {sc.gross_margin_pct.toFixed(1)}% (\${sc.gross_profit.toFixed(2)})
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* India Compliance Checklist */}
-            {providerEligibility?.checklist && (
-              <div>
-                <h4 className="text-sm font-semibold text-[var(--text)]">
-                  India Entity & Payment Regulatory Audit
-                </h4>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {providerEligibility.checklist.map((item: any, idx: number) => (
-                    <div key={idx} className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-[var(--text)]">{item.area}</span>
-                        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                          {item.status.replace(/_/g, " ").toUpperCase()}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[var(--text-muted)]">{item.details}</p>
-                      <a
-                        href={item.official_source}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2 inline-block text-[10px] text-[var(--accent)] underline hover:opacity-80"
-                      >
-                        Official Regulatory Guidance ↗
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

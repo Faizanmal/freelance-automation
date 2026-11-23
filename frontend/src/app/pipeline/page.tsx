@@ -7,6 +7,7 @@ import {
   addLeadNote,
   addLeadReminder,
   cancelCopilotRun,
+  downloadPipelineExport,
   getPipelineBoard,
   getToken,
   getWorkspaceDashboard,
@@ -111,7 +112,8 @@ export default function PipelinePage() {
   }, [router, showDemo, toast]);
 
   useEffect(() => {
-    void refresh();
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
   }, [refresh]);
 
   const allLeads = useMemo(() => {
@@ -180,11 +182,11 @@ export default function PipelinePage() {
     }
   }
 
-  async function runCopilot(intent: CopilotIntent) {
+  async function handleRunCopilot(intent: CopilotIntent) {
     if (!selected) return;
     try {
       const result = await startCopilotRun(selected.job_id, intent, {
-        idempotency_key: `${selected.job_id}:${intent}:${Date.now()}`,
+        idempotency_key: `${selected.job_id}:${intent}:${globalThis.crypto.randomUUID()}`,
       });
       setRunId(result.id);
       setRunMeta({
@@ -239,7 +241,11 @@ export default function PipelinePage() {
     }
   }
 
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+  const exportPipeline = (format: "csv" | "ics") => {
+    void downloadPipelineExport(format).catch((error: unknown) => {
+      toast(error instanceof Error ? error.message : "Could not export your pipeline.", "error");
+    });
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6">
@@ -262,18 +268,20 @@ export default function PipelinePage() {
             >
               <List className="size-4" /> List
             </Button>
-            <a
+            <Button
+              variant="outline"
               className="inline-flex h-8 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs font-semibold"
-              href={`${apiBase}/api/v1/pipeline/export.csv`}
+              onClick={() => exportPipeline("csv")}
             >
               <Download className="size-4" /> Export CSV
-            </a>
-            <a
+            </Button>
+            <Button
+              variant="outline"
               className="inline-flex h-8 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs font-semibold"
-              href={`${apiBase}/api/v1/pipeline/export.ics`}
+              onClick={() => exportPipeline("ics")}
             >
               <CalendarClock className="size-4" /> Calendar
-            </a>
+            </Button>
           </div>
         }
       />
@@ -535,7 +543,7 @@ export default function PipelinePage() {
                   key={intent.id}
                   size="sm"
                   variant="outline"
-                  onClick={() => void runCopilot(intent.id)}
+                  onClick={() => void handleRunCopilot(intent.id)}
                 >
                   {intent.label}
                 </Button>

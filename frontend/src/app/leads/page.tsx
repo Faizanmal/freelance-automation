@@ -23,6 +23,7 @@ import {
   setLeadAction,
 
   postMatchFeedback,
+  recordProductEvent,
 
   submitApplication,
 
@@ -355,7 +356,11 @@ function LeadsPageInner() {
 
         } catch (err) {
 
-          setError(err instanceof Error ? err.message : "Draft failed");
+          setError(
+            err instanceof Error && !/internal server error|500/i.test(err.message)
+              ? err.message
+              : "Unable to generate draft bid right now. Please try again or open the original listing directly.",
+          );
 
         }
 
@@ -654,7 +659,9 @@ function LeadsPageInner() {
           await setLeadAction(jobId, status, { reason });
         }
 
-        await load(keywords, focusOverride, true);
+        if (status === "save" || status === "skip") {
+          void recordProductEvent(status === "save" ? "lead_saved" : "lead_skipped", "discovery").catch(() => null);
+        }
 
         const message =
           status === "save"
@@ -669,7 +676,7 @@ function LeadsPageInner() {
 
         setSubmitMessage(message);
 
-        if (status === "save" || status === "skip") {
+        if (status === "save" || status === "skip" || status === "pitched" || status === "won") {
           toast(message, {
             tone: "success",
             actionLabel: "Undo",
@@ -1490,6 +1497,7 @@ function LeadsPageInner() {
                         kind: "apply_click",
                         reason: "open_original",
                       }).catch(() => null);
+                      void recordProductEvent("external_apply_clicked", "discovery").catch(() => null);
                     }
                     openSafeExternalUrl(finding.apply_url || finding.url);
                   }}
@@ -1532,29 +1540,42 @@ function LeadsPageInner() {
 
                     </Button>
 
-                    <Button
-
-                      variant={finding.user_status === "pitched" ? "default" : "outline"}
-
-                      size="sm"
-
-                      onClick={() =>
-
-                        updateLeadStatus(
-
-                          finding.job_id,
-
-                          finding.user_status === "pitched" ? "clear" : "pitched",
-
-                        )
-
-                      }
-
-                    >
-
-                      {finding.user_status === "pitched" ? "Pitched ✓" : "Mark pitched"}
-
-                    </Button>
+                    {finding.user_status === "pitched" ? (
+                      <div className="inline-flex items-center gap-1">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => updateLeadStatus(finding.job_id, "clear")}
+                          title="Click to revert / undo pitched"
+                        >
+                          Pitched ✓
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => updateLeadStatus(finding.job_id, "save")}
+                          title="Move back to Saved"
+                        >
+                          Move to Saved
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => updateLeadStatus(finding.job_id, "clear")}
+                          title="Undo pitched and return to New"
+                        >
+                          Undo
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateLeadStatus(finding.job_id, "pitched")}
+                      >
+                        Mark pitched
+                      </Button>
+                    )}
 
                     <Button
 

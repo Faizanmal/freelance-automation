@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
+import { useIsAuthenticated } from "@/lib/auth-state";
+import { getErrorMessage } from "@/lib/errors";
 import {
   calculateGrossToNet,
   calculateNetToGross,
   CalculationBreakdownResponse,
   createUserEarning,
   deleteUserEarning,
-  getApiBase,
+  downloadEarningsExport,
   getFxRates,
   getToken,
   InverseQuoteResponse,
@@ -24,43 +26,42 @@ export default function FinancePage() {
   const [statusMsg, setStatusMsg] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   // Fee templates
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("tpl_upwork_std");
+  const [templates, setTemplates] = useState<Awaited<ReturnType<typeof listFeeTemplates>>["templates"]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("tpl_direct_stripe");
 
   // Gross-to-Net calculator state
   const [grossAmount, setGrossAmount] = useState<number>(800);
   const [baseCurrency, setBaseCurrency] = useState<string>("USD");
   const [targetCurrency, setTargetCurrency] = useState<string>("INR");
-  const [feePct, setFeePct] = useState<number>(10.0);
-  const [feeTaxPct, setFeeTaxPct] = useState<number>(18.0);
-  const [withholdingPct, setWithholdingPct] = useState<number>(0.1);
-  const [withdrawalFee, setWithdrawalFee] = useState<number>(0.99);
+  const [feePct, setFeePct] = useState<number>(0.0);
+  const [feeTaxPct, setFeeTaxPct] = useState<number>(0.0);
+  const [withholdingPct, setWithholdingPct] = useState<number>(0.0);
+  const [withdrawalFee, setWithdrawalFee] = useState<number>(0.0);
   const [withdrawalCount, setWithdrawalCount] = useState<number>(1);
-  const [processorFeePct, setProcessorFeePct] = useState<number>(0.0);
-  const [processorFeeFixed, setProcessorFeeFixed] = useState<number>(0.0);
-  const [actualFxRate, setActualFxRate] = useState<number | undefined>(91.5069);
-  const [benchmarkFxRate, setBenchmarkFxRate] = useState<number | undefined>(94.2455);
-  const [reportedQuote, setReportedQuote] = useState<number | undefined>(64403.44);
+  const [processorFeePct, setProcessorFeePct] = useState<number>(2.9);
+  const [processorFeeFixed, setProcessorFeeFixed] = useState<number>(0.3);
+  const [actualFxRate, setActualFxRate] = useState<number | undefined>(90.0);
+  const [benchmarkFxRate, setBenchmarkFxRate] = useState<number | undefined>(90.0);
+  const [reportedQuote, setReportedQuote] = useState<number | undefined>(undefined);
 
   // Gross-to-Net calculation result
   const [calcResult, setCalcResult] = useState<CalculationBreakdownResponse | null>(null);
 
   // Inverse Net-to-Gross quote state
-  const [targetNet, setTargetNet] = useState<number>(700);
+  const [targetNet, setTargetNet] = useState<number>(900);
   const [hourlyHours, setHourlyHours] = useState<number>(20);
   const [inverseResult, setInverseResult] = useState<InverseQuoteResponse | null>(null);
 
   // Earnings Workspace state
-  const [earningsData, setEarningsData] = useState<any>(null);
+  const [earningsData, setEarningsData] = useState<Awaited<ReturnType<typeof listUserEarnings>> | null>(null);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newClientName, setNewClientName] = useState("");
   const [newGross, setNewGross] = useState<number>(1000);
   const [newStatus, setNewStatus] = useState<"draft" | "invoiced" | "paid" | "cancelled">("paid");
-  const [isAuthed, setIsAuthed] = useState(false);
+  const isAuthed = useIsAuthenticated();
 
   useEffect(() => {
     const token = getToken();
-    setIsAuthed(Boolean(token));
 
     // Load templates
     listFeeTemplates()
@@ -91,7 +92,7 @@ export default function FinancePage() {
     }
   };
 
-  const runGrossCalculation = () => {
+  function runGrossCalculation() {
     startTransition(async () => {
       try {
         const res = await calculateGrossToNet({
@@ -112,11 +113,11 @@ export default function FinancePage() {
         });
         setCalcResult(res);
         setStatusMsg(null);
-      } catch (err: any) {
-        setStatusMsg({ kind: "error", text: err.message || "Failed to calculate" });
+      } catch (err: unknown) {
+        setStatusMsg({ kind: "error", text: getErrorMessage(err, "") || "Failed to calculate" });
       }
     });
-  };
+  }
 
   const runInverseCalculation = () => {
     startTransition(async () => {
@@ -124,7 +125,7 @@ export default function FinancePage() {
         const res = await calculateNetToGross({
           target_net_amount: Number(targetNet) || 0,
           currency: baseCurrency,
-          target_currency: targetCurrency,
+          target_currency: undefined,
           hourly_hours: hourlyHours ? Number(hourlyHours) : undefined,
           contract_service_fee_pct: Number(feePct) || 0,
           fee_tax_pct: Number(feeTaxPct) || 0,
@@ -132,24 +133,62 @@ export default function FinancePage() {
           withdrawal_fee: Number(withdrawalFee) || 0,
           processor_fee_pct: Number(processorFeePct) || 0,
           processor_fee_fixed: Number(processorFeeFixed) || 0,
-          actual_fx_rate: actualFxRate ? Number(actualFxRate) : undefined,
+          actual_fx_rate: undefined,
         });
         setInverseResult(res);
         setStatusMsg(null);
-      } catch (err: any) {
-        setStatusMsg({ kind: "error", text: err.message || "Failed to calculate inverse quote" });
+      } catch (err: unknown) {
+        setStatusMsg({ kind: "error", text: getErrorMessage(err, "") || "Failed to calculate inverse quote" });
       }
     });
   };
 
-  const loadEarnings = async () => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      runGrossCalculation();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    grossAmount,
+    baseCurrency,
+    targetCurrency,
+    feePct,
+    feeTaxPct,
+    withholdingPct,
+    withdrawalFee,
+    withdrawalCount,
+    processorFeePct,
+    processorFeeFixed,
+    actualFxRate,
+    benchmarkFxRate,
+    reportedQuote,
+  ]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      runInverseCalculation();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    targetNet,
+    baseCurrency,
+    hourlyHours,
+    feePct,
+    feeTaxPct,
+    withholdingPct,
+    withdrawalFee,
+    processorFeePct,
+    processorFeeFixed,
+  ]);
+
+  async function loadEarnings() {
     try {
       const data = await listUserEarnings();
       setEarningsData(data);
     } catch {
       // not authed or error
     }
-  };
+  }
 
   const handleAddEarning = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,11 +199,7 @@ export default function FinancePage() {
         await createUserEarning({
           project_title: newProjectTitle,
           client_name: newClientName || null,
-          platform: selectedTemplateId.includes("upwork")
-            ? "upwork"
-            : selectedTemplateId.includes("fiverr")
-            ? "fiverr"
-            : "direct",
+          platform: selectedTemplateId.includes("fiverr") ? "fiverr" : "direct",
           currency: baseCurrency,
           gross_amount: Number(newGross) || 0,
           contract_service_fee: ((Number(newGross) || 0) * (Number(feePct) || 0)) / 100,
@@ -175,8 +210,8 @@ export default function FinancePage() {
         setNewClientName("");
         setStatusMsg({ kind: "success", text: "Won project recorded successfully." });
         await loadEarnings();
-      } catch (err: any) {
-        setStatusMsg({ kind: "error", text: err.message || "Failed to record project" });
+      } catch (err: unknown) {
+        setStatusMsg({ kind: "error", text: getErrorMessage(err, "") || "Failed to record project" });
       }
     });
   };
@@ -187,8 +222,8 @@ export default function FinancePage() {
         await deleteUserEarning(id);
         setStatusMsg({ kind: "success", text: "Record removed." });
         await loadEarnings();
-      } catch (err: any) {
-        setStatusMsg({ kind: "error", text: err.message || "Failed to delete" });
+      } catch (err: unknown) {
+        setStatusMsg({ kind: "error", text: getErrorMessage(err, "") || "Failed to delete" });
       }
     });
   };
@@ -201,7 +236,7 @@ export default function FinancePage() {
       <div className="mb-6 flex flex-col justify-between gap-4 border-b border-[var(--border)] pb-5 md:flex-row md:items-end">
         <div>
           <span className="text-xs font-semibold tracking-wider uppercase text-[var(--accent)]">
-            Phase 10 — Financial Intelligence
+            Signal Desk — Financial Intelligence
           </span>
           <h1
             className="mt-1 text-2xl font-bold tracking-tight text-[var(--text)] md:text-3xl"
@@ -261,7 +296,7 @@ export default function FinancePage() {
         <p className="font-semibold">Informational Purpose Only — No Fund Custody or Financial Advice</p>
         <p className="mt-0.5 opacity-90">
           This module calculates mathematical estimates based on user-entered values and publicly published platform policies.
-          Antigravity does not move funds, hold money, or store bank credentials. Taxes, withholding credits, and foreign exchange rates
+          Signal Desk does not move funds, hold money, or store bank credentials. Taxes, withholding credits, and foreign exchange rates
           are subject to personal tax status and bank settlement variances.
         </p>
       </div>
@@ -528,7 +563,7 @@ export default function FinancePage() {
                         {calcResult.calculation.target_currency}
                       </p>
                     )}
-                    {calcResult.calculation.reconciliation_status && (
+                    {reportedQuote != null && calcResult.calculation.reconciliation_status && (
                       <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface-sunken)] p-2 text-xs">
                         <span className="font-medium">Bank Quote Reconciliation:</span>{" "}
                         {calcResult.calculation.reconciliation_status === "reconciled_exact" ? (
@@ -902,7 +937,7 @@ export default function FinancePage() {
                     <select
                       className="sd-input w-full text-xs"
                       value={newStatus}
-                      onChange={(e) => setNewStatus(e.target.value as any)}
+                      onChange={(e) => setNewStatus(e.target.value as typeof newStatus)}
                     >
                       <option value="paid">Paid (Cash)</option>
                       <option value="invoiced">Invoiced (Pending)</option>
@@ -923,14 +958,15 @@ export default function FinancePage() {
               <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
                 <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
                   <h3 className="text-sm font-semibold text-[var(--text)]">Confirmed Project Ledger</h3>
-                  <a
-                    href={`${getApiBase()}/finance/earnings/export`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => void downloadEarningsExport().catch((error: unknown) => {
+                      setStatusMsg({ kind: "error", text: getErrorMessage(error, "Could not download the ledger.") });
+                    })}
                     className="rounded border border-[var(--border)] bg-[var(--surface-sunken)] px-2.5 py-1 text-xs font-medium text-[var(--text)] hover:bg-[var(--border)]"
                   >
-                    Download CSV ↗
-                  </a>
+                    Download CSV
+                  </button>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -948,7 +984,7 @@ export default function FinancePage() {
                     </thead>
                     <tbody className="divide-y divide-[var(--border)]">
                       {earningsData?.earnings?.length ? (
-                        earningsData.earnings.map((earn: any) => (
+                        earningsData.earnings.map((earn) => (
                           <tr key={earn.id} className="hover:bg-[var(--surface-sunken)]/20">
                             <td className="px-4 py-2.5 font-medium text-[var(--text)]">{earn.project_title}</td>
                             <td className="px-4 py-2.5 text-[var(--text-muted)]">{earn.client_name || "—"}</td>

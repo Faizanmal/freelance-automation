@@ -403,7 +403,8 @@ class VerificationClaim(Base):
     )  # user_claimed, independently_verified
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="pending", server_default="pending"
-    )  # pending, under_review, verified, rejected, revoked
+    )  # pending, under_review, verified, rejected, revoked, expired
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

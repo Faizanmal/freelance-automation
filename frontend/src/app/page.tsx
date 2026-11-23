@@ -347,7 +347,7 @@ export default function HomePage() {
             <li>Signal Desk subscriptions sell productivity tools — never paid visibility on native jobs.</li>
             <li>We do not charge pay-per-application for native listings.</li>
             <li>External boards may charge their own apply fees; we show them when known and label unknowns.</li>
-            <li>Processor fees, taxes, and exchange spreads are separate from platform subscription — not tax advice.</li>
+            <li>Subscription price and applicable taxes are shown at checkout when it is enabled. Signal Desk does not currently collect marketplace payments or provide escrow.</li>
           </ul>
           <Link href="/pricing" className="mt-4 inline-block text-sm font-semibold text-[var(--accent)] hover:underline">
             Compare Free vs Pro →
@@ -366,7 +366,7 @@ export default function HomePage() {
               },
               {
                 q: "Are jobs synthetic?",
-                a: "Production inventory comes from authorized public sources. Demo fixtures stay in isolated environments only.",
+                a: "Inventory is collected through the source adapters enabled for the service. Availability and freshness vary; verify each opportunity on its original listing before applying.",
               },
               {
                 q: "What does Free include?",

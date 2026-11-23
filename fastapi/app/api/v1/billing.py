@@ -233,7 +233,7 @@ async def create_checkout(
     if not settings.stripe_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Stripe is not configured. Set STRIPE_SECRET_KEY and STRIPE_PRICE_PRO.",
+            detail="Stripe checkout is disabled or not fully configured.",
         )
     try:
         import stripe
