@@ -129,6 +129,11 @@ HIGH_TRAFFIC_HOST_MARKERS: tuple[str, ...] = (
     "wuaze.com",
     "infinityfreeapp.com",
     "000webhostapp.com",
+    "codingjobboard.com",
+    "theantijobboard.com",
+    "career.luxoft.com",
+    "railway.app",
+    "up.railway.app",
 )
 
 MARKETPLACE_BRAND_MARKERS: tuple[str, ...] = (

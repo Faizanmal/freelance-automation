@@ -239,19 +239,26 @@ async def get_inbox(
     session: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     unread_only: bool = Query(False),
+    archived: bool = Query(False),
     event_type: str | None = Query(None),
     group_key: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """Lists in-app inbox items with read states, grouping, and filters."""
+    """Lists in-app inbox items with read states, grouping, and filters.
+
+    Default (archived=false) returns active inbox including read items.
+    unread_only filters to unread within the active inbox.
+    archived=true returns only archived items (for restore).
+    """
     user_id = str(current_user.id)
-    conditions = [
-        NotificationRecord.user_id == user_id,
-        NotificationRecord.archived_at.is_(None),
-    ]
-    if unread_only:
-        conditions.append(NotificationRecord.is_read.is_(False))
+    conditions = [NotificationRecord.user_id == user_id]
+    if archived:
+        conditions.append(NotificationRecord.archived_at.is_not(None))
+    else:
+        conditions.append(NotificationRecord.archived_at.is_(None))
+        if unread_only:
+            conditions.append(NotificationRecord.is_read.is_(False))
     if event_type:
         conditions.append(NotificationRecord.event_type == event_type)
     if group_key:
@@ -267,7 +274,7 @@ async def get_inbox(
     res = await session.execute(stmt)
     records = list(res.scalars().all())
 
-    # Calculate unread count
+    # Calculate unread count (active inbox only)
     unread_stmt = select(func.count(NotificationRecord.id)).where(
         NotificationRecord.user_id == user_id,
         NotificationRecord.is_read.is_(False),
@@ -289,6 +296,7 @@ async def get_inbox(
                 "job_id": r.job_id,
                 "is_read": r.is_read,
                 "read_at": r.read_at.isoformat() if r.read_at else None,
+                "archived_at": r.archived_at.isoformat() if r.archived_at else None,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "metadata": r.metadata_json,
             }
@@ -297,6 +305,7 @@ async def get_inbox(
         "unread_count": unread_count,
         "offset": offset,
         "limit": limit,
+        "archived": archived,
     }
 
 
@@ -353,6 +362,7 @@ async def mark_all_read(
         .where(
             NotificationRecord.user_id == user_id,
             NotificationRecord.is_read.is_(False),
+            NotificationRecord.archived_at.is_(None),
         )
         .values(is_read=True, read_at=now)
     )
@@ -382,6 +392,29 @@ async def archive_notification(
     record.archived_at = datetime.now(UTC)
     await session.commit()
     return {"id": record.id, "archived": True}
+
+
+@router.post("/inbox/{notification_id}/unarchive")
+async def unarchive_notification(
+    notification_id: int,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Restores an archived notification back to the active inbox."""
+    user_id = str(current_user.id)
+    res = await session.execute(
+        select(NotificationRecord).where(
+            NotificationRecord.id == notification_id,
+            NotificationRecord.user_id == user_id,
+        )
+    )
+    record = res.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    record.archived_at = None
+    await session.commit()
+    return {"id": record.id, "archived": False}
 
 
 # -------------------------------------------------------------------------

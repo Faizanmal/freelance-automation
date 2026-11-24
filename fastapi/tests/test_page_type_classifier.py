@@ -127,6 +127,38 @@ def test_keeps_specific_contract_posting():
     )
 
 
+def test_rejects_starterindex_listicle_and_coding_job_board():
+    assert is_non_opportunity_noise(
+        "27 Next.js Boilerplates and Starter Kits",
+        url="https://www.starterindex.com/nextjs",
+    )
+    assert (
+        classify_page_type("Browse jobs", url="https://codingjobboard.com/")
+        == PAGE_TYPE_BOARD_INDEX
+    )
+    assert (
+        classify_page_type("Careers", url="https://career.luxoft.com/")
+        == PAGE_TYPE_CAREERS_HUB
+    )
+    assert (
+        classify_page_type("Demo", url="https://app.up.railway.app/jobs/1")
+        == PAGE_TYPE_SPAM_HOST
+    )
+
+
+def test_full_time_allowed_only_above_10k_month():
+    assert is_non_opportunity_noise(
+        "Full-time Staff Software Engineer",
+        "Permanent employee role with 401k and PTO. Salary $8k/month.",
+        "https://acme.com/jobs/fte-engineer-xyz789",
+    )
+    assert not is_non_opportunity_noise(
+        "Full-time Staff Software Engineer",
+        "Permanent employee role. Salary $12k/month.",
+        "https://acme.com/jobs/fte-engineer-xyz789",
+    )
+
+
 def test_domain_cap_keeps_one_unless_distinct_postings():
     same_domain = [
         _ranked(1, "Role A", "https://workingnomads.com/jobs?id=1", 0.9),

@@ -67,6 +67,33 @@ WORD_BOUNDARY_TEMPLATE = r"(?<![a-z0-9]){keyword}(?![a-z0-9])"
 
 EXPERIENCE_LEVELS = frozenset({"any", "junior", "mid", "senior", "lead"})
 
+# Dominant language/stack markers for rejecting off-skill roles (title-weighted).
+STACK_FAMILIES: dict[str, tuple[str, ...]] = {
+    "python": ("python", "django", "flask", "fastapi", "pytest"),
+    "javascript": (
+        "javascript",
+        "typescript",
+        "react",
+        "next.js",
+        "nextjs",
+        "node.js",
+        "nodejs",
+        "vue",
+        "angular",
+        "svelte",
+    ),
+    "java": ("java", "spring boot", "springboot", "kotlin", "jvm"),
+    "csharp": ("c#", "csharp", ".net", "dotnet", "asp.net"),
+    "go": ("golang", " go ", "go developer", "go engineer"),
+    "rust": ("rust", "rustc"),
+    "php": ("php", "laravel", "symfony", "wordpress"),
+    "ruby": ("ruby", "rails", "ror"),
+    "swift": ("swift", "ios ", "swiftui"),
+    "kotlin_android": ("android", "jetpack compose"),
+    "scala": ("scala", "akka"),
+    "elixir": ("elixir", "phoenix"),
+}
+
 # Tokens that signal a seniority band in title / seniority / description.
 SENIORITY_BANDS: dict[str, tuple[str, ...]] = {
     "junior": ("junior", "entry", "associate", "intern", "graduate", "jr"),
@@ -196,11 +223,24 @@ class MatchingService:
             failed.append("sources")
             evidence.append(f"source '{job.source_name}' not in allowlist")
 
-        if is_non_opportunity_noise(job.title, job.description, job.url, job.company):
+        if is_non_opportunity_noise(
+            job.title,
+            job.description,
+            job.url,
+            job.company,
+            enrichment=job.enrichment if isinstance(job.enrichment, dict) else None,
+            budget_min=job.budget_min,
+            budget_max=job.budget_max,
+            period=stored_period(job.enrichment, job.budget_min, job.budget_max),
+        ):
             failed.append("non_opportunity_noise")
             evidence.append("listing looks like a guide, blog, or procurement tender")
 
         haystack = self._haystack(job)
+        if self._off_skill_stack(job.title or "", preferences):
+            failed.append("no_skill_overlap")
+            evidence.append("role stack does not match Hunt Rules skills")
+
         for exclude in excludes:
             if self._contains_keyword(haystack, exclude) or (
                 len(exclude) >= 4
@@ -280,10 +320,21 @@ class MatchingService:
         if sources and job.source_name.lower() not in sources:
             return None
 
-        if is_non_opportunity_noise(job.title, job.description, job.url, job.company):
+        if is_non_opportunity_noise(
+            job.title,
+            job.description,
+            job.url,
+            job.company,
+            enrichment=job.enrichment if isinstance(job.enrichment, dict) else None,
+            budget_min=job.budget_min,
+            budget_max=job.budget_max,
+            period=stored_period(job.enrichment, job.budget_min, job.budget_max),
+        ):
             return None
 
         haystack = self._haystack(job)
+        if self._off_skill_stack(job.title or "", preferences):
+            return None
 
         for exclude in excludes:
             if self._contains_keyword(haystack, exclude) or (
@@ -450,6 +501,41 @@ class MatchingService:
                 seen.add(term)
                 terms.append(term)
         return terms
+
+    def _off_skill_stack(self, title: str, preferences: UserPreferences) -> bool:
+        """Reject roles whose title is clearly a different primary stack than Hunt Rules."""
+        terms = self._match_terms(preferences)
+        if not terms:
+            return False
+        title_l = f" {(title or '').lower()} "
+        # Avoid treating JavaScript as Java.
+        title_norm = title_l.replace("javascript", " js ").replace("java script", " js ")
+        user_families: set[str] = set()
+        for family, markers in STACK_FAMILIES.items():
+            if any(self._contains_keyword(" ".join(terms), m.strip()) or m.strip() in terms for m in markers):
+                user_families.add(family)
+            for term in terms:
+                if any(term == m.strip() or term in m or m.strip() in term for m in markers):
+                    user_families.add(family)
+        if not user_families:
+            return False
+        title_families: set[str] = set()
+        for family, markers in STACK_FAMILIES.items():
+            for marker in markers:
+                token = marker.strip().lower()
+                if not token:
+                    continue
+                if family == "java" and "java" in token:
+                    if re.search(r"(?<![a-z])java(?![a-z])", title_norm):
+                        title_families.add(family)
+                        break
+                elif token in title_norm:
+                    title_families.add(family)
+                    break
+        if not title_families:
+            return False
+        # Off-skill when title asserts a stack family the user did not list.
+        return bool(title_families) and title_families.isdisjoint(user_families)
 
     def _experience_adjustment(
         self,

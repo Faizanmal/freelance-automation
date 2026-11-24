@@ -683,24 +683,34 @@ export default function HomePage() {
               >
                 Open Pipeline workspace
               </Link>
-              <Link
-                href="/leads?filter=saved"
-                className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                Saved ({savedCount})
-              </Link>
-              <Link
-                href="/leads?filter=pitched"
-                className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                Pitched ({pipelineStats?.pitched_count ?? 0})
-              </Link>
-              <Link
-                href="/leads?filter=won"
-                className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                Won ({pipelineStats?.won_count ?? 0})
-              </Link>
+              {loading ? (
+                <>
+                  <Skeleton className="h-7 w-20" />
+                  <Skeleton className="h-7 w-20" />
+                  <Skeleton className="h-7 w-16" />
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/leads?filter=saved"
+                    className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                  >
+                    Saved ({savedCount})
+                  </Link>
+                  <Link
+                    href="/leads?filter=pitched"
+                    className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                  >
+                    Pitched ({pipelineStats?.pitched_count ?? 0})
+                  </Link>
+                  <Link
+                    href="/leads?filter=won"
+                    className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                  >
+                    Won ({pipelineStats?.won_count ?? 0})
+                  </Link>
+                </>
+              )}
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -711,7 +721,7 @@ export default function HomePage() {
               </p>
               <p className="mt-0.5 text-xs text-[var(--text-muted)]">
                 {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched of{" "}
-                {pipelineStats?.total_engaged ?? 0} engaged
+                {pipelineStats?.saved_count ?? savedCount} saved
               </p>
             </div>
             <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
@@ -854,7 +864,9 @@ export default function HomePage() {
             <h2 className="text-xl" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
               Latest in the desk
             </h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">{total} opportunities stored</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              {loading ? "Loading inventory…" : `${total} opportunities stored`}
+            </p>
           </div>
           <div className="flex flex-wrap gap-4 text-sm">
             <Link href="/leads" className="text-[var(--accent)] hover:underline">
@@ -865,7 +877,13 @@ export default function HomePage() {
             </Link>
           </div>
         </div>
-        {visibleJobs.length === 0 ? (
+        {loading ? (
+          <div className="divide-y divide-[var(--border)] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
+            <Skeleton className="h-16 w-full rounded-none" />
+            <Skeleton className="h-16 w-full rounded-none" />
+            <Skeleton className="h-16 w-full rounded-none" />
+          </div>
+        ) : visibleJobs.length === 0 ? (
           <EmptyState
             title="Inventory is empty right now"
             description="Set Hunt Rules, then Refresh inventory. Background hunters also fill the shared pool on a schedule — this is normal after a pause or a fresh deploy."

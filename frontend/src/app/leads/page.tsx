@@ -201,6 +201,7 @@ function LeadsPageInner() {
   const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
   const [writingJobIds, setWritingJobIds] = useState<Set<number>>(() => new Set());
   const writeQueuesRef = useRef(new Map<number, Promise<void>>());
+  const writeGenRef = useRef(new Map<number, number>());
   const pendingWritesRef = useRef(0);
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -624,16 +625,24 @@ function LeadsPageInner() {
     const previousStatus =
       dataRef.current?.items.find((item) => item.job_id === jobId)?.user_status ?? null;
     const snapshot = dataRef.current;
+    // Each click (including Undo) gets its own generation so a stale success
+    // handler from a prior write cannot overwrite a newer durable intent.
+    const gen = (writeGenRef.current.get(jobId) || 0) + 1;
+    writeGenRef.current.set(jobId, gen);
 
     if (snapshot) {
       setData(applyOptimisticStatus(snapshot, jobId, status));
     }
     setWritingJobIds((prev) => new Set(prev).add(jobId));
 
+    const isLatest = () => writeGenRef.current.get(jobId) === gen;
+
     const runWrite = async () => {
       pendingWritesRef.current += 1;
       try {
         setError(null);
+        // Always await a durable API write. Clear uses setLeadAction so pipeline
+        // soft-delete + hard delete both run (Undo must survive hard reload).
         if (status === "won") {
           await postMatchFeedback({
             job_id: jobId,
@@ -655,14 +664,16 @@ function LeadsPageInner() {
             reason,
           });
         } else if (status === "clear") {
-          // Prefer match-feedback clear so ranking feedback stays consistent.
-          try {
-            await postMatchFeedback({ job_id: jobId, kind: "clear", reason });
-          } catch {
-            await setLeadAction(jobId, "clear", { reason });
-          }
+          // setLeadAction clear soft-deletes pipeline state then hard-deletes the row.
+          await setLeadAction(jobId, "clear", { reason });
         } else {
           await setLeadAction(jobId, status, { reason });
+        }
+
+        if (!isLatest()) {
+          // A newer Undo/Save already owns UI + final persistence; still finished
+          // this request so it was not cancelled — just skip stale UI updates.
+          return;
         }
 
         if (status === "save" || status === "skip") {
@@ -689,19 +700,18 @@ function LeadsPageInner() {
                   ? "Lead skipped — hidden from default list"
                   : "Lead status cleared";
 
-        // Re-assert durable status in case a stale load raced the write.
         setData((current) =>
           current ? applyOptimisticStatus(current, jobId, status) : current,
         );
 
         setSubmitMessage(message);
 
-        // Toast/analytics failures must not roll back a durable write.
         try {
           if (status === "save" || status === "skip" || status === "pitched" || status === "won") {
             toast(message, {
               tone: "success",
               actionLabel: "Undo",
+              durationMs: 8000,
               onAction: () => updateLeadStatus(jobId, "clear"),
             });
           }
@@ -713,7 +723,7 @@ function LeadsPageInner() {
           .then(setPipelineStats)
           .catch(() => null);
       } catch (err) {
-        // Roll back optimistic UI to the pre-write snapshot for this job.
+        if (!isLatest()) return;
         if (snapshot) {
           const rollbackStatus =
             previousStatus === "save" ||
@@ -729,14 +739,18 @@ function LeadsPageInner() {
         setError(err instanceof Error ? err.message : "Could not update lead");
       } finally {
         pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
-        setWritingJobIds((prev) => {
-          const next = new Set(prev);
-          next.delete(jobId);
-          return next;
-        });
+        if (isLatest()) {
+          setWritingJobIds((prev) => {
+            const next = new Set(prev);
+            next.delete(jobId);
+            return next;
+          });
+        }
       }
     };
 
+    // Queue per job so writes stay ordered, but never cancel — Undo is a new
+    // durable request that runs after (or as) the latest generation.
     const prior = writeQueuesRef.current.get(jobId) ?? Promise.resolve();
     const queued = prior.catch(() => undefined).then(runWrite);
     writeQueuesRef.current.set(jobId, queued);
@@ -1370,7 +1384,15 @@ function LeadsPageInner() {
 
                 <div className="flex flex-wrap items-center gap-2">
 
-                  <MatchScore score={finding.score} />
+                  <MatchScore
+                    score={finding.score}
+                    showLabel={
+                      !(
+                        finding.suppress_fit_badge
+                        || (finding.employment_risks && finding.employment_risks.length > 0)
+                      )
+                    }
+                  />
 
                   {finding.client_signal?.poster_type === "direct_founder" ? (
                     <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-400">
@@ -1404,15 +1426,13 @@ function LeadsPageInner() {
 
                   ) : null}
 
-                  {finding.freelance_benefits?.length ? (
-
-                    <Badge variant="muted">{finding.freelance_benefits[0]}</Badge>
-
-                  ) : typeof finding.freelance_fit === "number" && finding.freelance_fit >= 0.7 ? (
-
-                    <Badge variant="muted">Contract / Freelance</Badge>
-
-                  ) : null}
+                  {!(finding.suppress_fit_badge || (finding.employment_risks && finding.employment_risks.length > 0))
+                    ? finding.freelance_benefits?.length
+                      ? <Badge variant="muted">{finding.freelance_benefits[0]}</Badge>
+                      : typeof finding.freelance_fit === "number" && finding.freelance_fit >= 0.7
+                        ? <Badge variant="muted">Contract / Freelance</Badge>
+                        : null
+                    : null}
 
                   <Badge
 
@@ -1569,31 +1589,44 @@ function LeadsPageInner() {
 
                   <>
 
-                    <Button
-
-                      variant="outline"
-
-                      size="sm"
-
-                      disabled={writingJobIds.has(finding.job_id)}
-
-                      onClick={() =>
-
-                        updateLeadStatus(
-
-                          finding.job_id,
-
-                          finding.user_status === "save" ? "clear" : "save",
-
-                        )
-
-                      }
-
-                    >
-
-                      {finding.user_status === "save" ? "Unsave" : "Save"}
-
-                    </Button>
+                    <div className="inline-flex flex-wrap items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={writingJobIds.has(finding.job_id)}
+                        onClick={() =>
+                          updateLeadStatus(
+                            finding.job_id,
+                            finding.user_status === "save" ? "clear" : "save",
+                          )
+                        }
+                      >
+                        {finding.user_status === "save" ? "Unsave" : "Save"}
+                      </Button>
+                      {finding.user_status !== "save" ? (
+                        <details className="relative">
+                          <summary className="cursor-pointer list-none rounded px-1.5 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]">
+                            reason
+                          </summary>
+                          <div className="absolute right-0 z-20 mt-1 flex min-w-[11rem] flex-col gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-md">
+                            {SAVE_REASONS.map((reason) => (
+                              <button
+                                key={reason.id}
+                                type="button"
+                                className="rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--surface-sunken)]"
+                                onClick={() =>
+                                  updateLeadStatus(finding.job_id, "save", {
+                                    reason: reason.id,
+                                  })
+                                }
+                              >
+                                {reason.label}
+                              </button>
+                            ))}
+                          </div>
+                        </details>
+                      ) : null}
+                    </div>
 
                     {finding.user_status === "pitched" ? (
                       <div className="inline-flex items-center gap-1">

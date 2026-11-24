@@ -156,6 +156,11 @@ class SQLAlchemyJobRepository:
         "%jobs.makesense.org%",
         "%jobs.natwestgroup.com%",
         "%jobs.appliedmaterials.com%",
+        "%codingjobboard.com%",
+        "%career.luxoft.com%",
+        "%://career.%",
+        "%.up.railway.app%",
+        "%.railway.app%",
     )
     NON_OPPORTUNITY_TITLE_PATTERNS = (
         "%top 10%",

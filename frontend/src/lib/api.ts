@@ -941,6 +941,8 @@ export type LeadFinding = {
 
   employment_risks?: string[];
 
+  suppress_fit_badge?: boolean;
+
   client_signal?: {
     poster_type?: string;
     poster_label?: string;
@@ -1238,11 +1240,13 @@ export async function getNotificationHistory() {
 
 export async function getInbox(params?: {
   unread_only?: boolean;
+  archived?: boolean;
   event_type?: string;
   group_key?: string;
 }) {
   const q = new URLSearchParams();
   if (params?.unread_only) q.set("unread_only", "true");
+  if (params?.archived) q.set("archived", "true");
   if (params?.event_type) q.set("event_type", params.event_type);
   if (params?.group_key) q.set("group_key", params.group_key);
   const qs = q.toString() ? `?${q.toString()}` : "";
@@ -1251,6 +1255,7 @@ export async function getInbox(params?: {
     unread_count: number;
     offset: number;
     limit: number;
+    archived?: boolean;
   }>(`/notifications/inbox${qs}`, { auth: true });
 }
 
@@ -1272,6 +1277,13 @@ export async function archiveNotification(id: number) {
   return request<{ id: number; archived: boolean }>(
     `/notifications/inbox/${id}`,
     { method: "DELETE", auth: true },
+  );
+}
+
+export async function unarchiveNotification(id: number) {
+  return request<{ id: number; archived: boolean }>(
+    `/notifications/inbox/${id}/unarchive`,
+    { method: "POST", auth: true },
   );
 }
 

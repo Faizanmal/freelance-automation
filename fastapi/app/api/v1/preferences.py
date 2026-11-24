@@ -122,7 +122,10 @@ async def _lead_status_sets(
     session: AsyncSession, user_id: str
 ) -> tuple[set[int], set[int]]:
     result = await session.execute(
-        select(UserLeadAction).where(UserLeadAction.user_id == user_id)
+        select(UserLeadAction).where(
+            UserLeadAction.user_id == user_id,
+            UserLeadAction.deleted_at.is_(None),
+        )
     )
     skipped: set[int] = set()
     saved: set[int] = set()
@@ -482,7 +485,10 @@ async def list_findings(
         else bool(getattr(prefs, "freelance_focus", True))
     )
     actions_res = await session.execute(
-        select(UserLeadAction).where(UserLeadAction.user_id == user.id)
+        select(UserLeadAction).where(
+            UserLeadAction.user_id == user.id,
+            UserLeadAction.deleted_at.is_(None),
+        )
     )
     lead_actions = {row.job_id: row.status for row in actions_res.scalars().all()}
 
@@ -646,7 +652,10 @@ async def get_pipeline_stats(
     actions_res = await session.execute(
         select(UserLeadAction, JobRecord)
         .outerjoin(JobRecord, UserLeadAction.job_id == JobRecord.id)
-        .where(UserLeadAction.user_id == user.id)
+        .where(
+            UserLeadAction.user_id == user.id,
+            UserLeadAction.deleted_at.is_(None),
+        )
     )
     apps_res = await session.execute(
         select(JobApplication)
@@ -858,9 +867,22 @@ async def post_match_feedback(
     row = result.scalar_one_or_none()
 
     if payload.kind == "clear":
+        from backend.application.services.pipeline import PipelineService
+
+        await PipelineService(session).clear_lead(
+            user_id=user.id, job_id=payload.job_id
+        )
+        # Re-fetch — clear_lead soft-deletes; hard-delete for legacy callers.
+        result = await session.execute(
+            select(UserLeadAction).where(
+                UserLeadAction.user_id == user.id,
+                UserLeadAction.job_id == payload.job_id,
+            )
+        )
+        row = result.scalar_one_or_none()
         if row is not None:
             await session.delete(row)
-            await session.commit()
+        await session.commit()
         get_recommendation_cache().invalidate_user(str(user.id))
         return {"job_id": payload.job_id, "status": None, "feedback_kind": "clear"}
 

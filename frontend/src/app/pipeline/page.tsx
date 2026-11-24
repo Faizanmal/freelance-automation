@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type DragEvent,
+} from "react";
 import {
   addLeadNote,
   addLeadReminder,
@@ -91,6 +98,8 @@ export default function PipelinePage() {
   } | null>(null);
   const [q, setQ] = useState("");
   const [pending, startTransition] = useTransition();
+  const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<PipelineStage | null>(null);
 
   const refresh = useCallback(async () => {
     if (!getToken()) {
@@ -172,6 +181,25 @@ export default function PipelinePage() {
   }
 
   function moveStage(jobId: number, stage: PipelineStage) {
+    // Optimistic column move so drag feels immediate; reload confirms persistence.
+    setColumns((prev) => {
+      const next: Record<string, PipelineLead[]> = {};
+      let moved: PipelineLead | null = null;
+      for (const key of STAGES) {
+        const kept = (prev[key] || []).filter((lead) => {
+          if (lead.job_id === jobId) {
+            moved = { ...lead, pipeline_stage: stage };
+            return false;
+          }
+          return true;
+        });
+        next[key] = kept;
+      }
+      if (moved) {
+        next[stage] = [...(next[stage] || []), moved];
+      }
+      return next;
+    });
     startTransition(async () => {
       try {
         const res = await setPipelineStage(jobId, stage, {
@@ -182,8 +210,40 @@ export default function PipelinePage() {
         await refresh();
       } catch (err) {
         toast(err instanceof Error ? err.message : "Stage update failed", "error");
+        await refresh();
       }
     });
+  }
+
+  function onCardDragStart(event: DragEvent, lead: PipelineLead) {
+    event.dataTransfer.setData("text/plain", String(lead.job_id));
+    event.dataTransfer.effectAllowed = "move";
+    setDraggingJobId(lead.job_id);
+  }
+
+  function onCardDragEnd() {
+    setDraggingJobId(null);
+    setDragOverStage(null);
+  }
+
+  function onColumnDragOver(event: DragEvent, stage: PipelineStage) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverStage(stage);
+  }
+
+  function onColumnDrop(event: DragEvent, stage: PipelineStage) {
+    event.preventDefault();
+    const raw = event.dataTransfer.getData("text/plain");
+    const jobId = Number(raw);
+    setDraggingJobId(null);
+    setDragOverStage(null);
+    if (!Number.isFinite(jobId) || jobId <= 0) return;
+    const current = Object.values(columns)
+      .flat()
+      .find((lead) => lead.job_id === jobId);
+    if (!current || current.pipeline_stage === stage) return;
+    moveStage(jobId, stage);
   }
 
   async function saveNote() {
@@ -400,7 +460,13 @@ export default function PipelinePage() {
             return (
               <div
                 key={stage}
-                className="min-w-[220px] flex-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)]/40 p-2"
+                onDragOver={(event) => onColumnDragOver(event, stage)}
+                onDragLeave={() => setDragOverStage((cur) => (cur === stage ? null : cur))}
+                onDrop={(event) => onColumnDrop(event, stage)}
+                className={cn(
+                  "min-w-[220px] flex-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)]/40 p-2 transition-colors",
+                  dragOverStage === stage && "border-[var(--accent)] bg-[var(--accent-muted)]/40",
+                )}
               >
                 <div className="mb-2 flex items-center justify-between px-1">
                   <h3 className="text-xs font-semibold uppercase tracking-wide">
@@ -408,23 +474,51 @@ export default function PipelinePage() {
                   </h3>
                   <Badge>{items.length}</Badge>
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex min-h-[4rem] flex-col gap-2">
                   {items.map((lead) => (
-                    <button
+                    <div
                       key={lead.id}
-                      type="button"
-                      onClick={() => void openLead(lead)}
+                      draggable
+                      onDragStart={(event) => onCardDragStart(event, lead)}
+                      onDragEnd={onCardDragEnd}
                       className={cn(
                         "rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm transition hover:border-[var(--border-strong)]",
                         selected?.id === lead.id && "ring-2 ring-[var(--accent)]/40",
+                        draggingJobId === lead.job_id && "opacity-60",
                       )}
                     >
-                      <p className="font-medium leading-snug">
-                        {lead.job?.title || `Job #${lead.job_id}`}
-                      </p>
-                      <p className="mt-1 text-xs text-[var(--text-muted)]">
-                        {lead.job?.company || lead.employer_name || "—"}
-                      </p>
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => void openLead(lead)}
+                      >
+                        <p className="font-medium leading-snug">
+                          {lead.job?.title || `Job #${lead.job_id}`}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">
+                          {lead.job?.company || lead.employer_name || "—"}
+                        </p>
+                      </button>
+                      <label className="mt-2 block text-[10px] font-medium tracking-wide text-[var(--text-muted)] uppercase">
+                        Stage
+                        <select
+                          className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
+                          value={lead.pipeline_stage}
+                          disabled={pending}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => {
+                            const next = event.target.value as PipelineStage;
+                            if (next !== lead.pipeline_stage) moveStage(lead.job_id, next);
+                          }}
+                          aria-label={`Move ${lead.job?.title || lead.job_id} to stage`}
+                        >
+                          {STAGES.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       {lead.follow_up_at && (
                         <p className="mt-2 flex items-center gap-1 text-xs text-[var(--warning)]">
                           <CalendarClock className="size-3" /> Follow-up
@@ -435,7 +529,7 @@ export default function PipelinePage() {
                           Apply clicked (not confirmed)
                         </p>
                       )}
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -534,8 +628,23 @@ export default function PipelinePage() {
                       {lead.job?.company || lead.employer_name || "—"}
                     </div>
                   </td>
-                  <td className="p-3">
-                    <Badge>{lead.pipeline_stage}</Badge>
+                  <td className="p-3" onClick={(event) => event.stopPropagation()}>
+                    <select
+                      className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
+                      value={lead.pipeline_stage}
+                      disabled={pending}
+                      onChange={(event) => {
+                        const next = event.target.value as PipelineStage;
+                        if (next !== lead.pipeline_stage) moveStage(lead.job_id, next);
+                      }}
+                      aria-label={`Stage for ${lead.job?.title || lead.job_id}`}
+                    >
+                      {STAGES.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="p-3 text-xs">{lead.follow_up_at || "—"}</td>
                   <td className="p-3 text-xs">

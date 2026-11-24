@@ -69,6 +69,12 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "himalayas.app",
     "otta.com",
     "levels.fyi",
+    "codingjobboard.com",
+    "theantijobboard.com",
+    "anti-job-board.com",
+    "nofluffjobs.com",
+    "landing.jobs",
+    "jobboardsearch.com",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -89,6 +95,15 @@ FREE_HOST_SUFFIXES: tuple[str, ...] = (
     ".square.site",
     ".weebly.com",
     ".carrd.co",
+    ".up.railway.app",
+    ".railway.app",
+    ".onrender.com",
+    ".fly.dev",
+    ".herokuapp.com",
+    ".glitch.me",
+    ".repl.co",
+    ".ngrok.io",
+    ".ngrok-free.app",
 )
 
 LISTING_PAGE_TEXT_RE = re.compile(
@@ -142,13 +157,25 @@ SINGLE_POSTING_PATH_RE = re.compile(
 LISTICLE_RE = re.compile(
     r"(?:"
     r"\btop\s+\d+\b"
-    r"|\b\d+\s+best\b"
+    r"|\b\d+\s+(?:best|free|open[\s-]?source|amazing|essential)\b"
+    r"|\b\d+\s+.*\b(?:boilerplates?|starter\s+kits?|templates?|resources?|tools?)\b"
     r"|\bbest\s+(?:freelance|remote)\b"
     r"|\bhow\s+to\s+(?:become|hire|find|get|start|land|choose)\b"
     r"|\b(?:ultimate|complete|definitive)\s+guide\b"
     r"|\bboilerplates?\b"
     r"|\bstarter\s+kits?\b"
     r"|\bawesome-[\w-]+\b"
+    r"|\banti[\s-]?job[\s-]?board\b"
+    r"|\bjob\s+board\b"
+    r")",
+    re.IGNORECASE,
+)
+
+MONTHLY_SALARY_RE = re.compile(
+    r"(?:"
+    r"\$\s*([\d,]+(?:\.\d+)?)\s*(k)?\s*(?:/|per)\s*(?:mo(?:nth)?|m)\b"
+    r"|\b([\d,]+(?:\.\d+)?)\s*(k)?\s*(?:usd|dollars?)\s*(?:/|per)\s*(?:mo(?:nth)?|m)\b"
+    r"|\b([\d,]+(?:\.\d+)?)\s*(k)\b"
     r")",
     re.IGNORECASE,
 )
@@ -252,10 +279,13 @@ def classify_page_type(
 
     if (
         host.startswith("careers.")
+        or host.startswith("career.")
         or host.startswith("jobs.")
         or host.endswith(".teamtailor.com")
         or host.endswith(".workable.com")
         or host == "apply.workable.com"
+        or host.startswith("career.")
+        or "career.luxoft.com" in host
         or "jobs.makesense.org" in host
         or "jobs.natwestgroup.com" in host
         or "jobs.appliedmaterials.com" in host
@@ -278,7 +308,9 @@ def classify_page_type(
         blob,
         re.IGNORECASE,
     ):
-        return PAGE_TYPE_FULL_TIME
+        # Allow high-paying FTE only when monthly pay clearly exceeds $10k.
+        if not _monthly_salary_above(blob, enrichment, floor_usd=10_000):
+            return PAGE_TYPE_FULL_TIME
 
     # Generic careers-hub path roots on unknown hosts.
     if path.rstrip("/") in {"/careers", "/career", "/jobs", "/join-us", "/openings", "/vacancies"}:
@@ -293,6 +325,73 @@ def classify_page_type(
     return PAGE_TYPE_JOB_POST
 
 
+def estimate_monthly_salary_usd(
+    text: str | None,
+    enrichment: dict[str, Any] | None = None,
+    *,
+    budget_min: float | None = None,
+    budget_max: float | None = None,
+    period: str | None = None,
+) -> float | None:
+    """Best-effort monthly USD estimate from text / enrichment / budget fields."""
+    if enrichment:
+        period = period or str(enrichment.get("compensation_period") or enrichment.get("period") or "")
+        for key in ("budget_max", "budget_min", "salary_max", "salary_min", "monthly_rate"):
+            val = enrichment.get(key)
+            if isinstance(val, (int, float)) and val > 0:
+                p = (period or "").lower()
+                if p in {"year", "yearly", "annual", "annually"}:
+                    return float(val) / 12.0
+                if p in {"hour", "hourly"}:
+                    return float(val) * 160.0
+                if p in {"day", "daily"}:
+                    return float(val) * 20.0
+                if p in {"week", "weekly"}:
+                    return float(val) * 4.0
+                return float(val)
+    if budget_max or budget_min:
+        amount = float(budget_max or budget_min or 0)
+        p = (period or "").lower()
+        if p in {"year", "yearly", "annual", "annually"}:
+            return amount / 12.0
+        if p in {"hour", "hourly"}:
+            return amount * 160.0
+        if amount >= 50_000:  # likely annual when period unknown
+            return amount / 12.0
+        return amount
+    blob = text or ""
+    # Strip benefit tokens that look like salaries (401k).
+    scrubbed = re.sub(r"\b401\s*\(?k\)?\b", " ", blob, flags=re.IGNORECASE)
+    for match in MONTHLY_SALARY_RE.finditer(scrubbed):
+        full = match.group(0).lower()
+        digits = re.search(r"([\d,]+(?:\.\d+)?)", full)
+        if not digits:
+            continue
+        try:
+            amount = float(digits.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        if re.search(r"\d\s*k\b", full) or "k/" in full or "k per" in full:
+            amount *= 1000.0
+        if "mo" in full:
+            return amount
+        # Bare "120k" → annual.
+        if "k" in full or amount >= 50_000:
+            return amount / 12.0
+        return amount
+    return None
+
+
+def _monthly_salary_above(
+    blob: str,
+    enrichment: dict[str, Any] | None,
+    *,
+    floor_usd: float,
+) -> bool:
+    monthly = estimate_monthly_salary_usd(blob, enrichment)
+    return monthly is not None and monthly >= floor_usd
+
+
 def is_non_opportunity_noise(
     title: str | None,
     description: str | None = None,
@@ -301,14 +400,29 @@ def is_non_opportunity_noise(
     *,
     enrichment: dict[str, Any] | None = None,
     prefer_contract: bool = True,
+    budget_min: float | None = None,
+    budget_max: float | None = None,
+    period: str | None = None,
 ) -> bool:
     page_type = classify_page_type(
         title, description, url, company, enrichment=enrichment
     )
     if page_type == PAGE_TYPE_JOB_POST:
         return False
-    if page_type == PAGE_TYPE_FULL_TIME and not prefer_contract:
-        return False
+    if page_type == PAGE_TYPE_FULL_TIME:
+        if not prefer_contract:
+            return False
+        blob = f"{title or ''} {description or ''} {company or ''}"
+        monthly = estimate_monthly_salary_usd(
+            blob,
+            enrichment,
+            budget_min=budget_min,
+            budget_max=budget_max,
+            period=period,
+        )
+        if monthly is not None and monthly >= 10_000:
+            return False
+        return True
     return True
 
 

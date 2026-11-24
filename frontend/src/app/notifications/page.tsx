@@ -16,7 +16,10 @@ import {
   resumeNotifications,
   sendNotification,
   sendTestDigest,
+  unarchiveNotification,
 } from "@/lib/api";
+
+type InboxFilter = "all" | "unread" | "archived";
 
 const channelOptions = [
   "in_app",
@@ -56,6 +59,7 @@ type InboxItem = {
   job_id?: number | null;
   is_read: boolean;
   read_at?: string | null;
+  archived_at?: string | null;
   created_at?: string | null;
   metadata?: Record<string, unknown>;
 };
@@ -74,7 +78,7 @@ export default function NotificationsPage() {
   // Inbox state
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [filterUnreadOnly, setFilterUnreadOnly] = useState<boolean>(false);
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
 
   // Digest Preview & Schedule state
   const [digestPreview, setDigestPreview] = useState<{
@@ -108,7 +112,10 @@ export default function NotificationsPage() {
   const loadInbox = () => {
     startTransition(async () => {
       try {
-        const data = await getInbox({ unread_only: filterUnreadOnly });
+        const data = await getInbox({
+          unread_only: inboxFilter === "unread",
+          archived: inboxFilter === "archived",
+        });
         setInboxItems((data.items || []) as unknown as InboxItem[]);
         setUnreadCount(data.unread_count || 0);
       } catch (err) {
@@ -155,7 +162,7 @@ export default function NotificationsPage() {
         // history optional on initial load
       }
     });
-  }, [authed, filterUnreadOnly]);
+  }, [authed, inboxFilter]);
 
   useEffect(() => {
     if (!authed) return;
@@ -178,9 +185,16 @@ export default function NotificationsPage() {
     startTransition(async () => {
       try {
         await markNotificationRead(id);
-        setInboxItems((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, is_read: true } : item)),
-        );
+        // Mark read only flips that item — never removes it from All/Unread filters
+        // until the user switches away from Unread (or reloads Unread).
+        setInboxItems((prev) => {
+          if (inboxFilter === "unread") {
+            return prev.filter((item) => item.id !== id);
+          }
+          return prev.map((item) =>
+            item.id === id ? { ...item, is_read: true, read_at: new Date().toISOString() } : item,
+          );
+        });
         setUnreadCount((c) => Math.max(0, c - 1));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed marking read");
@@ -206,8 +220,21 @@ export default function NotificationsPage() {
       try {
         await archiveNotification(id);
         setInboxItems((prev) => prev.filter((item) => item.id !== id));
+        setSuccessMsg("Moved to Archived. You can restore it anytime.");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed archiving");
+      }
+    });
+  };
+
+  const handleRestore = (id: number) => {
+    startTransition(async () => {
+      try {
+        await unarchiveNotification(id);
+        setInboxItems((prev) => prev.filter((item) => item.id !== id));
+        setSuccessMsg("Restored to Inbox.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed restoring");
       }
     });
   };
@@ -370,19 +397,29 @@ export default function NotificationsPage() {
       {/* TAB 1: IN-APP INBOX */}
       {activeTab === "inbox" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-xs text-[var(--fog)] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={filterUnreadOnly}
-                  onChange={(e) => setFilterUnreadOnly(e.target.checked)}
-                  className="rounded border-white/20 bg-black/40"
-                />
-                Unread only
-              </label>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex rounded-xl border border-white/10 bg-black/20 p-1">
+              {([
+                { id: "all" as const, label: "All" },
+                { id: "unread" as const, label: "Unread" },
+                { id: "archived" as const, label: "Archived" },
+              ]).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setInboxFilter(tab.id)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                    inboxFilter === tab.id
+                      ? "bg-[var(--signal)] text-[var(--ink)]"
+                      : "text-[var(--fog)] hover:text-[var(--paper)]"
+                  }`}
+                >
+                  {tab.label}
+                  {tab.id === "unread" && unreadCount > 0 ? ` (${unreadCount})` : ""}
+                </button>
+              ))}
             </div>
-            {unreadCount > 0 && (
+            {inboxFilter !== "archived" && unreadCount > 0 && (
               <button
                 onClick={handleMarkAllRead}
                 disabled={pending}
@@ -395,7 +432,11 @@ export default function NotificationsPage() {
 
           {inboxItems.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-12 text-center text-sm text-[var(--fog)]">
-              No notifications in your inbox.
+              {inboxFilter === "archived"
+                ? "No archived notifications."
+                : inboxFilter === "unread"
+                  ? "No unread notifications."
+                  : "No notifications in your inbox."}
             </div>
           ) : (
             <div className="space-y-3">
@@ -427,22 +468,33 @@ export default function NotificationsPage() {
                       <p className="text-sm text-[var(--fog)] whitespace-pre-line">{item.body}</p>
                     </div>
                     <div className="flex flex-col items-end gap-2 shrink-0">
-                      {!item.is_read ? (
+                      {inboxFilter === "archived" ? (
                         <button
-                          onClick={() => handleMarkRead(item.id)}
+                          onClick={() => handleRestore(item.id)}
                           className="text-xs font-medium px-3 py-1 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-[var(--paper)]"
                         >
-                          Mark Read
+                          Restore
                         </button>
                       ) : (
-                        <span className="text-xs text-[var(--mute)]">Read</span>
+                        <>
+                          {!item.is_read ? (
+                            <button
+                              onClick={() => handleMarkRead(item.id)}
+                              className="text-xs font-medium px-3 py-1 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-[var(--paper)]"
+                            >
+                              Mark Read
+                            </button>
+                          ) : (
+                            <span className="text-xs text-[var(--mute)]">Read</span>
+                          )}
+                          <button
+                            onClick={() => handleArchive(item.id)}
+                            className="text-xs text-red-400/80 hover:text-red-400"
+                          >
+                            Archive
+                          </button>
+                        </>
                       )}
-                      <button
-                        onClick={() => handleArchive(item.id)}
-                        className="text-xs text-red-400/80 hover:text-red-400"
-                      >
-                        Archive
-                      </button>
                     </div>
                   </div>
                 </div>

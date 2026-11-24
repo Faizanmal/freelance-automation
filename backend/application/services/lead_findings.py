@@ -976,7 +976,19 @@ class LeadFindingsService:
 
         attribution = SOURCE_ATTRIBUTION.get(source, source.title() or "Source")
 
-        benefits = finding.freelance_benefits or []
+        benefits = list(finding.freelance_benefits or [])
+        employment_risks = list(finding.employment_risks or [])
+        # Never advertise Freelance-labeled / contract badges alongside FTE/salary watchouts.
+        if employment_risks:
+            benefits = [
+                b
+                for b in benefits
+                if not re.search(
+                    r"freelance[\s-]?labeled|contract\s*/\s*freelance|contractor-friendly",
+                    b,
+                    re.IGNORECASE,
+                )
+            ]
 
         return {
 
@@ -1044,7 +1056,9 @@ class LeadFindingsService:
 
             "freelance_benefits_line": " · ".join(benefits[:4]) if benefits else None,
 
-            "employment_risks": finding.employment_risks or [],
+            "employment_risks": employment_risks,
+
+            "suppress_fit_badge": bool(employment_risks),
 
             "client_signal": finding.client_signal or {},
 
