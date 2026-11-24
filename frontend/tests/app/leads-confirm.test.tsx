@@ -84,6 +84,8 @@ beforeEach(() => {
     win_rate: 0,
     saved_value: 0,
     pitched_value: 0,
+    won_value: 0,
+    active_pipeline_value: 0,
   });
   vi.mocked(api.getAuthFindings).mockResolvedValue({
     generated_at: "2026-10-05T00:00:00Z",
@@ -228,6 +230,8 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
     win_rate: 0,
     saved_value: 0,
     pitched_value: 0,
+    won_value: 0,
+    active_pipeline_value: 0,
   }));
 
   render(<LeadsPage />);

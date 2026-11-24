@@ -573,7 +573,8 @@ export default function FinancePage() {
 
             {/* Action button */}
             <button
-              onClick={runGrossCalculation}
+              type="button"
+              onClick={() => runGrossCalculation()}
               disabled={isPending}
               className="mt-5 w-full rounded-md bg-[var(--accent)] py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
             >
@@ -700,7 +701,7 @@ export default function FinancePage() {
                           <td className="px-4 py-2.5 text-[var(--text-muted)]">Agreed contract price</td>
                         </tr>
                         {calcResult.calculation.itemized_deductions
-                          .filter((item) => item.category !== "gross" && !/gross billed/i.test(item.name))
+                          .filter((item) => !/gross billed/i.test(item.name))
                           .map((item, idx) => {
                             const amount = Number(item.amount_base) || 0;
                             const pct =
@@ -848,7 +849,8 @@ export default function FinancePage() {
             </div>
 
             <button
-              onClick={runInverseCalculation}
+              type="button"
+              onClick={() => runInverseCalculation()}
               disabled={isPending}
               className="mt-5 w-full rounded-md bg-[var(--accent)] py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
             >

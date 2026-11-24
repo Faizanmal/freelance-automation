@@ -109,8 +109,19 @@ class LeadFindingsServiceTests(unittest.TestCase):
             self.assertIn(item["action"], {"watch", "skip"})
 
     def test_include_skipped_preserves_skipped_leads_for_recovery(self) -> None:
-        j1 = _job(id=1, source_id="1", canonical_id="c1")
-        j2 = _job(id=2, source_id="2", canonical_id="c2", title="Python FastAPI Architect")
+        j1 = _job(
+            id=1,
+            source_id="1",
+            canonical_id="c1",
+            url="https://acme-one.example.test/jobs/python-1",
+        )
+        j2 = _job(
+            id=2,
+            source_id="2",
+            canonical_id="c2",
+            title="Python FastAPI Architect",
+            url="https://acme-two.example.test/jobs/python-2",
+        )
         payload = self.service.build(
             [j1, j2],
             self.prefs,

@@ -106,6 +106,7 @@ class V11BackendFeatureTests(unittest.IsolatedAsyncioTestCase):
             is_expired=False,
         )
         mock_repo = MagicMock()
+        mock_repo.count_jobs = AsyncMock(return_value=1)
         mock_repo.list_recent = AsyncMock(return_value=[fake_job])
         mock_repo.to_candidate_dict = AsyncMock(
             return_value={

@@ -250,16 +250,24 @@ class LeadFindingsService:
         matched_ids = {m.job.id for m in matches if m.job.id is not None}
         for job in jobs:
             if job.id in preserved_ids and job.id not in matched_ids:
+                freshness = self.matcher._freshness_score(job)
+                client_q = self.matcher._client_quality_score(job)
+                try:
+                    freshness_f = round(float(freshness), 3)
+                except (TypeError, ValueError):
+                    freshness_f = 0.5
+                try:
+                    client_f = round(float(client_q), 3)
+                except (TypeError, ValueError):
+                    client_f = 0.5
                 matches.append(
                     JobMatch(
                         job=job,
                         score=0.5,
                         matched_keywords=[],
                         reasons=["saved_or_actioned_lead"],
-                        freshness_score=round(self.matcher._freshness_score(job), 3),
-                        client_quality_score=round(
-                            self.matcher._client_quality_score(job), 3
-                        ),
+                        freshness_score=freshness_f,
+                        client_quality_score=client_f,
                         red_flags=[],
                     )
                 )
@@ -830,6 +838,13 @@ class LeadFindingsService:
 
 
 
+    @staticmethod
+    def _numeric_score(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
     def _signals(self, match: JobMatch) -> list[str]:
 
         signals: list[str] = []
@@ -838,15 +853,18 @@ class LeadFindingsService:
 
             signals.append(f"Skills overlap: {', '.join(match.matched_keywords[:4])}")
 
-        if match.freshness_score >= 0.85:
+        freshness = self._numeric_score(match.freshness_score)
+        client_quality = self._numeric_score(match.client_quality_score)
+
+        if freshness >= 0.85:
 
             signals.append("Posted in the last day")
 
-        elif match.freshness_score >= 0.65:
+        elif freshness >= 0.65:
 
             signals.append("Still relatively fresh")
 
-        if match.client_quality_score >= 0.7:
+        if client_quality >= 0.7:
 
             signals.append("Stronger client/budget signal")
 

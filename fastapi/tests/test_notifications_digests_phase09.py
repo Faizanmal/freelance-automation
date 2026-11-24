@@ -258,27 +258,33 @@ class NotificationsPhase09Tests(unittest.IsolatedAsyncioTestCase):
         prefs = UserPreferences(
             user_id="usr-1",
             skills=["python"],
+            keywords=["python", "freelance"],
             match_threshold=0.3,
             max_per_digest=5,
+            freelance_focus=False,
         )
 
         active_job = JobRecord(
             id=1,
-            title="Senior Python Backend",
-            source_name="remoteok",
+            title="Senior Python Backend Freelance Contract",
+            description="Need a freelance python contractor for a short-term FastAPI project.",
+            source_name="hn_hiring",
             source_id="1",
             canonical_id="can-1",
-            url="https://remoteok.com/1",
+            url="https://boards.greenhouse.io/acme/jobs/python-backend-abc123",
+            tags=["python", "fastapi"],
             is_expired=False,
             inventory_state="active",
         )
         expired_job = JobRecord(
             id=2,
-            title="Senior Python Engineer",
-            source_name="remoteok",
+            title="Senior Python Engineer Freelance Contract",
+            description="Freelance python role — expired listing.",
+            source_name="hn_hiring",
             source_id="2",
             canonical_id="can-2",
-            url="https://remoteok.com/2",
+            url="https://boards.greenhouse.io/acme/jobs/python-backend-def456",
+            tags=["python"],
             is_expired=True,
             inventory_state="expired",
         )
