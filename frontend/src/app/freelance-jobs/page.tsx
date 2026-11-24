@@ -139,11 +139,11 @@ export default function FreelanceJobsDirectoryPage() {
               Contracts frequently match multiple skills (e.g. Python + React), so category counts reflect overlapping skill tags across unique opportunities.
             </p>
           </div>
-          {data?.total_active ? (
-            <span className="shrink-0 text-xs font-medium text-[var(--text-muted)]">
-              {data.total_active} unique opportunities indexed
-            </span>
-          ) : null}
+          <span className="shrink-0 text-xs font-medium text-[var(--text-muted)]">
+            {pending && data == null
+              ? "Counting indexed opportunities…"
+              : `${data?.total_active ?? 0} unique opportunities indexed`}
+          </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {categories.map((cat) => (

@@ -24,21 +24,42 @@ def collapse_duplicates(ranked: list[RankedMatch]) -> list[RankedMatch]:
     return out
 
 
+_SINGLE_POSTING_PATH_RE = re.compile(
+    r"/(?:jobs?|openings?|positions?|j|role|posting)/[a-z0-9_-]{6,}",
+    re.IGNORECASE,
+)
+
+
 def diversify(
     ranked: list[RankedMatch],
     *,
     max_per_source: int = 4,
     max_per_company: int = 3,
+    max_per_domain: int = 1,
 ) -> list[RankedMatch]:
-    """Soft diversity: prefer variety while preserving relative order."""
+    """Soft diversity: prefer variety while preserving relative order.
+
+    Caps one result per domain by default. Additional hits from the same
+    domain are kept only when they look like distinct single job postings
+    (unique title|company and a deep job-path URL).
+    """
     source_counts: dict[str, int] = defaultdict(int)
     company_counts: dict[str, int] = defaultdict(int)
+    domain_keys: dict[str, set[str]] = defaultdict(set)
     primary: list[RankedMatch] = []
     deferred: list[RankedMatch] = []
 
     for item in ranked:
         source = (item.job.source_name or "unknown").lower()
         company = (item.job.company or "").strip().lower() or "unknown"
+        domain = _domain_key(item.job.url)
+        posting_key = _dedupe_key(item)
+        domain_seen = domain_keys[domain]
+        if posting_key in domain_seen:
+            continue
+        domain_overflow = max_per_domain > 0 and len(domain_seen) >= max_per_domain
+        if domain_overflow and not _is_distinct_single_posting(item):
+            continue
         if (
             source_counts[source] >= max_per_source
             or company_counts[company] >= max_per_company
@@ -47,10 +68,34 @@ def diversify(
             continue
         source_counts[source] += 1
         company_counts[company] += 1
+        domain_seen.add(posting_key)
         primary.append(item)
 
     return primary + deferred
 
+
+def _domain_key(url: str | None) -> str:
+    raw = (url or "").strip().lower()
+    if not raw:
+        return "unknown"
+    try:
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        return host or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _is_distinct_single_posting(item: RankedMatch) -> bool:
+    url = (item.job.url or "").strip()
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        path = parsed.path or ""
+    except Exception:
+        return False
+    return bool(_SINGLE_POSTING_PATH_RE.search(path))
 
 def _normalize_title(title: str) -> str:
     cleaned = re.sub(r"[^a-z0-9\s]+", " ", (title or "").lower())

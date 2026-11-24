@@ -208,11 +208,6 @@ class LeadFindingsService:
         if not include_expired:
 
             jobs = [j for j in jobs if not getattr(j, "is_expired", False)]
-        jobs = [
-            j
-            for j in jobs
-            if not is_non_opportunity_noise(j.title, j.description, j.url, j.company)
-        ]
 
         actions_map = lead_actions or {}
 
@@ -221,6 +216,24 @@ class LeadFindingsService:
         saved = saved_job_ids if saved_job_ids is not None else {jid for jid, st in actions_map.items() if st == "save"}
 
         pitched = {jid for jid, st in actions_map.items() if st in {"pitched", "won"}}
+
+        # Keep saved/pitched/skipped leads even if their source is later classified
+        # as noise — one source of truth across Desk, Leads, and Pipeline.
+        preserved_ids_pre = saved | pitched | (skipped if include_skipped else set())
+        jobs = [
+            j
+            for j in jobs
+            if (j.id is not None and j.id in preserved_ids_pre)
+            or not is_non_opportunity_noise(
+                j.title,
+                j.description,
+                j.url,
+                j.company,
+                enrichment=getattr(j, "enrichment", None)
+                if isinstance(getattr(j, "enrichment", None), dict)
+                else None,
+            )
+        ]
 
         ranked = self.pipeline.rank(
             jobs,
@@ -295,34 +308,18 @@ class LeadFindingsService:
 
 
         def _sort_key(item: LeadFinding) -> tuple[float, float, float]:
-
+            # Default: score descending. Light boost for actioned leads so they
+            # stay discoverable without burying higher-scoring new posts.
             if item.job.id in pitched:
-
-                boost = 1.2
-
+                boost = 0.05
             elif item.job.id in saved:
-
-                boost = 1.0
-
+                boost = 0.02
             else:
-
                 boost = 0.0
-
             if freelance_focus:
-
-                return (
-
-                    boost,
-
-                    (item.freelance_fit * 0.55) + (item.score * 0.45),
-
-                    item.score,
-
-                )
-
-            return (boost, item.score, item.freshness_score)
-
-
+                blended = (item.freelance_fit * 0.55) + (item.score * 0.45)
+                return (blended + boost, item.score, item.freshness_score)
+            return (item.score + boost, item.score, item.freshness_score)
 
         findings.sort(key=_sort_key, reverse=True)
 

@@ -17,6 +17,7 @@ vi.mock("@/lib/api", () => ({
   getToken: () => "tok",
   getPipelineBoard: (...args: unknown[]) => boardMock(...args),
   getWorkspaceDashboard: (...args: unknown[]) => dashMock(...args),
+  downloadPipelineExport: vi.fn(),
   listLeadNotes: vi.fn(async () => ({ notes: [] })),
   setPipelineStage: vi.fn(),
   startCopilotRun: vi.fn(),
@@ -66,9 +67,11 @@ describe("Pipeline page", () => {
     render(<PipelinePage />);
     await waitFor(() => {
       expect(screen.getByText("Pipeline")).toBeTruthy();
+      expect(screen.getByText("Follow-ups due")).toBeTruthy();
     });
-    expect(screen.getByText("Follow-ups due")).toBeTruthy();
     expect(await screen.findByText("React contract")).toBeTruthy();
     expect(screen.getByText(/never send by themselves/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Calendar$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Export to calendar \(\.ics\)/i })).toBeTruthy();
   });
 });

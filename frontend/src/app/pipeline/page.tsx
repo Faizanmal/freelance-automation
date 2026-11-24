@@ -31,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/cn";
 import {
+  Calendar,
   CalendarClock,
   Download,
   ExternalLink,
@@ -72,7 +73,7 @@ function formatMoney(n: number) {
 export default function PipelinePage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [view, setView] = useState<"board" | "list">("board");
+  const [view, setView] = useState<"board" | "list" | "calendar">("board");
   const [columns, setColumns] = useState<Record<string, PipelineLead[]>>({});
   const [dashboard, setDashboard] = useState<WorkspaceDashboard | null>(null);
   const [showDemo, setShowDemo] = useState(false);
@@ -126,6 +127,35 @@ export default function PipelinePage() {
       return title.includes(needle) || company.includes(needle);
     });
   }, [columns, q]);
+
+  const calendarDays = useMemo(() => {
+    const byDay = new Map<string, PipelineLead[]>();
+    const unscheduled: PipelineLead[] = [];
+    for (const lead of allLeads) {
+      if (!lead.follow_up_at) {
+        unscheduled.push(lead);
+        continue;
+      }
+      const day = new Date(lead.follow_up_at).toISOString().slice(0, 10);
+      const bucket = byDay.get(day) || [];
+      bucket.push(lead);
+      byDay.set(day, bucket);
+    }
+    const days = Array.from(byDay.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, leads]) => ({
+        date,
+        label: new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        }),
+        leads: leads.sort((a, b) =>
+          String(a.follow_up_at || "").localeCompare(String(b.follow_up_at || "")),
+        ),
+      }));
+    return { days, unscheduled };
+  }, [allLeads]);
 
   async function openLead(lead: PipelineLead) {
     setSelected(lead);
@@ -269,6 +299,13 @@ export default function PipelinePage() {
               <List className="size-4" /> List
             </Button>
             <Button
+              variant={view === "calendar" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setView("calendar")}
+            >
+              <Calendar className="size-4" /> Calendar
+            </Button>
+            <Button
               variant="outline"
               className="inline-flex h-8 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs font-semibold"
               onClick={() => exportPipeline("csv")}
@@ -281,7 +318,7 @@ export default function PipelinePage() {
               onClick={() => exportPipeline("ics")}
               title="Download follow-ups as an .ics calendar file"
             >
-              <CalendarClock className="size-4" /> Export to calendar
+              <Download className="size-4" /> Export to calendar (.ics)
             </Button>
           </div>
         }
@@ -404,6 +441,74 @@ export default function PipelinePage() {
               </div>
             );
           })}
+        </div>
+      ) : view === "calendar" ? (
+        <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-[var(--text)]">Follow-up calendar</h2>
+            {calendarDays.days.length === 0 ? (
+              <EmptyState
+                title="No follow-ups scheduled"
+                description="Schedule a follow-up on a lead to see it here by date."
+              />
+            ) : (
+              calendarDays.days.map((day) => (
+                <Card key={day.date} className="p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{day.label}</h3>
+                    <Badge>{day.leads.length}</Badge>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {day.leads.map((lead) => (
+                      <button
+                        key={lead.id}
+                        type="button"
+                        onClick={() => void openLead(lead)}
+                        className={cn(
+                          "rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm transition hover:border-[var(--border-strong)]",
+                          selected?.id === lead.id && "ring-2 ring-[var(--accent)]/40",
+                        )}
+                      >
+                        <p className="font-medium leading-snug">
+                          {lead.job?.title || `Job #${lead.job_id}`}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">
+                          {lead.job?.company || lead.employer_name || "—"} · {lead.pipeline_stage}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--warning)]">
+                          {lead.follow_up_at
+                            ? new Date(lead.follow_up_at).toLocaleString()
+                            : ""}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              ))
+            )}
+          </div>
+          <Card className="h-fit p-4">
+            <h3 className="text-sm font-semibold">Unscheduled</h3>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              Leads without a follow-up date
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              {calendarDays.unscheduled.length === 0 ? (
+                <p className="text-xs text-[var(--text-muted)]">All leads have a follow-up.</p>
+              ) : (
+                calendarDays.unscheduled.map((lead) => (
+                  <button
+                    key={lead.id}
+                    type="button"
+                    onClick={() => void openLead(lead)}
+                    className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-2 text-left text-xs hover:border-[var(--border-strong)]"
+                  >
+                    {lead.job?.title || `Job #${lead.job_id}`}
+                  </button>
+                ))
+              )}
+            </div>
+          </Card>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">

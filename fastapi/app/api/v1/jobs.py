@@ -323,6 +323,7 @@ async def list_seo_directory(
 ) -> dict[str, Any]:
     """Public programmatic SEO directory index with per-skill counts and recent teasers."""
     repo = SQLAlchemyJobRepository(session)
+    total_active = await repo.count_jobs()
     jobs = await repo.list_recent(limit=250)
     active_jobs = [j for j in jobs if not getattr(j, "is_expired", False)]
 
@@ -347,7 +348,7 @@ async def list_seo_directory(
         recent_teasers.append(_to_public_teaser(c_dict))
 
     return {
-        "total_active": len(active_jobs),
+        "total_active": total_active,
         "categories": categories,
         "recent": recent_teasers,
     }

@@ -198,10 +198,10 @@ export default function HomePage() {
     });
   };
 
-  const savedCount = useMemo(
-    () => findings.filter((item) => item.user_status === "save").length,
-    [findings],
-  );
+  // Single source of truth: pipeline-stats (UserLeadAction), not the current
+  // findings slice — matches Leads Saved tab and Pipeline after preserve-on-filter.
+  const savedCount = pipelineStats?.saved_count
+    ?? findings.filter((item) => item.user_status === "save").length;
   const highFitCount = useMemo(
     () => findings.filter((item) => item.score >= 0.7).length,
     [findings],
@@ -635,7 +635,7 @@ export default function HomePage() {
             label: "Saved opportunities",
             value: savedCount,
             icon: Bookmark,
-            hint: "In your current lead set",
+            hint: "Saved across Desk, Leads, and Pipeline",
           },
           {
             label: "Opportunities stored",
@@ -687,7 +687,7 @@ export default function HomePage() {
                 href="/leads?filter=saved"
                 className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
               >
-                Saved ({pipelineStats?.saved_count ?? savedCount})
+                Saved ({savedCount})
               </Link>
               <Link
                 href="/leads?filter=pitched"

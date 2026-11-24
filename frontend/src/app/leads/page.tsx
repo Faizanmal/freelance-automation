@@ -6,7 +6,7 @@ import Link from "next/link";
 
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { Suspense, useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import {
 
@@ -17,6 +17,8 @@ import {
   getAuthFindings,
 
   getDemoFindings,
+
+  getPipelineStats,
 
   getToken,
 
@@ -32,6 +34,8 @@ import {
   type LeadFinding,
 
   type LeadFindingsResponse,
+
+  type PipelineStats,
 
   type ProposalDraftResponse,
 
@@ -194,6 +198,13 @@ function LeadsPageInner() {
     return Boolean(getToken());
   });
 
+  const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
+  const [writingJobIds, setWritingJobIds] = useState<Set<number>>(() => new Set());
+  const writeQueuesRef = useRef(new Map<number, Promise<void>>());
+  const pendingWritesRef = useRef(0);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
 
 
   const load = useCallback((value: string, focus?: boolean, silent = false) => {
@@ -218,12 +229,21 @@ function LeadsPageInner() {
           setFreelanceFocus(response.freelance_focus);
         }
 
-        setData(response);
+        // Don't clobber in-flight Save/Skip/Undo writes with a stale fetch.
+        if (pendingWritesRef.current === 0) {
+          setData(response);
+        }
+        if (token) {
+          void getPipelineStats()
+            .then(setPipelineStats)
+            .catch(() => setPipelineStats(null));
+        } else {
+          setPipelineStats(null);
+        }
 
       } catch (err) {
 
         const message = err instanceof Error ? err.message : "Failed to load leads";
-
         if (/no jobs in the database/i.test(message) || /call post \/jobs\/scrape/i.test(message)) {
 
           setError(null);
@@ -531,32 +551,20 @@ function LeadsPageInner() {
     });
   };
 
-  const updateLeadStatus = (
-    jobId: number,
-    status: "save" | "skip" | "pitched" | "won" | "clear",
-    opts?: { reason?: string },
-  ) => {
-
-    if (!getToken()) {
-
-      router.push("/auth");
-
-      return;
-
-    }
-
-    const reason = opts?.reason;
-
-    // Optimistic local update
-
-    setData((current) => {
-
-      if (!current) return current;
-
+  const applyOptimisticStatus = useCallback(
+    (
+      current: LeadFindingsResponse,
+      jobId: number,
+      status: "save" | "skip" | "pitched" | "won" | "clear",
+    ): LeadFindingsResponse => {
+      const previousStatus =
+        current.items.find((item) => item.job_id === jobId)?.user_status ?? null;
+      const nextStatus = status === "clear" ? null : status;
+      if (previousStatus === nextStatus) {
+        return current;
+      }
       const updatedItems = current.items.map((item) =>
-        item.job_id === jobId
-          ? { ...item, user_status: status === "clear" ? null : status }
-          : item,
+        item.job_id === jobId ? { ...item, user_status: nextStatus } : item,
       );
       const allNonSkipped = updatedItems.filter((item) => item.user_status !== "skip");
       const skippedItems = updatedItems.filter((item) => item.user_status === "skip");
@@ -564,65 +572,68 @@ function LeadsPageInner() {
       const nonSkipped =
         allNonSkipped.length > maxActive
           ? [...allNonSkipped]
-              .sort((a, b) => {
-                const aBoost =
-                  a.job_id === jobId && status === "clear"
-                    ? 1.5
-                    : a.user_status === "pitched" || a.user_status === "won"
-                      ? 1.2
-                      : a.user_status === "save"
-                        ? 1.0
-                        : 0;
-                const bBoost =
-                  b.job_id === jobId && status === "clear"
-                    ? 1.5
-                    : b.user_status === "pitched" || b.user_status === "won"
-                      ? 1.2
-                      : b.user_status === "save"
-                        ? 1.0
-                        : 0;
-                if (bBoost !== aBoost) return bBoost - aBoost;
-                return b.score - a.score;
-              })
+              .sort((a, b) => b.score - a.score)
               .slice(0, maxActive)
           : allNonSkipped;
       const skippedCount = skippedItems.length;
-      // Keep previously skipped leads that were already in the payload but are
-      // outside the current optimistic slice so skipped_count does not shrink.
       const priorSkipped =
         status === "skip"
           ? Math.max(Number(current.skipped_count) || 0, skippedCount)
-          : status === "clear"
+          : status === "clear" && previousStatus === "skip"
             ? Math.max(0, (Number(current.skipped_count) || 0) - 1)
             : Number(current.skipped_count) || skippedCount;
-      const cappedItems = [...nonSkipped, ...skippedItems];
-
       return {
-
         ...current,
-
         total_findings: nonSkipped.length,
-
         skipped_count: priorSkipped,
-
         action_counts: {
           draft_bid: nonSkipped.filter((item) => item.action === "draft_bid").length,
           watch: nonSkipped.filter((item) => item.action === "watch").length,
           skip: priorSkipped,
         },
-
-        items: cappedItems,
-
+        items: [...nonSkipped, ...skippedItems],
       };
+    },
+    [authed],
+  );
 
-    });
+  useEffect(() => {
+    const flushOrBlock = (event: BeforeUnloadEvent) => {
+      if (pendingWritesRef.current > 0) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", flushOrBlock);
+    return () => {
+      window.removeEventListener("beforeunload", flushOrBlock);
+    };
+  }, []);
 
-    startTransition(async () => {
+  const updateLeadStatus = (
+    jobId: number,
+    status: "save" | "skip" | "pitched" | "won" | "clear",
+    opts?: { reason?: string },
+  ) => {
+    if (!getToken()) {
+      router.push("/auth");
+      return;
+    }
 
+    const reason = opts?.reason;
+    const previousStatus =
+      dataRef.current?.items.find((item) => item.job_id === jobId)?.user_status ?? null;
+    const snapshot = dataRef.current;
+
+    if (snapshot) {
+      setData(applyOptimisticStatus(snapshot, jobId, status));
+    }
+    setWritingJobIds((prev) => new Set(prev).add(jobId));
+
+    const runWrite = async () => {
+      pendingWritesRef.current += 1;
       try {
-
         setError(null);
-
         if (status === "won") {
           await postMatchFeedback({
             job_id: jobId,
@@ -643,12 +654,28 @@ function LeadsPageInner() {
             kind: status,
             reason,
           });
+        } else if (status === "clear") {
+          // Prefer match-feedback clear so ranking feedback stays consistent.
+          try {
+            await postMatchFeedback({ job_id: jobId, kind: "clear", reason });
+          } catch {
+            await setLeadAction(jobId, "clear", { reason });
+          }
         } else {
           await setLeadAction(jobId, status, { reason });
         }
 
         if (status === "save" || status === "skip") {
-          void recordProductEvent(status === "save" ? "lead_saved" : "lead_skipped", "discovery").catch(() => null);
+          try {
+            void Promise.resolve(
+              recordProductEvent(
+                status === "save" ? "lead_saved" : "lead_skipped",
+                "discovery",
+              ),
+            ).catch(() => null);
+          } catch {
+            /* analytics must not fail the durable write */
+          }
         }
 
         const message =
@@ -662,26 +689,57 @@ function LeadsPageInner() {
                   ? "Lead skipped — hidden from default list"
                   : "Lead status cleared";
 
+        // Re-assert durable status in case a stale load raced the write.
+        setData((current) =>
+          current ? applyOptimisticStatus(current, jobId, status) : current,
+        );
+
         setSubmitMessage(message);
 
-        if (status === "save" || status === "skip" || status === "pitched" || status === "won") {
-          toast(message, {
-            tone: "success",
-            actionLabel: "Undo",
-            onAction: () => updateLeadStatus(jobId, "clear"),
-          });
+        // Toast/analytics failures must not roll back a durable write.
+        try {
+          if (status === "save" || status === "skip" || status === "pitched" || status === "won") {
+            toast(message, {
+              tone: "success",
+              actionLabel: "Undo",
+              onAction: () => updateLeadStatus(jobId, "clear"),
+            });
+          }
+        } catch {
+          /* ignore UI-only failures */
         }
 
+        void getPipelineStats()
+          .then(setPipelineStats)
+          .catch(() => null);
       } catch (err) {
-
+        // Roll back optimistic UI to the pre-write snapshot for this job.
+        if (snapshot) {
+          const rollbackStatus =
+            previousStatus === "save" ||
+            previousStatus === "skip" ||
+            previousStatus === "pitched" ||
+            previousStatus === "won"
+              ? previousStatus
+              : "clear";
+          setData(applyOptimisticStatus(snapshot, jobId, rollbackStatus));
+        } else {
+          await load(keywords, focusOverride, true);
+        }
         setError(err instanceof Error ? err.message : "Could not update lead");
-
-        await load(keywords, focusOverride, true);
-
+      } finally {
+        pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+        setWritingJobIds((prev) => {
+          const next = new Set(prev);
+          next.delete(jobId);
+          return next;
+        });
       }
+    };
 
-    });
-
+    const prior = writeQueuesRef.current.get(jobId) ?? Promise.resolve();
+    const queued = prior.catch(() => undefined).then(runWrite);
+    writeQueuesRef.current.set(jobId, queued);
   };
 
 
@@ -706,15 +764,7 @@ function LeadsPageInner() {
 
     const query = search.trim().toLowerCase();
 
-    const items = [...(data?.items || [])].sort((a, b) => {
-
-      const aScore = a.score * 0.7 + (a.freshness_score || 0) * 0.3;
-
-      const bScore = b.score * 0.7 + (b.freshness_score || 0) * 0.3;
-
-      return bScore - aScore;
-
-    });
+    const items = [...(data?.items || [])].sort((a, b) => b.score - a.score);
 
     return items.filter((item) => {
 
@@ -785,13 +835,27 @@ function LeadsPageInner() {
       all: typeof data?.total_findings === "number" ? data.total_findings : nonSkipped.length,
       new: nonSkipped.filter((item) => !item.user_status).length,
       high: nonSkipped.filter((item) => item.score >= 0.7).length,
-      saved: items.filter((item) => item.user_status === "save").length,
-      pitched: items.filter((item) => item.user_status === "pitched" || item.user_status === "won").length,
-      won: items.filter((item) => item.user_status === "won").length,
-      skipped:
-        typeof data?.skipped_count === "number" ? data.skipped_count : skippedFromItems,
+      // Pipeline-stats is the shared SoT with Desk + Pipeline.
+      saved:
+        typeof pipelineStats?.saved_count === "number"
+          ? pipelineStats.saved_count
+          : items.filter((item) => item.user_status === "save").length,
+      pitched:
+        typeof pipelineStats?.pitched_count === "number"
+          ? pipelineStats.pitched_count
+          : items.filter((item) => item.user_status === "pitched" || item.user_status === "won")
+              .length,
+      won:
+        typeof pipelineStats?.won_count === "number"
+          ? pipelineStats.won_count
+          : items.filter((item) => item.user_status === "won").length,
+      skipped: Math.max(
+        skippedFromItems,
+        typeof data?.skipped_count === "number" ? data.skipped_count : 0,
+        typeof pipelineStats?.skipped_count === "number" ? pipelineStats.skipped_count : 0,
+      ),
     };
-  }, [data]);
+  }, [data, pipelineStats]);
 
   const summaryCounts = useMemo(() => {
     const items = data?.items || [];
@@ -1511,6 +1575,8 @@ function LeadsPageInner() {
 
                       size="sm"
 
+                      disabled={writingJobIds.has(finding.job_id)}
+
                       onClick={() =>
 
                         updateLeadStatus(
@@ -1534,6 +1600,7 @@ function LeadsPageInner() {
                         <Button
                           variant="default"
                           size="sm"
+                          disabled={writingJobIds.has(finding.job_id)}
                           onClick={() => updateLeadStatus(finding.job_id, "clear")}
                           title="Click to revert / undo pitched"
                         >
@@ -1542,6 +1609,7 @@ function LeadsPageInner() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={writingJobIds.has(finding.job_id)}
                           onClick={() => updateLeadStatus(finding.job_id, "save")}
                           title="Move back to Saved"
                         >
@@ -1550,6 +1618,7 @@ function LeadsPageInner() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={writingJobIds.has(finding.job_id)}
                           onClick={() => updateLeadStatus(finding.job_id, "clear")}
                           title="Undo pitched and return to New"
                         >
@@ -1560,6 +1629,7 @@ function LeadsPageInner() {
                       <Button
                         variant="outline"
                         size="sm"
+                        disabled={writingJobIds.has(finding.job_id)}
                         onClick={() => updateLeadStatus(finding.job_id, "pitched")}
                       >
                         Mark pitched
@@ -1571,6 +1641,8 @@ function LeadsPageInner() {
                       variant={finding.user_status === "won" ? "default" : "outline"}
 
                       size="sm"
+
+                      disabled={writingJobIds.has(finding.job_id)}
 
                       onClick={() =>
 
@@ -1594,6 +1666,7 @@ function LeadsPageInner() {
                       <Button
                         variant={finding.user_status === "skip" ? "outline" : "ghost"}
                         size="sm"
+                        disabled={writingJobIds.has(finding.job_id)}
                         onClick={() =>
                           updateLeadStatus(
                             finding.job_id,

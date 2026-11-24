@@ -1,0 +1,362 @@
+"""Page-type classifier for opportunity URLs (rules + optional LLM).
+
+Keeps only single, specific contract/freelance postings. Rejects job boards,
+aggregators, careers hubs, listing/search pages, portfolios, and free-host spam.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+from urllib.parse import urlparse
+
+PAGE_TYPE_JOB_POST = "job_post"
+PAGE_TYPE_LISTICLE = "listicle"
+PAGE_TYPE_BOARD_INDEX = "board_index"
+PAGE_TYPE_CAREERS_HUB = "careers_hub"
+PAGE_TYPE_PORTFOLIO = "portfolio"
+PAGE_TYPE_FULL_TIME = "full_time_employee"
+PAGE_TYPE_NON_DEV = "non_dev"
+PAGE_TYPE_SPAM_HOST = "spam_host"
+PAGE_TYPE_UNKNOWN = "unknown"
+
+BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
+    "starterindex.com",
+    "remoteleaf.com",
+    "jobleads.com",
+    "jobleads.co",
+    "jobright.ai",
+    "dailyremote.com",
+    "remoterocketship.com",
+    "turing.com",
+    "toptal.com",
+    "arc.dev",
+    "kickstartremote.com",
+    "app.joinhandshake.com",
+    "joinhandshake.com",
+    "andrejgajdos.com",
+    "robinwieruch.de",
+    "workingnomads.com",
+    "workingnomads.co",
+    "opentalent.in",
+    "justjoin.it",
+    "wearedevelopers.com",
+    "4dayweek.io",
+    "dynamitejobs.com",
+    "hiddenjobs.dev",
+    "hiredoor.in",
+    "reactjobs.io",
+    "freelance-informatique.fr",
+    "weekday.works",
+    "cwjobs.co.uk",
+    "reed.co.uk",
+    "totaljobs.com",
+    "indeed.com",
+    "glassdoor.com",
+    "ziprecruiter.com",
+    "dice.com",
+    "simplyhired.com",
+    "linkedin.com",
+    "wellfound.com",
+    "angel.co",
+    "ycombinator.com",
+    "remoteok.com",
+    "weworkremotely.com",
+    "flexjobs.com",
+    "remoteco.com",
+    "nodesk.co",
+    "himalayas.app",
+    "otta.com",
+    "levels.fyi",
+)
+
+FREE_HOST_SUFFIXES: tuple[str, ...] = (
+    ".wuaze.com",
+    ".infinityfreeapp.com",
+    ".rf.gd",
+    ".epizy.com",
+    ".000webhostapp.com",
+    ".netlify.app",
+    ".vercel.app",
+    ".pages.dev",
+    ".github.io",
+    ".web.app",
+    ".firebaseapp.com",
+    ".blogspot.com",
+    ".wordpress.com",
+    ".wixsite.com",
+    ".square.site",
+    ".weebly.com",
+    ".carrd.co",
+)
+
+LISTING_PAGE_TEXT_RE = re.compile(
+    r"(?:"
+    r"\bjobs?\s+in\b"
+    r"|\b\d+\+?\s+jobs?\b"
+    r"|\bsearch\s+our\s+job\s+opportunities\b"
+    r"|\bcareers?\s*(?:&|and)\s*recruitment\b"
+    r"|\bbrowse\s+(?:all\s+)?(?:open\s+)?(?:roles|positions|jobs)\b"
+    r"|\bview\s+all\s+(?:jobs|openings|roles)\b"
+    r"|\bopen\s+positions?\b"
+    r"|\bcurrent\s+openings?\b"
+    r"|\bjob\s+(?:board|listings?|search|alerts?)\b"
+    r"|\bfind\s+(?:your\s+next\s+)?(?:remote\s+)?(?:job|role|gig)\b"
+    r"|\bexplore\s+(?:remote\s+)?(?:jobs|careers|roles)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+FULL_TIME_ONLY_RE = re.compile(
+    r"(?:"
+    r"\bfull[\s-]?time\s+(?:employee|employment|permanent|salaried|position|role)\b"
+    r"|\bpermanent\s+(?:employee|employment|contract)\b"
+    r"|\bw-?2\b"
+    r"|\bbenefits\s+package\b"
+    r"|\b401\s*\(?k\)?\b"
+    r"|\bpto\b"
+    r"|\bpaid\s+time\s+off\b"
+    r"|\bstaff\s+(?:software\s+)?(?:engineer|developer)\b"
+    r")"
+    r"(?!.*\b(?:contract|freelance|fractional|hourly|contractor|consultant)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+NON_DEV_ROLE_RE = re.compile(
+    r"(?:"
+    r"\b(?:customer|client|technical)?\s*support\s+(?:specialist|agent|engineer|representative|associate)\b"
+    r"|\b(?:trainer|training\s+specialist|instructor|teacher|coach)\b"
+    r"|\b(?:recruiter|talent\s+acquisition|hr\s+manager|people\s+ops)\b"
+    r"|\b(?:sales\s+(?:executive|manager|representative)|account\s+executive)\b"
+    r"|\b(?:receptionist|office\s+manager|administrative\s+assistant)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+SINGLE_POSTING_PATH_RE = re.compile(
+    r"/(?:jobs?|openings?|positions?|j|role|posting)/[a-z0-9_-]{6,}",
+    re.IGNORECASE,
+)
+
+LISTICLE_RE = re.compile(
+    r"(?:"
+    r"\btop\s+\d+\b"
+    r"|\b\d+\s+best\b"
+    r"|\bbest\s+(?:freelance|remote)\b"
+    r"|\bhow\s+to\s+(?:become|hire|find|get|start|land|choose)\b"
+    r"|\b(?:ultimate|complete|definitive)\s+guide\b"
+    r"|\bboilerplates?\b"
+    r"|\bstarter\s+kits?\b"
+    r"|\bawesome-[\w-]+\b"
+    r")",
+    re.IGNORECASE,
+)
+
+PORTFOLIO_RE = re.compile(
+    r"\b(?:hire\s+me|work\s+with\s+me|my\s+portfolio|available\s+for\s+hire|developer\s+for\s+hire)\b",
+    re.IGNORECASE,
+)
+
+TENDER_RE = re.compile(
+    r"(?:"
+    r"\be-?tenders?\b"
+    r"|\btender\s+(?:notice|no\.?|number|id|document|invited|invitation|submission|portal|reference|for)\b"
+    r"|\binvitation\s+(?:to|for)\s+(?:tender|bids?|rfp|rfq|eoi)\b"
+    r"|\brequest\s+for\s+(?:proposals?|quotations?|tenders?|bids?|information|qualifications?)\b"
+    r"|\b(?:rfp|rfq|rft|ifb|eoi)\s*(?:#|no\.?|number|notice|submission|document|reference|\b)"
+    r"|\b(?:public|government|municipal|ministry)\s+(?:procurement|tender)\b"
+    r"|\b(?:earnest\s+money|bid\s+security|bid\s+bond|sealed\s+bids?|corrigendum|procurement\s+notice)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+TENDER_HOST_MARKERS: tuple[str, ...] = (
+    "tendersontime.com",
+    "tendertiger.com",
+    "biddetail.com",
+    "globaltenders.com",
+    "dgmarket.com",
+    "ted.europa.eu",
+    "find-tender.service.gov.uk",
+    "etenders.gov.in",
+    "gem.gov.in",
+)
+
+BLOG_PATH_MARKERS: tuple[str, ...] = (
+    "/blog/",
+    "/blogs/",
+    "/article/",
+    "/articles/",
+    "/guide/",
+    "/guides/",
+    "/tutorial/",
+    "/tutorials/",
+    "/insights/",
+    "/resources/",
+)
+
+
+def _host_path(url: str | None) -> tuple[str, str]:
+    raw = (url or "").strip().lower()
+    if not raw:
+        return "", ""
+    try:
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        path = (parsed.path or "").lower()
+        return host, path
+    except Exception:
+        return raw, raw
+
+
+def classify_page_type(
+    title: str | None,
+    description: str | None = None,
+    url: str | None = None,
+    company: str | None = None,
+    *,
+    enrichment: dict[str, Any] | None = None,
+) -> str:
+    """Rule-based page type. Prefers enrichment.page_type when already set."""
+    if enrichment:
+        prior = str(enrichment.get("page_type") or "").strip().lower()
+        if prior in {
+            PAGE_TYPE_JOB_POST,
+            PAGE_TYPE_LISTICLE,
+            PAGE_TYPE_BOARD_INDEX,
+            PAGE_TYPE_CAREERS_HUB,
+            PAGE_TYPE_PORTFOLIO,
+            PAGE_TYPE_FULL_TIME,
+            PAGE_TYPE_NON_DEV,
+            PAGE_TYPE_SPAM_HOST,
+        }:
+            return prior
+
+    host, path = _host_path(url)
+    blob = f"{title or ''} {description or ''} {company or ''}"
+    url_lower = (url or "").lower()
+
+    if host and any(host == s.lstrip(".") or host.endswith(s) for s in FREE_HOST_SUFFIXES):
+        return PAGE_TYPE_SPAM_HOST
+
+    if any(host == h or host.endswith(f".{h}") for h in TENDER_HOST_MARKERS):
+        return PAGE_TYPE_LISTICLE
+    if any(marker in url_lower for marker in BLOG_PATH_MARKERS):
+        return PAGE_TYPE_LISTICLE
+    if TENDER_RE.search(blob):
+        return PAGE_TYPE_LISTICLE
+
+    if any(host == h or host.endswith(f".{h}") for h in BOARD_AGGREGATOR_HOSTS):
+        return PAGE_TYPE_BOARD_INDEX
+
+    if (
+        host.startswith("careers.")
+        or host.startswith("jobs.")
+        or host.endswith(".teamtailor.com")
+        or host.endswith(".workable.com")
+        or host == "apply.workable.com"
+        or "jobs.makesense.org" in host
+        or "jobs.natwestgroup.com" in host
+        or "jobs.appliedmaterials.com" in host
+    ):
+        if not SINGLE_POSTING_PATH_RE.search(path):
+            return PAGE_TYPE_CAREERS_HUB
+        if path.rstrip("/") in {"", "/careers", "/career", "/jobs", "/join-us", "/joinus", "/openings"}:
+            return PAGE_TYPE_CAREERS_HUB
+
+    if PORTFOLIO_RE.search(blob):
+        return PAGE_TYPE_PORTFOLIO
+    if LISTICLE_RE.search(blob) or LISTING_PAGE_TEXT_RE.search(blob):
+        if LISTICLE_RE.search(blob):
+            return PAGE_TYPE_LISTICLE
+        return PAGE_TYPE_BOARD_INDEX
+    if NON_DEV_ROLE_RE.search(title or ""):
+        return PAGE_TYPE_NON_DEV
+    if FULL_TIME_ONLY_RE.search(blob) and not re.search(
+        r"\b(?:contract|freelance|fractional|hourly|contractor|consultant|gig)\b",
+        blob,
+        re.IGNORECASE,
+    ):
+        return PAGE_TYPE_FULL_TIME
+
+    # Generic careers-hub path roots on unknown hosts.
+    if path.rstrip("/") in {"/careers", "/career", "/jobs", "/join-us", "/openings", "/vacancies"}:
+        return PAGE_TYPE_CAREERS_HUB
+
+    if any(
+        marker in url_lower
+        for marker in ("/blog/", "/blogs/", "/article/", "/guide/", "/tutorial/")
+    ):
+        return PAGE_TYPE_LISTICLE
+
+    return PAGE_TYPE_JOB_POST
+
+
+def is_non_opportunity_noise(
+    title: str | None,
+    description: str | None = None,
+    url: str | None = None,
+    company: str | None = None,
+    *,
+    enrichment: dict[str, Any] | None = None,
+    prefer_contract: bool = True,
+) -> bool:
+    page_type = classify_page_type(
+        title, description, url, company, enrichment=enrichment
+    )
+    if page_type == PAGE_TYPE_JOB_POST:
+        return False
+    if page_type == PAGE_TYPE_FULL_TIME and not prefer_contract:
+        return False
+    return True
+
+
+async def classify_page_type_llm(
+    title: str | None,
+    description: str | None = None,
+    url: str | None = None,
+) -> str | None:
+    """Optional LLM refinement. Returns a page_type or None if unavailable/uncertain."""
+    from backend.application.services.llm import LLMError, any_llm_configured, chat_completion
+
+    if not any_llm_configured():
+        return None
+    excerpt = (description or "")[:1200]
+    prompt = (
+        "Classify this listing as exactly one of: "
+        "job_post, listicle, board_index, careers_hub, portfolio, full_time_employee, non_dev, spam_host.\n"
+        "job_post = a single specific freelance/contract role posting.\n"
+        "board_index = job board, aggregator, or search/listing page.\n"
+        "careers_hub = company careers index, not a single opening.\n"
+        "Respond with JSON: {\"page_type\": \"...\", \"reason\": \"...\"}\n\n"
+        f"Title: {title or ''}\nURL: {url or ''}\nDescription: {excerpt}"
+    )
+    try:
+        result = await chat_completion(
+            system="You classify web pages for a freelance opportunity desk. Be strict.",
+            user=prompt,
+            temperature=0.0,
+            json_mode=True,
+            timeout=20.0,
+        )
+        data = json.loads(result.content)
+        page_type = str(data.get("page_type") or "").strip().lower()
+        allowed = {
+            PAGE_TYPE_JOB_POST,
+            PAGE_TYPE_LISTICLE,
+            PAGE_TYPE_BOARD_INDEX,
+            PAGE_TYPE_CAREERS_HUB,
+            PAGE_TYPE_PORTFOLIO,
+            PAGE_TYPE_FULL_TIME,
+            PAGE_TYPE_NON_DEV,
+            PAGE_TYPE_SPAM_HOST,
+        }
+        return page_type if page_type in allowed else None
+    except (LLMError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def domain_key(url: str | None) -> str:
+    host, _ = _host_path(url)
+    return host or "unknown"

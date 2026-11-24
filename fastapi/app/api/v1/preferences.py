@@ -526,6 +526,22 @@ async def list_findings(
 
     repo = SQLAlchemyJobRepository(session)
     jobs = await _load_match_candidate_jobs(session, prefs, limit=300)
+    # Always include actioned leads so Saved/Pitched stay visible even when the
+    # source is later filtered as noise or falls outside the candidate window.
+    actioned_ids = [
+        jid
+        for jid, status in lead_actions.items()
+        if status in {"save", "pitched", "won"}
+        or (include_skipped and status == "skip")
+    ]
+    if actioned_ids:
+        known = {j.id for j in jobs if j.id is not None}
+        missing = [jid for jid in actioned_ids if jid not in known]
+        if missing:
+            extra_res = await session.execute(
+                select(JobRecord).where(JobRecord.id.in_(missing))
+            )
+            jobs = list(jobs) + list(extra_res.scalars().all())
     total_indexed = await repo.count_jobs()
     skill_weights = await feedback.skill_weights(user.id)
     payload = LeadFindingsService(pipeline=pipeline).build(

@@ -75,7 +75,11 @@ class JobIngestionService:
         # Google Jobs / board tokens can exceed jobs.source_id VARCHAR(512).
         candidate.source_id = _fit_source_id(candidate.source_id)
 
-        from backend.application.services.matching import is_non_opportunity_noise
+        from backend.application.services.page_type import (
+            PAGE_TYPE_JOB_POST,
+            classify_page_type_llm,
+            is_non_opportunity_noise,
+        )
 
         if is_non_opportunity_noise(
             candidate.title, candidate.description, candidate.url, candidate.company
@@ -83,6 +87,16 @@ class JobIngestionService:
             return {
                 "action": "rejected",
                 "reason": "non_opportunity_noise",
+            }
+
+        # Optional LLM refine: reject boards/hubs that slipped past rules.
+        llm_type = await classify_page_type_llm(
+            candidate.title, candidate.description, candidate.url
+        )
+        if llm_type and llm_type != PAGE_TYPE_JOB_POST:
+            return {
+                "action": "rejected",
+                "reason": f"non_opportunity_noise:{llm_type}",
             }
 
         existing = await self.repository.get_by_source(

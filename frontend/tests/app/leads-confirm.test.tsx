@@ -51,20 +51,39 @@ vi.mock("@/components/ui/card", () => ({
   Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: vi.fn() }),
+}));
+
 vi.mock("@/lib/api", () => ({
   getToken: vi.fn(() => "fake-token"),
   getDemoFindings: vi.fn(),
   getAuthFindings: vi.fn(),
+  getPipelineStats: vi.fn(),
   setLeadAction: vi.fn(),
   postMatchFeedback: vi.fn(),
   draftProposal: vi.fn(),
   submitApplication: vi.fn(),
+  recordProductEvent: vi.fn(),
+  reportJobExpired: vi.fn(),
+  reportListingTrust: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("open", vi.fn());
   vi.mocked(api.getToken).mockReturnValue("fake-token");
+  vi.mocked(api.getPipelineStats).mockResolvedValue({
+    saved_count: 0,
+    pitched_count: 0,
+    won_count: 0,
+    skipped_count: 0,
+    total_engaged: 0,
+    pitch_rate: 0,
+    win_rate: 0,
+    saved_value: 0,
+    pitched_value: 0,
+  });
   vi.mocked(api.getAuthFindings).mockResolvedValue({
     generated_at: "2026-10-05T00:00:00Z",
     total_scanned: 1,
@@ -198,6 +217,17 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
         : null;
     return { job_id: payload.job_id, status: currentStatus, feedback_kind: payload.kind };
   });
+  vi.mocked(api.getPipelineStats).mockImplementation(async () => ({
+    saved_count: currentStatus === "save" ? 1 : 0,
+    pitched_count: currentStatus === "pitched" ? 1 : 0,
+    won_count: currentStatus === "won" ? 1 : 0,
+    skipped_count: currentStatus === "skip" ? 1 : 0,
+    total_engaged: currentStatus && currentStatus !== "skip" ? 1 : 0,
+    pitch_rate: 0,
+    win_rate: 0,
+    saved_value: 0,
+    pitched_value: 0,
+  }));
 
   render(<LeadsPage />);
 
@@ -206,26 +236,29 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
   });
 
   expect(screen.getAllByText("95%")[0]).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Skipped \(0\)$/ })).toBeInTheDocument();
   expect(screen.getByText("Skip: 0")).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Skip$/ }));
 
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: "Skipped (1)" })).toBeInTheDocument();
+    expect(api.postMatchFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ job_id: 42, kind: "skip" }),
+    );
+  });
+
+  // Click the Skipped tab once the durable write has landed (count stays at 1).
+  await waitFor(() => {
     expect(screen.getByText("Skip: 1")).toBeInTheDocument();
+    const tab = screen.getByRole("button", { name: /Skipped\s*\(\s*1\s*\)/ });
+    fireEvent.click(tab);
+    expect(screen.getByRole("button", { name: /^Restore$/ })).toBeInTheDocument();
   });
 
-  fireEvent.click(screen.getByRole("button", { name: "Skipped (1)" }));
-  await waitFor(() => {
-    expect(screen.getByText("API Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
-  });
-
-  fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Restore$/ }));
 
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Skipped\s*\(\s*0\s*\)/ })).toBeInTheDocument();
     expect(screen.getByText("Skip: 0")).toBeInTheDocument();
   });
 });
