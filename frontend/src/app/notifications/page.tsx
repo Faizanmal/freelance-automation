@@ -77,10 +77,13 @@ export default function NotificationsPage() {
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
-  const [inboxLoading, setInboxLoading] = useState(true);
-  const [inboxReady, setInboxReady] = useState(false);
-  const inboxRequestIdRef = useRef(0);
+  /** loading | ready | error — empty state only when ready && items.length === 0 */
+  const [inboxPhase, setInboxPhase] = useState<"loading" | "ready" | "error">("loading");
   const inboxFilterRef = useRef<InboxFilter>(inboxFilter);
+  const inboxInFlightRef = useRef<{
+    filter: InboxFilter;
+    promise: Promise<{ items: InboxItem[]; unread_count: number }>;
+  } | null>(null);
 
   // Digest Preview & Schedule state
   const [digestPreview, setDigestPreview] = useState<{
@@ -113,30 +116,54 @@ export default function NotificationsPage() {
 
   const loadInbox = useCallback((filter?: InboxFilter) => {
     const activeFilter = filter ?? inboxFilterRef.current;
-    const requestId = ++inboxRequestIdRef.current;
-    setInboxLoading(true);
-    void (async () => {
-      try {
-        const data = await getInbox({
-          unread_only: activeFilter === "unread",
-          archived: activeFilter === "archived",
-        });
-        // Ignore stale responses from prior tab/filter fetches.
-        if (requestId !== inboxRequestIdRef.current) return;
-        if (inboxFilterRef.current !== activeFilter) return;
-        setInboxItems((data.items || []) as unknown as InboxItem[]);
-        setUnreadCount(data.unread_count || 0);
-        setInboxReady(true);
-      } catch (err) {
-        if (requestId !== inboxRequestIdRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed loading inbox");
-        setInboxReady(true);
-      } finally {
-        if (requestId === inboxRequestIdRef.current) {
-          setInboxLoading(false);
+    setInboxPhase("loading");
+
+    const fetchForFilter = async () => {
+      const data = await getInbox({
+        unread_only: activeFilter === "unread",
+        archived: activeFilter === "archived",
+      });
+      return {
+        items: (data.items || []) as unknown as InboxItem[],
+        unread_count: data.unread_count || 0,
+      };
+    };
+
+    // Coalesce duplicate in-flight fetches for the same filter (Strict Mode / remount).
+    let promise = inboxInFlightRef.current?.filter === activeFilter
+      ? inboxInFlightRef.current.promise
+      : null;
+    if (!promise) {
+      promise = (async () => {
+        let result = await fetchForFilter();
+        // Cold-start / auth race: first All response can be empty — retry once.
+        if (activeFilter === "all" && result.items.length === 0) {
+          await new Promise((r) => window.setTimeout(r, 500));
+          result = await fetchForFilter();
         }
-      }
-    })();
+        return result;
+      })();
+      inboxInFlightRef.current = { filter: activeFilter, promise };
+    }
+
+    void promise
+      .then((result) => {
+        // Only apply if this filter is still selected — never blank the list for a stale filter.
+        if (inboxFilterRef.current !== activeFilter) return;
+        setInboxItems(result.items);
+        setUnreadCount(result.unread_count);
+        setInboxPhase("ready");
+      })
+      .catch((err) => {
+        if (inboxFilterRef.current !== activeFilter) return;
+        setError(err instanceof Error ? err.message : "Failed loading inbox");
+        setInboxPhase("error");
+      })
+      .finally(() => {
+        if (inboxInFlightRef.current?.filter === activeFilter) {
+          inboxInFlightRef.current = null;
+        }
+      });
   }, []);
 
   const loadPreview = () => {
@@ -476,9 +503,20 @@ export default function NotificationsPage() {
             )}
           </div>
 
-          {inboxLoading || !inboxReady ? (
+          {inboxPhase === "loading" ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-12 text-center text-sm text-[var(--fog)]">
               Loading notifications…
+            </div>
+          ) : inboxPhase === "error" ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-12 text-center text-sm text-red-200">
+              Could not load notifications.{" "}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => loadInbox(inboxFilter)}
+              >
+                Retry
+              </button>
             </div>
           ) : inboxItems.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-12 text-center text-sm text-[var(--fog)]">

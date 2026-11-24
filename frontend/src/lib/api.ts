@@ -1039,6 +1039,23 @@ export type LeadFindingsResponse = {
 
   total_findings: number;
 
+  filter_stats?: {
+    matched: number;
+    after_freelance_focus: number;
+    after_fte_filter: number;
+    after_domain_dedupe: number;
+    returned: number;
+    limit: number;
+  };
+
+  rejection_samples?: Array<{
+    job_id?: number | null;
+    title?: string;
+    url?: string | null;
+    reason?: string;
+    stage?: string;
+  }>;
+
   skipped_count?: number;
 
   freelance_focus?: boolean;

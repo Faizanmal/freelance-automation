@@ -1502,6 +1502,10 @@ function LeadsPageInner() {
 
               showing {visibleItems.length}
 
+              {typeof data.total_matched === "number" && data.total_matched > visibleItems.length
+                ? ` (${data.total_matched - visibleItems.length} dropped after match: fit, FTE, domain dedupe, or list cap)`
+                : ""}
+
               {data.freelance_focus ? " · freelance focus on" : " · all matches"}
 
               {data.generated_at ? ` · updated ${new Date(data.generated_at).toLocaleString()}` : ""}

@@ -101,23 +101,33 @@ export default function PipelinePage() {
   const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
   const [dragOverStage, setDragOverStage] = useState<PipelineStage | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     if (!getToken()) {
       router.push("/auth");
       return;
     }
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     try {
       const [board, dash] = await Promise.all([
         getPipelineBoard(),
         getWorkspaceDashboard(showDemo),
       ]);
-      setColumns(board.columns || {});
-      setDashboard(dash);
+      const cols = board.columns || {};
+      setColumns(cols);
+      // Prefer board-derived Qualified so optimistic moves aren't overwritten by a lagging dashboard.
+      setDashboard(
+        dash
+          ? {
+              ...dash,
+              qualified_leads:
+                (cols.ready?.length || 0) + (cols.applied?.length || 0),
+            }
+          : dash,
+      );
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not load pipeline", "error");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [router, showDemo, toast]);
 
@@ -223,10 +233,11 @@ export default function PipelinePage() {
         });
         toast(`Moved to ${stage}`, "success");
         if (selected?.job_id === jobId) setSelected(res.lead);
-        await refresh();
+        // Silent reconcile — keep optimistic Qualified until board returns.
+        await refresh({ silent: true });
       } catch (err) {
         toast(err instanceof Error ? err.message : "Stage update failed", "error");
-        await refresh();
+        await refresh({ silent: true });
       }
     });
   }

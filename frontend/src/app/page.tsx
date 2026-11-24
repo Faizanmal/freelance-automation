@@ -98,13 +98,13 @@ export default function HomePage() {
           ]);
           setApiStatus(health.status);
           setJobs(data.items);
+          // Prefer findings total_indexed (post-purge count_jobs) so Desk matches /leads.
           setTotal(
-            Math.max(
-              data.total,
-              leadData?.total_indexed ?? 0,
-              leadData?.total_scanned ?? 0,
-              data.items.length,
-            ),
+            typeof leadData?.total_indexed === "number"
+              ? leadData.total_indexed
+              : typeof data.total === "number"
+                ? data.total
+                : data.items.length,
           );
           setUser(currentUser);
           setPrefs(currentPrefs);
@@ -124,7 +124,7 @@ export default function HomePage() {
         }
         const data = await listJobs({ limit: 8 });
         setJobs(data.items);
-        setTotal(Math.max(data.total, data.items.length));
+        setTotal(typeof data.total === "number" ? data.total : data.items.length);
         setApiStatus("ok");
         setUser(null);
         setPrefs(null);
@@ -168,12 +168,11 @@ export default function HomePage() {
         ]);
         setJobs(data.items);
         setTotal(
-          Math.max(
-            data.total,
-            leadData?.total_indexed ?? 0,
-            leadData?.total_scanned ?? 0,
-            data.items.length,
-          ),
+          typeof leadData?.total_indexed === "number"
+            ? leadData.total_indexed
+            : typeof data.total === "number"
+              ? data.total
+              : data.items.length,
         );
         setFindings(leadData?.items || []);
         setFindingsMeta(
