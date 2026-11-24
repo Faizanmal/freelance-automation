@@ -57,6 +57,7 @@ vi.mock("@/components/ui/toast", () => ({
 
 vi.mock("@/lib/api", () => ({
   getToken: vi.fn(() => "fake-token"),
+  getApiBase: vi.fn(() => "https://api.example.test"),
   getDemoFindings: vi.fn(),
   getAuthFindings: vi.fn(),
   getPipelineStats: vi.fn(),
@@ -339,9 +340,11 @@ test("Restoring a skipped lead when 25 active leads are loaded keeps All at 25 (
 
   fireEvent.click(screen.getByRole("button", { name: "Restore" }));
 
-  // Must remain All (25) immediately and after reload — never All (26)
-  expect(screen.queryByRole("button", { name: "All (26)" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "All (25)" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+  // Await-before-UI: counts update only after the durable clear write resolves.
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: "All (26)" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All (25)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+  });
 });
 

@@ -127,6 +127,52 @@ def test_keeps_specific_contract_posting():
     )
 
 
+def test_rejects_starterindex_even_with_stale_job_post_enrichment():
+    assert is_non_opportunity_noise(
+        "27 Next.js Boilerplates and Starter Kits",
+        url="https://www.starterindex.com/nextjs",
+        enrichment={"page_type": "job_post"},
+    )
+    assert is_non_opportunity_noise(
+        "13 FastAPI Boilerplates and Starter Kits",
+        url="https://www.starterindex.com/fastapi",
+        enrichment={"page_type": "job_post"},
+    )
+
+
+def test_rules_win_over_stale_enrichment_for_deployed_noise():
+    """Deployed sample leads had enrichment.page_type=job_post on hubs/boards."""
+    noisy = [
+        ("Technology Careers | UBS Global", "https://jobs.ubs.com/careers"),
+        ("USAJOBS - Search", "https://www.usajobs.gov/Search/Results"),
+        (
+            "1,040 IT & Technology Contract Jobs — November 2026 | Contractor UK",
+            "https://www.contractoruk.com/contract_jobs/",
+        ),
+        (
+            "Careers and Benefits - Motorola Solutions",
+            "https://www.motorolasolutions.com/en_us/about/careers.html",
+        ),
+        ("Search Jobs | Page 7 - CalOpps", "https://www.calopps.org/search"),
+        (
+            "Washington Suburban Sanitary Commission Wssc Bids, RFPs ...",
+            "https://marylandbids.com/foo",
+        ),
+        (
+            "Open vacancies | Europol",
+            "https://www.europol.europa.eu/careers-procurement/vacancies",
+        ),
+        (
+            "mwaa.com - Current Contracting Opportunities",
+            "https://www.mwaa.com/business/contracting",
+        ),
+    ]
+    for title, url in noisy:
+        assert is_non_opportunity_noise(
+            title, url=url, enrichment={"page_type": "job_post"}
+        ), title
+
+
 def test_rejects_starterindex_listicle_and_coding_job_board():
     assert is_non_opportunity_noise(
         "27 Next.js Boilerplates and Starter Kits",
@@ -159,10 +205,10 @@ def test_full_time_allowed_only_above_10k_month():
     )
 
 
-def test_domain_cap_keeps_one_unless_distinct_postings():
+def test_domain_cap_keeps_exactly_one_per_domain():
     same_domain = [
-        _ranked(1, "Role A", "https://workingnomads.com/jobs?id=1", 0.9),
-        _ranked(2, "Role B", "https://workingnomads.com/jobs?id=2", 0.8),
+        _ranked(1, "Role A", "https://9am.works/jobs/a", 0.9),
+        _ranked(2, "Role B", "https://9am.works/jobs/b", 0.8),
     ]
     out = diversify(same_domain, max_per_domain=1)
     assert len(out) == 1
@@ -183,4 +229,4 @@ def test_domain_cap_keeps_one_unless_distinct_postings():
         ),
     ]
     out2 = diversify(distinct, max_per_domain=1)
-    assert len(out2) == 2
+    assert len(out2) == 1

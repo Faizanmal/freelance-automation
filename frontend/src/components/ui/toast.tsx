@@ -85,7 +85,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               {item.actionLabel && item.onAction ? (
                 <button
                   type="button"
-                  className="shrink-0 text-sm font-semibold text-[var(--accent)] hover:underline"
+                  data-testid="toast-undo"
+                  className="shrink-0 rounded-md border border-[var(--accent)]/40 bg-[var(--accent-muted)] px-2.5 py-1 text-sm font-semibold text-[var(--accent)] hover:border-[var(--accent)]"
                   onClick={() => {
                     item.onAction?.();
                     dismiss(item.id);

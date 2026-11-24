@@ -295,6 +295,36 @@ class LeadFindingsService:
 
             ]
 
+        # Hard-drop full-time / salaried employee watchouts unless monthly pay > $10k.
+        # (Badge suppression alone left these ranked as STRONG FIT on /leads.)
+        def _is_blocked_full_time(finding: LeadFinding) -> bool:
+            if finding.job.id in preserved_ids:
+                return False
+            risks = finding.employment_risks or []
+            if not risks:
+                return False
+            fte_labels = {
+                "Full-time employee posting",
+                "W2 employment",
+                "Salary role",
+                "Permanent hire",
+                "Employee benefits package",
+                "Employee benefits signal",
+            }
+            if not any(r in fte_labels for r in risks):
+                return False
+            from backend.application.services.page_type import estimate_monthly_salary_usd
+
+            monthly = estimate_monthly_salary_usd(
+                f"{finding.job.title or ''} {finding.job.description or ''}",
+                finding.job.enrichment if isinstance(finding.job.enrichment, dict) else None,
+                budget_min=finding.job.budget_min,
+                budget_max=finding.job.budget_max,
+            )
+            return monthly is None or monthly < 10_000
+
+        findings = [f for f in findings if not _is_blocked_full_time(f)]
+
 
 
         if not include_skipped and skipped:
@@ -331,6 +361,26 @@ class LeadFindingsService:
                 if not (f.client_signal or {}).get("is_agency")
                 or f.job.id in (saved | pitched)
             ]
+
+        # Hard dedupe: at most one lead per domain in the ranked feed
+        # (preserved actioned leads keep their slot even if same domain).
+        from backend.application.services.page_type import domain_key as _domain_key
+
+        seen_domains: set[str] = set()
+        deduped: list[LeadFinding] = []
+        for finding in findings:
+            domain = _domain_key(finding.job.url)
+            if finding.job.id in preserved_ids:
+                deduped.append(finding)
+                if domain and domain != "unknown":
+                    seen_domains.add(domain)
+                continue
+            if domain and domain != "unknown" and domain in seen_domains:
+                continue
+            if domain and domain != "unknown":
+                seen_domains.add(domain)
+            deduped.append(finding)
+        findings = deduped
 
         cap = max(1, min(limit, 50))
         # Cap the ranked list first, then exclude skips so All does not refill

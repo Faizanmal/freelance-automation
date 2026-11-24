@@ -75,6 +75,15 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "nofluffjobs.com",
     "landing.jobs",
     "jobboardsearch.com",
+    "usajobs.gov",
+    "contractoruk.com",
+    "calopps.org",
+    "marylandbids.com",
+    "gov.uk",
+    "indeed.co.uk",
+    "reed.co.uk",
+    "europol.europa.eu",
+    "mwaa.com",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -109,16 +118,19 @@ FREE_HOST_SUFFIXES: tuple[str, ...] = (
 LISTING_PAGE_TEXT_RE = re.compile(
     r"(?:"
     r"\bjobs?\s+in\b"
-    r"|\b\d+\+?\s+jobs?\b"
-    r"|\bsearch\s+our\s+job\s+opportunities\b"
-    r"|\bcareers?\s*(?:&|and)\s*recruitment\b"
+    r"|\b\d+[,\d]*\+?\s+(?:it\s*&?\s*technology\s+)?(?:contract\s+)?jobs?\b"
+    r"|\bsearch\s+(?:our\s+)?(?:job|jobs)\b"
+    r"|\bcareers?\s*(?:&|and)\s*(?:recruitment|benefits)\b"
+    r"|\btechnology\s+careers?\b"
     r"|\bbrowse\s+(?:all\s+)?(?:open\s+)?(?:roles|positions|jobs)\b"
     r"|\bview\s+all\s+(?:jobs|openings|roles)\b"
-    r"|\bopen\s+positions?\b"
-    r"|\bcurrent\s+openings?\b"
+    r"|\bopen\s+(?:positions?|vacancies)\b"
+    r"|\bcurrent\s+(?:openings?|contracting\s+opportunities)\b"
     r"|\bjob\s+(?:board|listings?|search|alerts?)\b"
     r"|\bfind\s+(?:your\s+next\s+)?(?:remote\s+)?(?:job|role|gig)\b"
     r"|\bexplore\s+(?:remote\s+)?(?:jobs|careers|roles)\b"
+    r"|\bbids?,?\s*rfps?\b"
+    r"|\bcontracting\s+opportunities\b"
     r")",
     re.IGNORECASE,
 )
@@ -237,6 +249,19 @@ def _host_path(url: str | None) -> tuple[str, str]:
         return raw, raw
 
 
+_NOISE_PAGE_TYPES = frozenset(
+    {
+        PAGE_TYPE_LISTICLE,
+        PAGE_TYPE_BOARD_INDEX,
+        PAGE_TYPE_CAREERS_HUB,
+        PAGE_TYPE_PORTFOLIO,
+        PAGE_TYPE_FULL_TIME,
+        PAGE_TYPE_NON_DEV,
+        PAGE_TYPE_SPAM_HOST,
+    }
+)
+
+
 def classify_page_type(
     title: str | None,
     description: str | None = None,
@@ -245,21 +270,12 @@ def classify_page_type(
     *,
     enrichment: dict[str, Any] | None = None,
 ) -> str:
-    """Rule-based page type. Prefers enrichment.page_type when already set."""
-    if enrichment:
-        prior = str(enrichment.get("page_type") or "").strip().lower()
-        if prior in {
-            PAGE_TYPE_JOB_POST,
-            PAGE_TYPE_LISTICLE,
-            PAGE_TYPE_BOARD_INDEX,
-            PAGE_TYPE_CAREERS_HUB,
-            PAGE_TYPE_PORTFOLIO,
-            PAGE_TYPE_FULL_TIME,
-            PAGE_TYPE_NON_DEV,
-            PAGE_TYPE_SPAM_HOST,
-        }:
-            return prior
+    """Rule-based page type.
 
+    Rules always win for rejection so a stale enrichment.page_type=job_post
+    cannot keep listicles/boards (e.g. starterindex) in the lead list.
+    Enrichment may only make classification *more* restrictive.
+    """
     host, path = _host_path(url)
     blob = f"{title or ''} {description or ''} {company or ''}"
     url_lower = (url or "").lower()
@@ -312,8 +328,23 @@ def classify_page_type(
         if not _monthly_salary_above(blob, enrichment, floor_usd=10_000):
             return PAGE_TYPE_FULL_TIME
 
-    # Generic careers-hub path roots on unknown hosts.
-    if path.rstrip("/") in {"/careers", "/career", "/jobs", "/join-us", "/openings", "/vacancies"}:
+    # Generic careers-hub path roots / titles on unknown hosts.
+    if path.rstrip("/") in {
+        "/careers",
+        "/career",
+        "/jobs",
+        "/join-us",
+        "/openings",
+        "/vacancies",
+        "/search",
+        "/search-jobs",
+    }:
+        return PAGE_TYPE_CAREERS_HUB
+    title_l = (title or "").lower()
+    if re.search(
+        r"\b(?:careers?(?:\s+and\s+benefits)?|open vacancies|search jobs|technology careers)\b",
+        title_l,
+    ) and not SINGLE_POSTING_PATH_RE.search(path):
         return PAGE_TYPE_CAREERS_HUB
 
     if any(
@@ -322,7 +353,12 @@ def classify_page_type(
     ):
         return PAGE_TYPE_LISTICLE
 
-    return PAGE_TYPE_JOB_POST
+    rule_type = PAGE_TYPE_JOB_POST
+    if enrichment:
+        prior = str(enrichment.get("page_type") or "").strip().lower()
+        if prior in _NOISE_PAGE_TYPES:
+            return prior
+    return rule_type
 
 
 def estimate_monthly_salary_usd(

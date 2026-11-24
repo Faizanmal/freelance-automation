@@ -7,6 +7,12 @@ function fitLabel(scorePct: number) {
   return "Low fit";
 }
 
+/** Never advertise Strong/Excellent fit when employment watchouts are present. */
+export function safeFitLabel(scorePct: number, opts?: { suppress?: boolean }) {
+  if (opts?.suppress) return "Watchouts";
+  return fitLabel(scorePct);
+}
+
 function fitTone(scorePct: number) {
   if (scorePct >= 85) return "text-[var(--success)] border-[var(--success)]/25 bg-[var(--success-muted)]";
   if (scorePct >= 70) return "text-[var(--accent)] border-[var(--accent)]/25 bg-[var(--accent-muted)]";

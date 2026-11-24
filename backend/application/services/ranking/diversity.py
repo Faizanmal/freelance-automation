@@ -39,13 +39,12 @@ def diversify(
 ) -> list[RankedMatch]:
     """Soft diversity: prefer variety while preserving relative order.
 
-    Caps one result per domain by default. Additional hits from the same
-    domain are kept only when they look like distinct single job postings
-    (unique title|company and a deep job-path URL).
+    Hard-caps one result per domain (no exceptions) so boards like 9am.works
+    never appear twice in the top leads.
     """
     source_counts: dict[str, int] = defaultdict(int)
     company_counts: dict[str, int] = defaultdict(int)
-    domain_keys: dict[str, set[str]] = defaultdict(set)
+    domain_seen: set[str] = set()
     primary: list[RankedMatch] = []
     deferred: list[RankedMatch] = []
 
@@ -53,22 +52,22 @@ def diversify(
         source = (item.job.source_name or "unknown").lower()
         company = (item.job.company or "").strip().lower() or "unknown"
         domain = _domain_key(item.job.url)
-        posting_key = _dedupe_key(item)
-        domain_seen = domain_keys[domain]
-        if posting_key in domain_seen:
-            continue
-        domain_overflow = max_per_domain > 0 and len(domain_seen) >= max_per_domain
-        if domain_overflow and not _is_distinct_single_posting(item):
+        # Hard-cap domains for both primary and deferred — never allow a second
+        # listing from the same host even when source/company soft-caps defer.
+        if max_per_domain > 0 and domain and domain != "unknown" and domain in domain_seen:
             continue
         if (
             source_counts[source] >= max_per_source
             or company_counts[company] >= max_per_company
         ):
+            if domain and domain != "unknown":
+                domain_seen.add(domain)
             deferred.append(item)
             continue
         source_counts[source] += 1
         company_counts[company] += 1
-        domain_seen.add(posting_key)
+        if domain and domain != "unknown":
+            domain_seen.add(domain)
         primary.append(item)
 
     return primary + deferred

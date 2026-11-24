@@ -18,6 +18,8 @@ import {
 
   getDemoFindings,
 
+  getApiBase,
+
   getPipelineStats,
 
   getToken,
@@ -598,18 +600,90 @@ function LeadsPageInner() {
     [authed],
   );
 
+  type PendingLeadWrite = {
+    jobId: number;
+    status: "save" | "skip" | "pitched" | "won" | "clear";
+    reason?: string;
+    gen: number;
+  };
+  const pendingPayloadsRef = useRef(new Map<number, PendingLeadWrite>());
+
+  const flushPendingWrites = useCallback(() => {
+    const token = getToken();
+    if (!token || pendingPayloadsRef.current.size === 0) return;
+    let apiBase = "";
+    try {
+      apiBase = getApiBase() || "";
+    } catch {
+      return;
+    }
+    if (!apiBase) return;
+    for (const write of pendingPayloadsRef.current.values()) {
+      const isClear = write.status === "clear";
+      const path = isClear
+        ? `/preferences/leads/${write.jobId}/action`
+        : write.status === "save" || write.status === "skip"
+          ? "/preferences/match-feedback"
+          : write.status === "pitched" || write.status === "won"
+            ? "/preferences/match-feedback"
+            : `/preferences/leads/${write.jobId}/action`;
+      let body: string;
+      if (isClear) {
+        body = JSON.stringify({ status: "clear", reason: write.reason });
+      } else if (write.status === "save" || write.status === "skip") {
+        body = JSON.stringify({
+          job_id: write.jobId,
+          kind: write.status,
+          reason: write.reason,
+        });
+      } else if (write.status === "pitched" || write.status === "won") {
+        body = JSON.stringify({
+          job_id: write.jobId,
+          kind: "outcome",
+          outcome: write.status === "won" ? "contract" : "interview",
+          reason: write.reason || write.status,
+        });
+      } else {
+        body = JSON.stringify({ status: write.status, reason: write.reason });
+      }
+      try {
+        void fetch(`${apiBase}${path}`, {
+          method: isClear || path.endsWith("/action") ? "PUT" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body,
+          keepalive: true,
+        });
+      } catch {
+        /* best-effort unload flush */
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    const flushOrBlock = (event: BeforeUnloadEvent) => {
-      if (pendingWritesRef.current > 0) {
+    const hasPending = () =>
+      pendingWritesRef.current > 0 || pendingPayloadsRef.current.size > 0;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (hasPending()) {
+        flushPendingWrites();
         event.preventDefault();
         event.returnValue = "";
       }
     };
-    window.addEventListener("beforeunload", flushOrBlock);
-    return () => {
-      window.removeEventListener("beforeunload", flushOrBlock);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden" && hasPending()) {
+        flushPendingWrites();
+      }
     };
-  }, []);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [flushPendingWrites]);
 
   const updateLeadStatus = (
     jobId: number,
@@ -624,15 +698,13 @@ function LeadsPageInner() {
     const reason = opts?.reason;
     const previousStatus =
       dataRef.current?.items.find((item) => item.job_id === jobId)?.user_status ?? null;
-    const snapshot = dataRef.current;
     // Each click (including Undo) gets its own generation so a stale success
     // handler from a prior write cannot overwrite a newer durable intent.
     const gen = (writeGenRef.current.get(jobId) || 0) + 1;
     writeGenRef.current.set(jobId, gen);
+    pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen });
 
-    if (snapshot) {
-      setData(applyOptimisticStatus(snapshot, jobId, status));
-    }
+    // Await durable write BEFORE mutating UI — prevents hard-reload races.
     setWritingJobIds((prev) => new Set(prev).add(jobId));
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
@@ -641,8 +713,6 @@ function LeadsPageInner() {
       pendingWritesRef.current += 1;
       try {
         setError(null);
-        // Always await a durable API write. Clear uses setLeadAction so pipeline
-        // soft-delete + hard delete both run (Undo must survive hard reload).
         if (status === "won") {
           await postMatchFeedback({
             job_id: jobId,
@@ -664,15 +734,16 @@ function LeadsPageInner() {
             reason,
           });
         } else if (status === "clear") {
-          // setLeadAction clear soft-deletes pipeline state then hard-deletes the row.
           await setLeadAction(jobId, "clear", { reason });
         } else {
           await setLeadAction(jobId, status, { reason });
         }
 
+        if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
+          pendingPayloadsRef.current.delete(jobId);
+        }
+
         if (!isLatest()) {
-          // A newer Undo/Save already owns UI + final persistence; still finished
-          // this request so it was not cancelled — just skip stale UI updates.
           return;
         }
 
@@ -689,6 +760,10 @@ function LeadsPageInner() {
           }
         }
 
+        setData((current) =>
+          current ? applyOptimisticStatus(current, jobId, status) : current,
+        );
+
         const message =
           status === "save"
             ? "Lead saved"
@@ -698,11 +773,13 @@ function LeadsPageInner() {
                 ? "Lead marked as contract won"
                 : status === "skip"
                   ? "Lead skipped — hidden from default list"
-                  : "Lead status cleared";
-
-        setData((current) =>
-          current ? applyOptimisticStatus(current, jobId, status) : current,
-        );
+                  : previousStatus === "save"
+                    ? "Lead unsaved"
+                    : previousStatus === "skip"
+                      ? "Lead restored"
+                      : previousStatus === "pitched"
+                        ? "Pitched cleared"
+                        : "Lead status cleared";
 
         setSubmitMessage(message);
 
@@ -714,6 +791,27 @@ function LeadsPageInner() {
               durationMs: 8000,
               onAction: () => updateLeadStatus(jobId, "clear"),
             });
+          } else if (status === "clear" && previousStatus === "save") {
+            toast(message, {
+              tone: "success",
+              actionLabel: "Undo",
+              durationMs: 8000,
+              onAction: () => updateLeadStatus(jobId, "save"),
+            });
+          } else if (status === "clear" && previousStatus === "skip") {
+            toast(message, {
+              tone: "success",
+              actionLabel: "Undo",
+              durationMs: 8000,
+              onAction: () => updateLeadStatus(jobId, "skip"),
+            });
+          } else if (status === "clear" && previousStatus === "pitched") {
+            toast(message, {
+              tone: "success",
+              actionLabel: "Undo",
+              durationMs: 8000,
+              onAction: () => updateLeadStatus(jobId, "pitched"),
+            });
           }
         } catch {
           /* ignore UI-only failures */
@@ -723,19 +821,10 @@ function LeadsPageInner() {
           .then(setPipelineStats)
           .catch(() => null);
       } catch (err) {
-        if (!isLatest()) return;
-        if (snapshot) {
-          const rollbackStatus =
-            previousStatus === "save" ||
-            previousStatus === "skip" ||
-            previousStatus === "pitched" ||
-            previousStatus === "won"
-              ? previousStatus
-              : "clear";
-          setData(applyOptimisticStatus(snapshot, jobId, rollbackStatus));
-        } else {
-          await load(keywords, focusOverride, true);
+        if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
+          pendingPayloadsRef.current.delete(jobId);
         }
+        if (!isLatest()) return;
         setError(err instanceof Error ? err.message : "Could not update lead");
       } finally {
         pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
@@ -749,8 +838,7 @@ function LeadsPageInner() {
       }
     };
 
-    // Queue per job so writes stay ordered, but never cancel — Undo is a new
-    // durable request that runs after (or as) the latest generation.
+    // Queue per job so writes stay ordered; Undo is its own durable request.
     const prior = writeQueuesRef.current.get(jobId) ?? Promise.resolve();
     const queued = prior.catch(() => undefined).then(runWrite);
     writeQueuesRef.current.set(jobId, queued);
@@ -1083,8 +1171,11 @@ function LeadsPageInner() {
 
           <Filter className="size-4 text-[var(--text-muted)]" />
 
-          {statusTabs.map((tab) => (
-
+          {loading && !data
+            ? statusTabs.map((tab) => (
+                <Skeleton key={tab.id} className="h-7 w-20 rounded-md" />
+              ))
+            : statusTabs.map((tab) => (
             <button
 
               key={tab.id}
@@ -1393,6 +1484,10 @@ function LeadsPageInner() {
                       )
                     }
                   />
+                  {(finding.suppress_fit_badge
+                    || (finding.employment_risks && finding.employment_risks.length > 0)) ? (
+                    <Badge variant="warning">Full-time / salary watchout</Badge>
+                  ) : null}
 
                   {finding.client_signal?.poster_type === "direct_founder" ? (
                     <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-400">

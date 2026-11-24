@@ -714,40 +714,67 @@ export default function HomePage() {
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
-              <p className="text-xs text-[var(--text-muted)]">Pitch conversion rate</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--text)]">
-                {Math.round((pipelineStats?.pitch_rate ?? 0) * 100)}%
-              </p>
-              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched of{" "}
-                {pipelineStats?.saved_count ?? savedCount} saved
-              </p>
-            </div>
-            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
-              <p className="text-xs text-[var(--text-muted)]">Win rate</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--success)]">
-                {Math.round((pipelineStats?.win_rate ?? 0) * 100)}%
-              </p>
-              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                {pipelineStats?.won_count ?? 0} won of{" "}
-                {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched
-              </p>
-            </div>
-            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
-              <p className="text-xs text-[var(--text-muted)]">Active pipeline value</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--text)]">
-                ${(pipelineStats?.active_pipeline_value ?? 0).toLocaleString()}
-              </p>
-              <p className="mt-0.5 text-xs text-[var(--text-muted)]">Estimated across saved & pitched</p>
-            </div>
-            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
-              <p className="text-xs text-[var(--text-muted)]">Won contract value</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--accent)]">
-                ${(pipelineStats?.won_value ?? 0).toLocaleString()}
-              </p>
-              <p className="mt-0.5 text-xs text-[var(--text-muted)]">Closed freelance revenue</p>
-            </div>
+            {loading ? (
+              <>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="mt-3 h-8 w-16" />
+                  <Skeleton className="mt-2 h-3 w-36" />
+                </div>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="mt-3 h-8 w-16" />
+                  <Skeleton className="mt-2 h-3 w-32" />
+                </div>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <Skeleton className="h-3 w-32" />
+                  <Skeleton className="mt-3 h-8 w-24" />
+                  <Skeleton className="mt-2 h-3 w-40" />
+                </div>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="mt-3 h-8 w-24" />
+                  <Skeleton className="mt-2 h-3 w-36" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <p className="text-xs text-[var(--text-muted)]">Pitch conversion rate</p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--text)]">
+                    {Math.round((pipelineStats?.pitch_rate ?? 0) * 100)}%
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                    {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched of{" "}
+                    {pipelineStats?.saved_count ?? savedCount} saved
+                  </p>
+                </div>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <p className="text-xs text-[var(--text-muted)]">Win rate</p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--success)]">
+                    {Math.round((pipelineStats?.win_rate ?? 0) * 100)}%
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                    {pipelineStats?.won_count ?? 0} won of{" "}
+                    {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched
+                  </p>
+                </div>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <p className="text-xs text-[var(--text-muted)]">Active pipeline value</p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--text)]">
+                    ${(pipelineStats?.active_pipeline_value ?? 0).toLocaleString()}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">Estimated across saved & pitched</p>
+                </div>
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
+                  <p className="text-xs text-[var(--text-muted)]">Won contract value</p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-[var(--accent)]">
+                    ${(pipelineStats?.won_value ?? 0).toLocaleString()}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">Closed freelance revenue</p>
+                </div>
+              </>
+            )}
           </div>
         </Card>
 
