@@ -71,12 +71,15 @@ class Settings(BaseSettings):
     )
 
     # LLM providers (fallback order: groq > nvidia > gemini > openai > anthropic)
+    # Defaults track currently served free/dev-tier model IDs (as of 2026-11).
     groq_api_key: str | None = Field(None, alias="GROQ_API_KEY")
-    groq_model: str = Field("llama-3.3-70b-versatile", alias="GROQ_MODEL")
+    groq_model: str = Field("openai/gpt-oss-20b", alias="GROQ_MODEL")
     nvidia_api_key: str | None = Field(None, alias="NVIDIA_API_KEY")
-    nvidia_model: str = Field("meta/llama-3.1-70b-instruct", alias="NVIDIA_MODEL")
+    nvidia_model: str = Field(
+        "nvidia/nemotron-3.5-lightning-30b-a3b", alias="NVIDIA_MODEL"
+    )
     gemini_api_key: str | None = Field(None, alias="GEMINI_API_KEY")
-    gemini_model: str = Field("gemini-2.0-flash", alias="GEMINI_MODEL")
+    gemini_model: str = Field("gemini-2.5-flash-lite", alias="GEMINI_MODEL")
     openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
     openai_model: str = Field("gpt-4o-mini", alias="OPENAI_MODEL")
     anthropic_api_key: str | None = Field(None, alias="ANTHROPIC_API_KEY")

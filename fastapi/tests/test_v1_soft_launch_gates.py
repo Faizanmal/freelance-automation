@@ -80,7 +80,8 @@ class SoftLaunchGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(free.daily_scrape_runs, 3)
         self.assertEqual(free.max_digest, 5)
         self.assertEqual(free.scrape_limit, 15)
-        self.assertEqual(free.allowed_channels, frozenset({"email"}))
+        # Free includes in-app inbox (test alerts / Mark-read) plus email digests.
+        self.assertEqual(free.allowed_channels, frozenset({"email", "in_app"}))
 
         self.assertTrue(pro.marketplace)
         self.assertEqual(pro.daily_scrape_runs, 50)

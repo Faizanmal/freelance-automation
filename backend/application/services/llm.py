@@ -13,6 +13,30 @@ logger = get_logger(__name__)
 # Preferred order when multiple keys are configured.
 FALLBACK_ORDER = ("groq", "nvidia", "gemini", "openai", "anthropic")
 
+# Retired / 404 / 410 model IDs → currently served replacements.
+# Keeps production .env with stale GROQ_MODEL / NVIDIA_MODEL / GEMINI_MODEL working
+# until operators update the compose env.
+_RETIRED_MODEL_ALIASES: dict[str, str] = {
+    # Groq — llama-3.3-70b-versatile retired for free/dev tiers (2026-08-16)
+    "llama-3.3-70b-versatile": "openai/gpt-oss-20b",
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+    "llama3-70b-8192": "openai/gpt-oss-20b",
+    "llama3-8b-8192": "openai/gpt-oss-20b",
+    "mixtral-8x7b-32768": "openai/gpt-oss-20b",
+    "gemma2-9b-it": "openai/gpt-oss-20b",
+    # NVIDIA NIM — Llama 3.1/3.3 family EOL (410 Gone)
+    "meta/llama-3.1-70b-instruct": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "meta/llama-3.1-8b-instruct": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "meta/llama-3.3-70b-instruct": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/llama-3.1-nemotron-70b-instruct": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/llama-3.3-70b-instruct": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    # Gemini — 2.0 flash IDs no longer served on OpenAI-compat endpoint
+    "gemini-2.0-flash": "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-001": "gemini-2.5-flash-lite",
+    "gemini-1.5-flash": "gemini-2.5-flash-lite",
+    "gemini-1.5-pro": "gemini-2.5-flash-lite",
+}
+
 
 @dataclass(slots=True)
 class LLMResult:
@@ -23,6 +47,13 @@ class LLMResult:
 
 class LLMError(RuntimeError):
     """Raised when no configured provider succeeds."""
+
+
+def _resolve_model(model: str) -> str:
+    resolved = _RETIRED_MODEL_ALIASES.get(model.strip(), model.strip())
+    if resolved != model:
+        logger.info("LLM remapped retired model %s → %s", model, resolved)
+    return resolved
 
 
 async def chat_completion(
@@ -41,11 +72,12 @@ async def chat_completion(
         config = _provider_config(settings, name)
         if not config:
             continue
+        model = _resolve_model(config["model"])
         try:
             content = await _call_provider(
                 name=name,
                 api_key=config["api_key"],
-                model=config["model"],
+                model=model,
                 base_url=config.get("base_url"),
                 system=system,
                 user=user,
@@ -54,9 +86,9 @@ async def chat_completion(
                 timeout=timeout,
             )
             if content and content.strip():
-                logger.info("LLM success via %s (%s)", name, config["model"])
+                logger.info("LLM success via %s (%s)", name, model)
                 return LLMResult(
-                    content=content.strip(), provider=name, model=config["model"]
+                    content=content.strip(), provider=name, model=model
                 )
             errors.append(f"{name}: empty_response")
         except (
@@ -157,6 +189,7 @@ async def _call_provider(
         )
     assert base_url is not None
     return await _call_openai_compatible(
+        name=name,
         base_url=base_url,
         api_key=api_key,
         model=model,
@@ -170,6 +203,7 @@ async def _call_provider(
 
 async def _call_openai_compatible(
     *,
+    name: str,
     base_url: str,
     api_key: str,
     model: str,
@@ -186,12 +220,16 @@ async def _call_openai_compatible(
             {"role": "user", "content": user},
         ],
         "temperature": temperature,
+        "max_tokens": 2048,
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
         payload["messages"][0]["content"] = (
             system + " Respond with a single JSON object only."
         )
+    # Nemotron 3.x reasoning models burn max_tokens on thinking unless disabled.
+    if name == "nvidia" and "nemotron" in model.lower():
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(
@@ -213,7 +251,13 @@ async def _call_openai_compatible(
                 },
                 json=payload,
             )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            detail = (response.text or "")[:240]
+            raise httpx.HTTPStatusError(
+                f"{response.status_code} for {model}: {detail}",
+                request=response.request,
+                response=response,
+            )
         data = response.json()
     return str(data["choices"][0]["message"]["content"] or "")
 
