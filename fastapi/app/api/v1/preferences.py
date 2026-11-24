@@ -58,63 +58,140 @@ async def _bump_jobs_cache_epoch() -> None:
         pass
 
 
+_PURGE_PAGE_TYPES = frozenset(
+    {
+        "listicle",
+        "board_index",
+        "careers_hub",
+        "portfolio",
+        "spam_host",
+        "non_dev",
+        "full_time_employee",
+    }
+)
+
+
 async def _purge_non_opportunity_jobs(
-    session: AsyncSession, jobs: list[JobRecord]
+    session: AsyncSession,
+    jobs: list[JobRecord],
+    *,
+    persist: bool = True,
 ) -> list[JobRecord]:
-    """Mark stored listicles/directories expired so they leave the index."""
+    """Drop listicles/boards/hubs/FTE-noise from a candidate set.
+
+    When persist=True, only expire high-confidence noise (never job_post).
+    Demo/unauth paths should pass persist=False so browsing does not shrink the index.
+    """
+    import logging
     from datetime import datetime, timezone
 
     from backend.application.services.page_type import (
         ALWAYS_NOISE_HOSTS,
+        classify_page_type,
         is_non_opportunity_noise,
     )
     from sqlalchemy import or_
 
+    log = logging.getLogger("signaldesk.purge")
     changed = False
     keep: list[JobRecord] = []
     now = datetime.now(timezone.utc)
     seen_ids: set[int] = set()
+    purged: list[dict[str, Any]] = []
+
     for job in jobs:
         if getattr(job, "is_expired", False):
             continue
         enrichment = getattr(job, "enrichment", None)
-        if is_non_opportunity_noise(
+        enrichment_dict = enrichment if isinstance(enrichment, dict) else None
+        page_type = classify_page_type(
             job.title,
             job.description,
             job.url,
             job.company,
-            enrichment=enrichment if isinstance(enrichment, dict) else None,
-        ):
-            job.is_expired = True
-            job.expired_reason = "non_opportunity_noise"
-            job.expired_at = now
-            session.add(job)
-            changed = True
+            enrichment=enrichment_dict,
+        )
+        noise = page_type in _PURGE_PAGE_TYPES and is_non_opportunity_noise(
+            job.title,
+            job.description,
+            job.url,
+            job.company,
+            enrichment=enrichment_dict,
+        )
+        if noise:
+            purged.append(
+                {
+                    "job_id": job.id,
+                    "title": (job.title or "")[:120],
+                    "url": job.url,
+                    "page_type": page_type,
+                }
+            )
+            if persist:
+                job.is_expired = True
+                job.expired_reason = f"non_opportunity_noise:{page_type}"
+                job.expired_at = now
+                session.add(job)
+                changed = True
             if job.id is not None:
                 seen_ids.add(job.id)
             continue
         keep.append(job)
 
-    # Expire always-noise hosts already stored outside the candidate window.
-    # Do NOT mass-expire board aggregators — they can hold real single postings.
-    host_clauses = [
-        JobRecord.url.ilike(f"%{host}%") for host in ALWAYS_NOISE_HOSTS
-    ]
-    if host_clauses:
-        result = await session.execute(
-            select(JobRecord).where(
-                JobRecord.is_expired.is_(False),
-                or_(*host_clauses),
-            ).limit(500)
+    if persist:
+        # Expire always-noise hosts already stored outside the candidate window.
+        host_clauses = [
+            JobRecord.url.ilike(f"%{host}%") for host in ALWAYS_NOISE_HOSTS
+        ]
+        if host_clauses:
+            result = await session.execute(
+                select(JobRecord).where(
+                    JobRecord.is_expired.is_(False),
+                    or_(*host_clauses),
+                ).limit(500)
+            )
+            for job in result.scalars().all():
+                if job.id in seen_ids:
+                    continue
+                enrichment = getattr(job, "enrichment", None)
+                page_type = classify_page_type(
+                    job.title,
+                    job.description,
+                    job.url,
+                    job.company,
+                    enrichment=enrichment if isinstance(enrichment, dict) else None,
+                )
+                # Spot-check: only expire if classifier still agrees.
+                if page_type not in _PURGE_PAGE_TYPES and page_type != "listicle":
+                    # Host is denylisted but this URL classified as a real post — keep.
+                    log.info(
+                        "purge_skip_false_positive job_id=%s host_denylist page_type=%s title=%r",
+                        job.id,
+                        page_type,
+                        (job.title or "")[:80],
+                    )
+                    continue
+                job.is_expired = True
+                job.expired_reason = f"non_opportunity_noise:{page_type or 'denylist_host'}"
+                job.expired_at = now
+                session.add(job)
+                changed = True
+                purged.append(
+                    {
+                        "job_id": job.id,
+                        "title": (job.title or "")[:120],
+                        "url": job.url,
+                        "page_type": page_type or "denylist_host",
+                    }
+                )
+
+    if purged:
+        log.info(
+            "purge_summary persist=%s count=%s samples=%s",
+            persist,
+            len(purged),
+            purged[:15],
         )
-        for job in result.scalars().all():
-            if job.id in seen_ids:
-                continue
-            job.is_expired = True
-            job.expired_reason = "non_opportunity_noise"
-            job.expired_at = now
-            session.add(job)
-            changed = True
 
     if changed:
         await session.commit()
@@ -126,13 +203,17 @@ async def _purge_non_opportunity_jobs(
 async def _archive_noise_lead_actions(
     session: AsyncSession, user_id: str
 ) -> int:
-    """Soft-delete saved/pipeline actions whose job is now filtered as noise.
+    """Soft-delete saved/pipeline actions whose job is still classified as noise.
 
-    One rule everywhere: noise sources leave Desk, /leads Saved, and Pipeline counts.
+    Does not archive merely because a job was previously expired — false-positive
+    expires must not wipe a user's Save of a real contract posting.
     """
     from datetime import datetime, timezone
 
-    from backend.application.services.page_type import is_non_opportunity_noise
+    from backend.application.services.page_type import (
+        classify_page_type,
+        is_non_opportunity_noise,
+    )
 
     result = await session.execute(
         select(UserLeadAction, JobRecord)
@@ -147,19 +228,32 @@ async def _archive_noise_lead_actions(
     for action, job in result.all():
         if job is None:
             continue
+        title = getattr(job, "title", None)
+        description = getattr(job, "description", None)
+        url = getattr(job, "url", None)
+        company = getattr(job, "company", None)
         enrichment = getattr(job, "enrichment", None)
-        noise = is_non_opportunity_noise(
-            job.title,
-            job.description,
-            job.url,
-            job.company,
-            enrichment=enrichment if isinstance(enrichment, dict) else None,
-        ) or bool(getattr(job, "is_expired", False) and getattr(job, "expired_reason", None) == "non_opportunity_noise")
-        if not noise:
+        enrichment_dict = enrichment if isinstance(enrichment, dict) else None
+        page_type = classify_page_type(
+            title,
+            description,
+            url,
+            company,
+            enrichment=enrichment_dict,
+        )
+        if page_type not in _PURGE_PAGE_TYPES:
+            continue
+        if not is_non_opportunity_noise(
+            title,
+            description,
+            url,
+            company,
+            enrichment=enrichment_dict,
+        ):
             continue
         action.deleted_at = now
         action.pipeline_stage = "archived"
-        action.reason = action.reason or "auto_archive_noise"
+        action.reason = action.reason or f"auto_archive_noise:{page_type}"
         session.add(action)
         archived += 1
     if archived:
@@ -677,7 +771,7 @@ async def list_findings(
     purge_candidates = [
         j for j in jobs if j.id is None or j.id not in preserved
     ]
-    await _purge_non_opportunity_jobs(session, purge_candidates)
+    await _purge_non_opportunity_jobs(session, purge_candidates, persist=True)
     jobs = [
         j
         for j in jobs
@@ -858,7 +952,8 @@ async def demo_findings(
     """Unauthenticated lead findings digest for the desk demo."""
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
-    jobs = await _purge_non_opportunity_jobs(session, list(jobs))
+    # Filter noise in-memory only — demo traffic must not expire inventory.
+    jobs = await _purge_non_opportunity_jobs(session, list(jobs), persist=False)
     total_indexed = await repo.count_jobs()
     prefs = UserPreferences(
         user_id="demo",

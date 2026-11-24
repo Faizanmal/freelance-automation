@@ -71,9 +71,14 @@ class V11BackendFeatureTests(unittest.IsolatedAsyncioTestCase):
         actions_result.all.return_value = rows
         apps_result = MagicMock()
         apps_result.scalars.return_value.all.return_value = apps
+        # get_pipeline_stats first archives noise (same join rows), then recomputes stats.
+        archive_result = MagicMock()
+        archive_result.all.return_value = rows
 
         session = AsyncMock()
-        session.execute = AsyncMock(side_effect=[actions_result, apps_result])
+        session.execute = AsyncMock(
+            side_effect=[archive_result, actions_result, apps_result]
+        )
 
         stats = await get_pipeline_stats(user=user, session=session)  # type: ignore[arg-type]
 
