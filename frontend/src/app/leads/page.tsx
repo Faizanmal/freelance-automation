@@ -618,54 +618,23 @@ function LeadsPageInner() {
       return;
     }
     if (!apiBase) return;
+    // Same durable PUT path as interactive Save/Undo — keepalive only on unload.
     for (const write of pendingPayloadsRef.current.values()) {
-      const isClear = write.status === "clear";
-      const path = isClear
-        ? `/preferences/leads/${write.jobId}/action`
-        : write.status === "save" || write.status === "skip"
-          ? "/preferences/match-feedback"
-          : write.status === "pitched" || write.status === "won"
-            ? "/preferences/match-feedback"
-            : `/preferences/leads/${write.jobId}/action`;
-      let body: string;
-      if (isClear) {
-        body = JSON.stringify({
-          status: "clear",
-          reason: write.reason,
-          write_version: write.gen,
-          client_ts: write.clientTs,
-        });
-      } else if (write.status === "save" || write.status === "skip") {
-        body = JSON.stringify({
-          job_id: write.jobId,
-          kind: write.status,
-          reason: write.reason,
-          write_version: write.gen,
-          client_ts: write.clientTs,
-        });
-      } else if (write.status === "pitched" || write.status === "won") {
-        body = JSON.stringify({
-          job_id: write.jobId,
-          kind: "outcome",
-          outcome: write.status === "won" ? "contract" : "interview",
-          reason: write.reason || write.status,
-          write_version: write.gen,
-          client_ts: write.clientTs,
-        });
-      } else {
-        body = JSON.stringify({
-          status: write.status,
-          reason: write.reason,
-          write_version: write.gen,
-          client_ts: write.clientTs,
-        });
-      }
+      const path = `/preferences/leads/${write.jobId}/action`;
+      const body = JSON.stringify({
+        status: write.status,
+        reason: write.reason,
+        feedback_kind:
+          write.status === "save" || write.status === "skip" || write.status === "clear"
+            ? write.status
+            : "outcome",
+        write_version: write.gen,
+        client_ts: write.clientTs,
+      });
       const url = `${apiBase}${path}`;
-      const method = isClear || path.endsWith("/action") ? "PUT" : "POST";
       try {
-        // Auth requires Authorization — use keepalive fetch (no Leave-site dialog).
         void fetch(url, {
-          method,
+          method: "PUT",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
@@ -867,44 +836,44 @@ function LeadsPageInner() {
     }
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
+    // Interactive writes: normal fetch (visible in Network). Keepalive only on unload flush.
     const writeOpts = {
       write_version: gen,
       client_ts: clientTs,
-      keepalive: true as const,
+      reason,
+      feedback_kind:
+        status === "save" || status === "skip" || status === "clear"
+          ? status
+          : status === "pitched" || status === "won"
+            ? "outcome"
+            : undefined,
     };
 
-    // Fire immediately — no debounce/batch. Server rejects stale write_version.
+    // Fire immediately — no debounce/batch. Same durable PUT path as Undo/Unsave.
     pendingWritesRef.current += 1;
     void (async () => {
       try {
-        if (status === "won") {
-          await postMatchFeedback({
+        // Ranking feedback is best-effort; persistence is always setLeadAction.
+        if (status === "won" || status === "pitched") {
+          void postMatchFeedback({
             job_id: jobId,
             kind: "outcome",
-            outcome: "contract",
-            reason: reason || "contract",
-            ...writeOpts,
-          });
-        } else if (status === "pitched") {
-          await postMatchFeedback({
-            job_id: jobId,
-            kind: "outcome",
-            outcome: "interview",
-            reason: reason || "interview",
-            ...writeOpts,
-          });
+            outcome: status === "won" ? "contract" : "interview",
+            reason: reason || status,
+            write_version: gen,
+            client_ts: clientTs,
+          }).catch(() => null);
         } else if (status === "save" || status === "skip") {
-          await postMatchFeedback({
+          void postMatchFeedback({
             job_id: jobId,
             kind: status,
             reason,
-            ...writeOpts,
-          });
-        } else if (status === "clear") {
-          await setLeadAction(jobId, "clear", { reason, ...writeOpts });
-        } else {
-          await setLeadAction(jobId, status, { reason, ...writeOpts });
+            write_version: gen,
+            client_ts: clientTs,
+          }).catch(() => null);
         }
+
+        const confirmed = await setLeadAction(jobId, status, writeOpts);
 
         if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
           pendingPayloadsRef.current.delete(jobId);
@@ -912,6 +881,14 @@ function LeadsPageInner() {
 
         if (!isLatest()) {
           return;
+        }
+
+        const expected =
+          status === "clear" ? null : (status as "save" | "skip" | "pitched" | "won");
+        if (confirmed.status !== expected) {
+          throw new Error(
+            `Save did not confirm (got ${String(confirmed.status)}, expected ${String(expected)})`,
+          );
         }
 
         if (status === "save" || status === "skip") {

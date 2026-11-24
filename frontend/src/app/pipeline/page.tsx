@@ -7,7 +7,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  useTransition,
   type DragEvent,
 } from "react";
 import {
@@ -97,7 +96,6 @@ export default function PipelinePage() {
     unverified?: string[];
   } | null>(null);
   const [q, setQ] = useState("");
-  const [pending, startTransition] = useTransition();
   const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
   const [dragOverStage, setDragOverStage] = useState<PipelineStage | null>(null);
 
@@ -196,7 +194,9 @@ export default function PipelinePage() {
   }
 
   function moveStage(jobId: number, stage: PipelineStage) {
-    // Optimistic column move so drag feels immediate; reload confirms persistence.
+    // Optimistic column + Qualified together — never wait on network for the count.
+    const previousColumns = columns;
+    const previousDashboard = dashboard;
     const next: Record<string, PipelineLead[]> = {};
     let moved: PipelineLead | null = null;
     for (const key of STAGES) {
@@ -212,34 +212,50 @@ export default function PipelinePage() {
     if (moved) {
       next[stage] = [...(next[stage] || []), moved];
     }
+    const qualified = countQualified(next);
     setColumns(next);
-    // Recompute Qualified on every stage change (don't wait for dashboard refresh).
     setDashboard((dash) =>
       dash
         ? {
             ...dash,
-            qualified_leads: countQualified(next),
+            qualified_leads: qualified,
             stage_counts: {
               ...(dash.stage_counts || {}),
               ...Object.fromEntries(STAGES.map((s) => [s, (next[s] || []).length])),
             },
           }
-        : dash,
+        : {
+            demo: false,
+            follow_ups_due: 0,
+            qualified_leads: qualified,
+            active_opportunities: 0,
+            stage_counts: Object.fromEntries(
+              STAGES.map((s) => [s, (next[s] || []).length]),
+            ),
+            stage_conversion: {
+              saved_to_applied: 0,
+              applied_to_interview: 0,
+              interview_to_won: 0,
+            },
+            time_spent_seconds: 0,
+            won_revenue: 0,
+          },
     );
-    startTransition(async () => {
+    // Persist without blocking UI; only full-refresh on failure (rollback).
+    void (async () => {
       try {
         const res = await setPipelineStage(jobId, stage, {
           confirm_applied: stage === "applied",
         });
         toast(`Moved to ${stage}`, "success");
         if (selected?.job_id === jobId) setSelected(res.lead);
-        // Silent reconcile — keep optimistic Qualified until board returns.
-        await refresh({ silent: true });
+        // Keep optimistic board/Qualified — no laggy dashboard round-trip.
       } catch (err) {
+        setColumns(previousColumns);
+        setDashboard(previousDashboard);
         toast(err instanceof Error ? err.message : "Stage update failed", "error");
-        await refresh({ silent: true });
       }
-    });
+    })();
   }
 
   function onCardDragStart(event: DragEvent, lead: PipelineLead) {
@@ -534,7 +550,6 @@ export default function PipelinePage() {
                         <select
                           className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
                           value={lead.pipeline_stage}
-                          disabled={pending}
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) => {
                             const next = event.target.value as PipelineStage;
@@ -662,7 +677,6 @@ export default function PipelinePage() {
                     <select
                       className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
                       value={lead.pipeline_stage}
-                      disabled={pending}
                       onChange={(event) => {
                         const next = event.target.value as PipelineStage;
                         if (next !== lead.pipeline_stage) moveStage(lead.job_id, next);
@@ -721,7 +735,6 @@ export default function PipelinePage() {
                   key={stage}
                   size="sm"
                   variant={selected.pipeline_stage === stage ? "default" : "outline"}
-                  disabled={pending}
                   onClick={() => moveStage(selected.job_id, stage)}
                 >
                   {stage}

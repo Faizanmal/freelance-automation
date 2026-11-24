@@ -881,6 +881,44 @@ function PreferencesPageInner() {
               >
                 Send test email
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    try {
+                      setError(null);
+                      setEmailWarning(null);
+                      const response = await sendNotification({
+                        title: "Inbox Mark-read test",
+                        body: "Unread test alert for /notifications. Use Mark read on this item, reload, and confirm it stays under All as read.",
+                        channels: ["in_app"],
+                        priority: "high",
+                        digest: false,
+                      });
+                      if (response.status === "failed") {
+                        setEmailWarning(
+                          "Could not create an in-app inbox alert. Check API logs / notification service.",
+                        );
+                      } else {
+                        setMessage(
+                          "Test inbox alert created — open Notifications → All to Mark read.",
+                        );
+                        setTimeout(() => setMessage(null), 5000);
+                      }
+                    } catch (err) {
+                      setEmailWarning(
+                        err instanceof Error
+                          ? `Inbox test alert failed: ${err.message}`
+                          : "Inbox test alert failed.",
+                      );
+                    }
+                  })
+                }
+              >
+                Send test inbox alert
+              </Button>
               {prefs.custom_webhook_url ? (
                 <Button
                   type="button"
