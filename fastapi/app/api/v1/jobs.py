@@ -134,8 +134,15 @@ async def list_jobs(
     include_expired: bool = Query(False),
 ) -> dict:
     redis_client = await get_redis()
+    cache_epoch = "0"
+    if redis_client:
+        try:
+            raw_epoch = await redis_client.get("jobs_cache:epoch")
+            cache_epoch = str(raw_epoch or "0")
+        except Exception:
+            cache_epoch = "0"
     cache_key = (
-        f"jobs_cache:v4:{limit}:{offset}:{cursor or 0}:"
+        f"jobs_cache:v5:{cache_epoch}:{limit}:{offset}:{cursor or 0}:"
         f"{source or 'all'}:{search or 'none'}:{int(include_expired)}"
     )
 

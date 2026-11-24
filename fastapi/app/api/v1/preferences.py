@@ -46,6 +46,18 @@ router = APIRouter(prefix="/preferences", tags=["preferences"])
 ExperienceLevel = Literal["any", "junior", "mid", "senior", "lead"]
 
 
+async def _bump_jobs_cache_epoch() -> None:
+    """Invalidate list/count caches so Desk, /leads and /freelance-jobs agree."""
+    try:
+        from app.core.redis_client import get_redis
+
+        redis_client = await get_redis()
+        if redis_client:
+            await redis_client.incr("jobs_cache:epoch")
+    except Exception:
+        pass
+
+
 async def _purge_non_opportunity_jobs(
     session: AsyncSession, jobs: list[JobRecord]
 ) -> list[JobRecord]:
@@ -53,7 +65,7 @@ async def _purge_non_opportunity_jobs(
     from datetime import datetime, timezone
 
     from backend.application.services.page_type import (
-        BOARD_AGGREGATOR_HOSTS,
+        ALWAYS_NOISE_HOSTS,
         is_non_opportunity_noise,
     )
     from sqlalchemy import or_
@@ -83,9 +95,10 @@ async def _purge_non_opportunity_jobs(
             continue
         keep.append(job)
 
-    # Also expire denylisted hosts already stored outside the candidate window.
+    # Expire always-noise hosts already stored outside the candidate window.
+    # Do NOT mass-expire board aggregators — they can hold real single postings.
     host_clauses = [
-        JobRecord.url.ilike(f"%{host}%") for host in BOARD_AGGREGATOR_HOSTS[:20]
+        JobRecord.url.ilike(f"%{host}%") for host in ALWAYS_NOISE_HOSTS
     ]
     if host_clauses:
         result = await session.execute(
@@ -106,7 +119,53 @@ async def _purge_non_opportunity_jobs(
     if changed:
         await session.commit()
         get_recommendation_cache().invalidate_prefix()
+        await _bump_jobs_cache_epoch()
     return keep
+
+
+async def _archive_noise_lead_actions(
+    session: AsyncSession, user_id: str
+) -> int:
+    """Soft-delete saved/pipeline actions whose job is now filtered as noise.
+
+    One rule everywhere: noise sources leave Desk, /leads Saved, and Pipeline counts.
+    """
+    from datetime import datetime, timezone
+
+    from backend.application.services.page_type import is_non_opportunity_noise
+
+    result = await session.execute(
+        select(UserLeadAction, JobRecord)
+        .outerjoin(JobRecord, UserLeadAction.job_id == JobRecord.id)
+        .where(
+            UserLeadAction.user_id == user_id,
+            UserLeadAction.deleted_at.is_(None),
+        )
+    )
+    archived = 0
+    now = datetime.now(timezone.utc)
+    for action, job in result.all():
+        if job is None:
+            continue
+        enrichment = getattr(job, "enrichment", None)
+        noise = is_non_opportunity_noise(
+            job.title,
+            job.description,
+            job.url,
+            job.company,
+            enrichment=enrichment if isinstance(enrichment, dict) else None,
+        ) or bool(getattr(job, "is_expired", False) and getattr(job, "expired_reason", None) == "non_opportunity_noise")
+        if not noise:
+            continue
+        action.deleted_at = now
+        action.pipeline_stage = "archived"
+        action.reason = action.reason or "auto_archive_noise"
+        session.add(action)
+        archived += 1
+    if archived:
+        await session.commit()
+        get_recommendation_cache().invalidate_user(str(user_id))
+    return archived
 
 
 class PreferencesPayload(BaseModel):
@@ -551,6 +610,8 @@ async def list_findings(
         if freelance_focus is not None
         else bool(getattr(prefs, "freelance_focus", True))
     )
+    # Drop saved/pipeline noise so Desk, /leads Saved, and Pipeline counts match.
+    await _archive_noise_lead_actions(session, user.id)
     actions_res = await session.execute(
         select(UserLeadAction).where(
             UserLeadAction.user_id == user.id,
@@ -726,6 +787,7 @@ async def get_pipeline_stats(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     """Compute lead conversion funnel metrics and estimated pipeline value in O(N)."""
+    await _archive_noise_lead_actions(session, user.id)
     actions_res = await session.execute(
         select(UserLeadAction, JobRecord)
         .outerjoin(JobRecord, UserLeadAction.job_id == JobRecord.id)

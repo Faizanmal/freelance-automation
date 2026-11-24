@@ -121,6 +121,9 @@ async def pipeline_board(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
+    from app.api.v1.preferences import _archive_noise_lead_actions
+
+    await _archive_noise_lead_actions(db, user.id)
     service = PipelineService(db)
     result = await service.board(user_id=user.id)
     await db.commit()
@@ -133,6 +136,10 @@ async def workspace_dashboard(
     db: Annotated[AsyncSession, Depends(get_db)],
     demo: bool = False,
 ) -> dict[str, Any]:
+    from app.api.v1.preferences import _archive_noise_lead_actions
+
+    if not demo:
+        await _archive_noise_lead_actions(db, user.id)
     service = PipelineService(db)
     return await service.workspace_dashboard(user_id=user.id, demo=demo)
 

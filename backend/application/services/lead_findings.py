@@ -218,23 +218,35 @@ class LeadFindingsService:
 
         pitched = {jid for jid, st in actions_map.items() if st in {"pitched", "won"}}
 
-        # Keep saved/pitched/skipped leads even if their source is later classified
-        # as noise — one source of truth across Desk, Leads, and Pipeline.
-        preserved_ids_pre = saved | pitched | (skipped if include_skipped else set())
-        jobs = [
-            j
-            for j in jobs
-            if (j.id is not None and j.id in preserved_ids_pre)
-            or not is_non_opportunity_noise(
-                j.title,
-                j.description,
-                j.url,
-                j.company,
-                enrichment=getattr(j, "enrichment", None)
+        # Noise filter wins everywhere — including previously saved listicles.
+        # (API layer auto-archives matching lead actions so counts stay aligned.)
+        rejection_log: list[dict[str, Any]] = []
+        filtered_jobs: list[Any] = []
+        for j in jobs:
+            enrichment = (
+                getattr(j, "enrichment", None)
                 if isinstance(getattr(j, "enrichment", None), dict)
-                else None,
+                else None
             )
-        ]
+            if is_non_opportunity_noise(
+                j.title, j.description, j.url, j.company, enrichment=enrichment
+            ):
+                from backend.application.services.page_type import classify_page_type
+
+                rejection_log.append(
+                    {
+                        "job_id": j.id,
+                        "title": (j.title or "")[:120],
+                        "url": j.url,
+                        "reason": classify_page_type(
+                            j.title, j.description, j.url, j.company, enrichment=enrichment
+                        ),
+                        "stage": "noise_filter",
+                    }
+                )
+                continue
+            filtered_jobs.append(j)
+        jobs = filtered_jobs
 
         ranked = self.pipeline.rank(
             jobs,
@@ -287,22 +299,31 @@ class LeadFindingsService:
 
 
 
+        matched_before_filters = len(findings)
+        after_freelance = matched_before_filters
         if freelance_focus:
-
-            findings = [
-
-                finding
-
-                for finding in findings
-
-                if finding.freelance_fit >= 0.35
-
-                or finding.job.source_name in MARKETPLACE_SOURCES
-
-                or finding.job.source_name == "serpapi_freelance"
-                or finding.job.id in preserved_ids
-
-            ]
+            kept: list[LeadFinding] = []
+            for finding in findings:
+                if (
+                    finding.freelance_fit >= 0.35
+                    or finding.job.source_name in MARKETPLACE_SOURCES
+                    or finding.job.source_name == "serpapi_freelance"
+                    or finding.job.id in preserved_ids
+                ):
+                    kept.append(finding)
+                else:
+                    rejection_log.append(
+                        {
+                            "job_id": finding.job.id,
+                            "title": (finding.job.title or "")[:120],
+                            "url": finding.job.url,
+                            "reason": "low_freelance_fit",
+                            "stage": "freelance_focus",
+                            "freelance_fit": finding.freelance_fit,
+                        }
+                    )
+            findings = kept
+            after_freelance = len(findings)
 
         # Hard-drop full-time / salaried employee watchouts unless monthly pay > $10k.
         # (Badge suppression alone left these ranked as STRONG FIT on /leads.)
@@ -332,7 +353,21 @@ class LeadFindingsService:
             )
             return monthly is None or monthly < 10_000
 
-        findings = [f for f in findings if not _is_blocked_full_time(f)]
+        fte_kept: list[LeadFinding] = []
+        for finding in findings:
+            if _is_blocked_full_time(finding):
+                rejection_log.append(
+                    {
+                        "job_id": finding.job.id,
+                        "title": (finding.job.title or "")[:120],
+                        "url": finding.job.url,
+                        "reason": "full_time_employee",
+                        "stage": "fte_filter",
+                    }
+                )
+            else:
+                fte_kept.append(finding)
+        findings = fte_kept
 
         # Cap score so STRONG FIT never appears without a role/hiring signal.
         for finding in findings:
@@ -349,14 +384,9 @@ class LeadFindingsService:
                 finding.score = 0.69
 
         if not include_skipped and skipped:
-
             findings = [
-
                 finding for finding in findings if finding.job.id not in skipped
-
             ]
-
-
 
         def _sort_key(item: LeadFinding) -> tuple[float, float, float]:
             # Default: score descending. Light boost for actioned leads so they
@@ -397,15 +427,37 @@ class LeadFindingsService:
                     seen_domains.add(domain)
                 continue
             if domain and domain != "unknown" and domain in seen_domains:
+                rejection_log.append(
+                    {
+                        "job_id": finding.job.id,
+                        "title": (finding.job.title or "")[:120],
+                        "url": finding.job.url,
+                        "reason": f"domain_dedupe:{domain}",
+                        "stage": "domain_dedupe",
+                    }
+                )
                 continue
             if domain and domain != "unknown":
                 seen_domains.add(domain)
             deduped.append(finding)
         findings = deduped
+        after_fte = len(fte_kept)
+        after_dedupe = len(findings)
 
         cap = max(1, min(limit, 50))
         # Cap the ranked list first, then exclude skips so All does not refill
         # a replacement lead on reload (keeps All/Skipped stable across refresh).
+        if len(findings) > cap:
+            for finding in findings[cap:]:
+                rejection_log.append(
+                    {
+                        "job_id": finding.job.id,
+                        "title": (finding.job.title or "")[:120],
+                        "url": finding.job.url,
+                        "reason": f"over_limit:{cap}",
+                        "stage": "limit_cap",
+                    }
+                )
         capped = findings[:cap]
         active_findings = [f for f in capped if f.job.id not in skipped]
         skipped_findings = (
@@ -452,13 +504,24 @@ class LeadFindingsService:
             "total_scanned": len(jobs),
             "total_indexed": total_indexed if total_indexed is not None else len(jobs),
 
-            "total_matched": len(matches),
+            # Ranked matches before display filters (freelance fit / FTE / dedupe / cap).
+            "total_matched": matched_before_filters,
 
             "total_findings": len(active_findings),
 
             "skipped_count": len(skipped),
 
             "freelance_focus": freelance_focus,
+
+            "filter_stats": {
+                "matched": matched_before_filters,
+                "after_freelance_focus": after_freelance,
+                "after_fte_filter": after_fte,
+                "after_domain_dedupe": after_dedupe,
+                "returned": len(active_findings),
+                "limit": cap,
+            },
+            "rejection_samples": rejection_log[:25],
 
             "action_counts": action_counts,
 

@@ -21,12 +21,24 @@ PAGE_TYPE_NON_DEV = "non_dev"
 PAGE_TYPE_SPAM_HOST = "spam_host"
 PAGE_TYPE_UNKNOWN = "unknown"
 
-BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
+# Hosts that never carry a single contract posting (listicles / directories / SEO hubs).
+ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "starterindex.com",
-    "instahyre.com",
     "beaconbid.com",
-    "crossover.com",
+    "andrejgajdos.com",
+    "robinwieruch.de",
+    "codesquad.org",
     "zippia.com",
+    "instahyre.com",
+    "crossover.com",
+    "levels.fyi",
+    "jobboardsearch.com",
+    "theantijobboard.com",
+    "anti-job-board.com",
+)
+
+# Aggregators / boards: reject index/search pages, but keep single-job URLs.
+BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "remoteleaf.com",
     "jobleads.com",
     "jobleads.co",
@@ -39,8 +51,6 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "kickstartremote.com",
     "app.joinhandshake.com",
     "joinhandshake.com",
-    "andrejgajdos.com",
-    "robinwieruch.de",
     "workingnomads.com",
     "workingnomads.co",
     "opentalent.in",
@@ -72,23 +82,17 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "nodesk.co",
     "himalayas.app",
     "otta.com",
-    "levels.fyi",
     "codingjobboard.com",
-    "theantijobboard.com",
-    "anti-job-board.com",
     "nofluffjobs.com",
     "landing.jobs",
-    "jobboardsearch.com",
     "usajobs.gov",
     "contractoruk.com",
     "calopps.org",
     "marylandbids.com",
     "gov.uk",
     "indeed.co.uk",
-    "reed.co.uk",
     "europol.europa.eu",
     "mwaa.com",
-    "codesquad.org",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -167,7 +171,12 @@ NON_DEV_ROLE_RE = re.compile(
 )
 
 SINGLE_POSTING_PATH_RE = re.compile(
-    r"/(?:jobs?|openings?|positions?|j|role|posting)/[a-z0-9_-]{6,}",
+    r"(?:"
+    # /jobs/<slug>, /remote-job/<slug>, /opening/<id> — not bare /jobs or /remote-jobs hubs
+    r"/(?:jobs?|openings?|positions?|j|role|posting|remote-jobs?)/[a-z0-9][a-z0-9_-]{3,}"
+    r"|/job/\d+"
+    r"|/[a-z0-9-]{6,}-\d{3,}"  # slug-123 style single posts
+    r")",
     re.IGNORECASE,
 )
 
@@ -312,8 +321,18 @@ def classify_page_type(
     if TENDER_RE.search(blob):
         return PAGE_TYPE_LISTICLE
 
+    # Listicle/directory hosts never yield a single contract opportunity.
+    if any(host == h or host.endswith(f".{h}") for h in ALWAYS_NOISE_HOSTS):
+        return PAGE_TYPE_LISTICLE
+
+    # Board aggregators: keep deep single-job URLs; drop index/search hubs.
+    # Require a numeric or long opaque id so /jobs/python stays a hub.
     if any(host == h or host.endswith(f".{h}") for h in BOARD_AGGREGATOR_HOSTS):
-        return PAGE_TYPE_BOARD_INDEX
+        deep = bool(SINGLE_POSTING_PATH_RE.search(path)) and bool(
+            re.search(r"(?:\d{3,}|[a-f0-9]{8,})", path, re.IGNORECASE)
+        )
+        if not deep:
+            return PAGE_TYPE_BOARD_INDEX
 
     if (
         host.startswith("careers.")
