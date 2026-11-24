@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   archiveNotification,
   getInbox,
@@ -77,6 +77,10 @@ export default function NotificationsPage() {
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [inboxLoading, setInboxLoading] = useState(true);
+  const [inboxReady, setInboxReady] = useState(false);
+  const inboxRequestIdRef = useRef(0);
+  const inboxFilterRef = useRef<InboxFilter>(inboxFilter);
 
   // Digest Preview & Schedule state
   const [digestPreview, setDigestPreview] = useState<{
@@ -107,20 +111,33 @@ export default function NotificationsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const loadInbox = useCallback(() => {
-    startTransition(async () => {
+  const loadInbox = useCallback((filter?: InboxFilter) => {
+    const activeFilter = filter ?? inboxFilterRef.current;
+    const requestId = ++inboxRequestIdRef.current;
+    setInboxLoading(true);
+    void (async () => {
       try {
         const data = await getInbox({
-          unread_only: inboxFilter === "unread",
-          archived: inboxFilter === "archived",
+          unread_only: activeFilter === "unread",
+          archived: activeFilter === "archived",
         });
+        // Ignore stale responses from prior tab/filter fetches.
+        if (requestId !== inboxRequestIdRef.current) return;
+        if (inboxFilterRef.current !== activeFilter) return;
         setInboxItems((data.items || []) as unknown as InboxItem[]);
         setUnreadCount(data.unread_count || 0);
+        setInboxReady(true);
       } catch (err) {
+        if (requestId !== inboxRequestIdRef.current) return;
         setError(err instanceof Error ? err.message : "Failed loading inbox");
+        setInboxReady(true);
+      } finally {
+        if (requestId === inboxRequestIdRef.current) {
+          setInboxLoading(false);
+        }
       }
-    });
-  }, [inboxFilter, startTransition]);
+    })();
+  }, []);
 
   const loadPreview = () => {
     startTransition(async () => {
@@ -150,17 +167,30 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
+    inboxFilterRef.current = inboxFilter;
+  }, [inboxFilter]);
+
+  useEffect(() => {
     if (!authed) return;
-    loadInbox();
-    startTransition(async () => {
-      try {
-        const data = await getNotificationHistory();
-        setHistory((data.items || []) as unknown as HistoryItem[]);
-      } catch {
-        // history optional on initial load
-      }
-    });
-  }, [authed, inboxFilter, loadInbox, startTransition]);
+    // Defer so setState inside loadInbox is not synchronous within the effect body.
+    const timer = window.setTimeout(() => loadInbox(inboxFilter), 0);
+    return () => window.clearTimeout(timer);
+  }, [authed, inboxFilter, loadInbox]);
+
+  useEffect(() => {
+    if (!authed) return;
+    const timer = window.setTimeout(() => {
+      startTransition(async () => {
+        try {
+          const data = await getNotificationHistory();
+          setHistory((data.items || []) as unknown as HistoryItem[]);
+        } catch {
+          // history optional on initial load
+        }
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [authed, startTransition]);
 
   useEffect(() => {
     if (!authed) return;
@@ -180,44 +210,47 @@ export default function NotificationsPage() {
   };
 
   const handleMarkRead = (id: number) => {
-    startTransition(async () => {
+    const previous = inboxItems;
+    // Mark read only flips that item — stays under All; leaves Unread list.
+    setInboxItems((prev) => {
+      if (inboxFilterRef.current === "unread") {
+        return prev.filter((item) => item.id !== id);
+      }
+      return prev.map((item) =>
+        item.id === id ? { ...item, is_read: true, read_at: new Date().toISOString() } : item,
+      );
+    });
+    setUnreadCount((c) => Math.max(0, c - 1));
+    void (async () => {
       try {
         await markNotificationRead(id);
-        // Mark read only flips that item — never removes it from All/Unread filters
-        // until the user switches away from Unread (or reloads Unread).
-        setInboxItems((prev) => {
-          if (inboxFilter === "unread") {
-            return prev.filter((item) => item.id !== id);
-          }
-          return prev.map((item) =>
-            item.id === id ? { ...item, is_read: true, read_at: new Date().toISOString() } : item,
-          );
-        });
-        setUnreadCount((c) => Math.max(0, c - 1));
       } catch (err) {
+        setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed marking read");
       }
-    });
+    })();
   };
 
   const handleMarkAllRead = () => {
-    startTransition(async () => {
+    const previous = inboxItems;
+    setInboxItems((prev) => prev.map((item) => ({ ...item, is_read: true })));
+    setUnreadCount(0);
+    void (async () => {
       try {
         await markAllNotificationsRead();
-        setInboxItems((prev) => prev.map((item) => ({ ...item, is_read: true })));
-        setUnreadCount(0);
         setSuccessMsg("All inbox notifications marked as read.");
       } catch (err) {
+        setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed marking all read");
       }
-    });
+    })();
   };
 
   const handleArchive = (id: number) => {
     const previous = inboxItems;
     // Optimistic remove from active view; await durable write before toasting success.
     setInboxItems((prev) => prev.filter((item) => item.id !== id));
-    startTransition(async () => {
+    void (async () => {
       try {
         const res = await archiveNotification(id);
         if (!res?.archived) {
@@ -230,13 +263,13 @@ export default function NotificationsPage() {
         setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed archiving");
       }
-    });
+    })();
   };
 
   const handleRestore = (id: number) => {
     const previous = inboxItems;
     setInboxItems((prev) => prev.filter((item) => item.id !== id));
-    startTransition(async () => {
+    void (async () => {
       try {
         const res = await unarchiveNotification(id);
         if (res?.archived) {
@@ -249,7 +282,7 @@ export default function NotificationsPage() {
         setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed restoring");
       }
-    });
+    })();
   };
 
   const handleTogglePause = () => {
@@ -443,7 +476,11 @@ export default function NotificationsPage() {
             )}
           </div>
 
-          {inboxItems.length === 0 ? (
+          {inboxLoading || !inboxReady ? (
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-12 text-center text-sm text-[var(--fog)]">
+              Loading notifications…
+            </div>
+          ) : inboxItems.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-12 text-center text-sm text-[var(--fog)]">
               {inboxFilter === "archived"
                 ? "No archived notifications."

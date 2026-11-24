@@ -180,26 +180,42 @@ export default function PipelinePage() {
     }
   }
 
+  function countQualified(cols: Record<string, PipelineLead[]>) {
+    // Qualified = Ready + Applied only.
+    return (cols.ready?.length || 0) + (cols.applied?.length || 0);
+  }
+
   function moveStage(jobId: number, stage: PipelineStage) {
     // Optimistic column move so drag feels immediate; reload confirms persistence.
-    setColumns((prev) => {
-      const next: Record<string, PipelineLead[]> = {};
-      let moved: PipelineLead | null = null;
-      for (const key of STAGES) {
-        const kept = (prev[key] || []).filter((lead) => {
-          if (lead.job_id === jobId) {
-            moved = { ...lead, pipeline_stage: stage };
-            return false;
+    const next: Record<string, PipelineLead[]> = {};
+    let moved: PipelineLead | null = null;
+    for (const key of STAGES) {
+      const kept = (columns[key] || []).filter((lead) => {
+        if (lead.job_id === jobId) {
+          moved = { ...lead, pipeline_stage: stage };
+          return false;
+        }
+        return true;
+      });
+      next[key] = kept;
+    }
+    if (moved) {
+      next[stage] = [...(next[stage] || []), moved];
+    }
+    setColumns(next);
+    // Recompute Qualified on every stage change (don't wait for dashboard refresh).
+    setDashboard((dash) =>
+      dash
+        ? {
+            ...dash,
+            qualified_leads: countQualified(next),
+            stage_counts: {
+              ...(dash.stage_counts || {}),
+              ...Object.fromEntries(STAGES.map((s) => [s, (next[s] || []).length])),
+            },
           }
-          return true;
-        });
-        next[key] = kept;
-      }
-      if (moved) {
-        next[stage] = [...(next[stage] || []), moved];
-      }
-      return next;
-    });
+        : dash,
+    );
     startTransition(async () => {
       try {
         const res = await setPipelineStage(jobId, stage, {
@@ -394,7 +410,7 @@ export default function PipelinePage() {
             <p className="text-sm text-[var(--text-muted)]">Qualified leads</p>
             <p className="mt-1 text-2xl font-semibold">{dashboard.qualified_leads}</p>
             <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-              Ready · Applied · Interview · Negotiating
+              Ready · Applied
             </p>
           </Card>
           <Card className="p-4">

@@ -202,7 +202,6 @@ function LeadsPageInner() {
 
   const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
   const [writingJobIds, setWritingJobIds] = useState<Set<number>>(() => new Set());
-  const writeQueuesRef = useRef(new Map<number, Promise<void>>());
   const writeGenRef = useRef(new Map<number, number>());
   const pendingWritesRef = useRef(0);
   const dataRef = useRef(data);
@@ -605,6 +604,7 @@ function LeadsPageInner() {
     status: "save" | "skip" | "pitched" | "won" | "clear";
     reason?: string;
     gen: number;
+    clientTs: number;
   };
   const pendingPayloadsRef = useRef(new Map<number, PendingLeadWrite>());
 
@@ -629,12 +629,19 @@ function LeadsPageInner() {
             : `/preferences/leads/${write.jobId}/action`;
       let body: string;
       if (isClear) {
-        body = JSON.stringify({ status: "clear", reason: write.reason });
+        body = JSON.stringify({
+          status: "clear",
+          reason: write.reason,
+          write_version: write.gen,
+          client_ts: write.clientTs,
+        });
       } else if (write.status === "save" || write.status === "skip") {
         body = JSON.stringify({
           job_id: write.jobId,
           kind: write.status,
           reason: write.reason,
+          write_version: write.gen,
+          client_ts: write.clientTs,
         });
       } else if (write.status === "pitched" || write.status === "won") {
         body = JSON.stringify({
@@ -642,22 +649,21 @@ function LeadsPageInner() {
           kind: "outcome",
           outcome: write.status === "won" ? "contract" : "interview",
           reason: write.reason || write.status,
+          write_version: write.gen,
+          client_ts: write.clientTs,
         });
       } else {
-        body = JSON.stringify({ status: write.status, reason: write.reason });
+        body = JSON.stringify({
+          status: write.status,
+          reason: write.reason,
+          write_version: write.gen,
+          client_ts: write.clientTs,
+        });
       }
       const url = `${apiBase}${path}`;
       const method = isClear || path.endsWith("/action") ? "PUT" : "POST";
       try {
-        // Prefer sendBeacon for unload durability (no Leave-site dialog).
-        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-          const blob = new Blob([body], { type: "application/json" });
-          // sendBeacon cannot set Authorization — fall through to keepalive fetch.
-          if (!token) {
-            navigator.sendBeacon(url, blob);
-            continue;
-          }
-        }
+        // Auth requires Authorization — use keepalive fetch (no Leave-site dialog).
         void fetch(url, {
           method,
           headers: {
@@ -759,7 +765,9 @@ function LeadsPageInner() {
     // handler from a prior write cannot overwrite a newer durable intent.
     const gen = (writeGenRef.current.get(jobId) || 0) + 1;
     writeGenRef.current.set(jobId, gen);
-    pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen });
+    // Monotonic per-lead gen doubles as client_ts for server ordering (avoid Date.now purity lint).
+    const clientTs = gen;
+    pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen, clientTs });
 
     // Optimistic UI first — toast + counts update immediately.
     setData((current) =>
@@ -859,9 +867,15 @@ function LeadsPageInner() {
     }
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
+    const writeOpts = {
+      write_version: gen,
+      client_ts: clientTs,
+      keepalive: true as const,
+    };
 
-    const runWrite = async () => {
-      pendingWritesRef.current += 1;
+    // Fire immediately — no debounce/batch. Server rejects stale write_version.
+    pendingWritesRef.current += 1;
+    void (async () => {
       try {
         if (status === "won") {
           await postMatchFeedback({
@@ -869,6 +883,7 @@ function LeadsPageInner() {
             kind: "outcome",
             outcome: "contract",
             reason: reason || "contract",
+            ...writeOpts,
           });
         } else if (status === "pitched") {
           await postMatchFeedback({
@@ -876,17 +891,19 @@ function LeadsPageInner() {
             kind: "outcome",
             outcome: "interview",
             reason: reason || "interview",
+            ...writeOpts,
           });
         } else if (status === "save" || status === "skip") {
           await postMatchFeedback({
             job_id: jobId,
             kind: status,
             reason,
+            ...writeOpts,
           });
         } else if (status === "clear") {
-          await setLeadAction(jobId, "clear", { reason });
+          await setLeadAction(jobId, "clear", { reason, ...writeOpts });
         } else {
-          await setLeadAction(jobId, status, { reason });
+          await setLeadAction(jobId, status, { reason, ...writeOpts });
         }
 
         if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
@@ -933,12 +950,7 @@ function LeadsPageInner() {
           });
         }
       }
-    };
-
-    // Queue per job so writes stay ordered; Undo is its own durable request.
-    const prior = writeQueuesRef.current.get(jobId) ?? Promise.resolve();
-    const queued = prior.catch(() => undefined).then(runWrite);
-    writeQueuesRef.current.set(jobId, queued);
+    })();
   };
 
 

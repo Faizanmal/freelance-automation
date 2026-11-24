@@ -454,11 +454,16 @@ export async function request<T>(
   }
 
   const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const externalSignal = init?.signal;
-  const onExternalAbort = () => controller.abort();
-  if (externalSignal) {
+  const useKeepalive = init?.keepalive === true;
+  // Keepalive unload writes must not be aborted (and some browsers reject signal+keepalive).
+  const controller = useKeepalive || timeoutMs <= 0 ? null : new AbortController();
+  const timeoutId =
+    controller && timeoutMs > 0
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : null;
+  const externalSignal = useKeepalive ? undefined : init?.signal;
+  const onExternalAbort = () => controller?.abort();
+  if (controller && externalSignal) {
     if (externalSignal.aborted) controller.abort();
     else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
   }
@@ -475,7 +480,9 @@ export async function request<T>(
 
       cache: "no-store",
 
-      signal: controller.signal,
+      keepalive: useKeepalive,
+
+      signal: controller?.signal,
 
     });
 
@@ -489,8 +496,10 @@ export async function request<T>(
     throw new Error("Can't reach the API. Check your connection and try again.");
 
   } finally {
-    clearTimeout(timeoutId);
-    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
+    if (timeoutId != null) clearTimeout(timeoutId);
+    if (controller && externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
 
   if (response.status === 204 || response.status === 205) {
@@ -1113,7 +1122,13 @@ export async function getAuthFindings(
 export async function setLeadAction(
   jobId: number,
   status: "save" | "skip" | "pitched" | "won" | "clear",
-  opts?: { reason?: string; feedback_kind?: string },
+  opts?: {
+    reason?: string;
+    feedback_kind?: string;
+    write_version?: number;
+    client_ts?: number;
+    keepalive?: boolean;
+  },
 ) {
 
   return request<{
@@ -1131,10 +1146,17 @@ export async function setLeadAction(
 
       auth: true,
 
+      keepalive: opts?.keepalive === true,
+
+      // Keepalive unload writes must not be aborted by the default timeout.
+      timeoutMs: opts?.keepalive ? 0 : undefined,
+
       body: JSON.stringify({
         status,
         reason: opts?.reason,
         feedback_kind: opts?.feedback_kind,
+        write_version: opts?.write_version,
+        client_ts: opts?.client_ts,
       }),
 
     },
@@ -2553,7 +2575,11 @@ export async function postMatchFeedback(body: {
   kind: "save" | "skip" | "hide_source" | "apply_click" | "outcome" | "clear";
   reason?: string;
   outcome?: "interview" | "contract" | "rejected" | "none";
+  write_version?: number;
+  client_ts?: number;
+  keepalive?: boolean;
 }) {
+  const { keepalive, ...payload } = body;
   return request<{
     job_id: number;
     status: string | null;
@@ -2562,7 +2588,9 @@ export async function postMatchFeedback(body: {
   }>("/preferences/match-feedback", {
     method: "POST",
     auth: true,
-    body: JSON.stringify(body),
+    keepalive: keepalive === true,
+    timeoutMs: keepalive ? 0 : undefined,
+    body: JSON.stringify(payload),
   });
 }
 
