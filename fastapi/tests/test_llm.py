@@ -5,6 +5,7 @@ from unittest.mock import patch
 from backend.application.services.llm import (
     FALLBACK_ORDER,
     _resolve_model,
+    _retry_after_seconds,
     any_llm_configured,
     configured_providers,
 )
@@ -24,6 +25,16 @@ class LLMConfigTests(unittest.TestCase):
         )
         self.assertEqual(_resolve_model("gemini-2.0-flash"), "gemini-2.5-flash-lite")
         self.assertEqual(_resolve_model("openai/gpt-oss-20b"), "openai/gpt-oss-20b")
+
+    def test_retry_after_parses_groq_message(self) -> None:
+        msg = (
+            "429 for openai/gpt-oss-20b: Rate limit reached ... "
+            "Please try again in 1.77s. Ne"
+        )
+        self.assertAlmostEqual(_retry_after_seconds(Exception(msg)), 1.77, places=2)
+        self.assertAlmostEqual(
+            _retry_after_seconds(Exception("try again in 105ms")), 0.25, places=2
+        )
 
     def test_configured_providers_respect_keys(self) -> None:
         settings = SimpleNamespace(

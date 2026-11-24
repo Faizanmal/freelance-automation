@@ -195,7 +195,8 @@ class PipelineService:
             return row
         prev = row.pipeline_stage
         row.deleted_at = _utcnow()
-        row.status = "skip"
+        # Keep prior status for audit; soft-delete is what removes it from counts.
+        # (Setting status="skip" made Undo look like a Skip if deleted_at lagged.)
         row.pipeline_stage = "archived"
         if write_version is not None:
             row.client_write_version = int(write_version)

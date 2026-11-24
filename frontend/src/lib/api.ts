@@ -1290,6 +1290,18 @@ export async function sendTestInboxAlert() {
   });
 }
 
+/** Email-only test — does not create a lead_match inbox row. */
+export async function sendTestEmailAlert() {
+  return request<{
+    status: string;
+    message: string;
+    delivered?: boolean;
+  }>("/notifications/email/test", {
+    method: "POST",
+    auth: true,
+  });
+}
+
 
 
 export async function getNotificationHistory() {

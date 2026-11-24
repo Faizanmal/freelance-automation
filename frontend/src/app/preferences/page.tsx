@@ -14,7 +14,7 @@ import {
   me,
   openBillingPortal,
   resendVerification,
-  sendNotification,
+  sendTestEmailAlert,
   sendTestInboxAlert,
   startCheckout,
   testWebhook,
@@ -857,27 +857,18 @@ function PreferencesPageInner() {
                     try {
                       setError(null);
                       setEmailWarning(null);
-                      const response = await sendNotification({
-                        title: "Signal Desk test alert",
-                        body: "This is a test from Digest settings. If you received it, outbound email is working.",
-                        channels: ["email"],
-                        priority: "normal",
-                        digest: false,
-                      });
-                      if (response.status === "failed" || response.status === "partial") {
-                        setEmailWarning(
-                          "Settings are saved separately — this test alert could not be delivered. Check RESEND_API_KEY or EMAIL_SMTP_* on the API.",
-                        );
-                      } else {
-                        setMessage("Test alert sent");
-                        setTimeout(() => setMessage(null), 3000);
-                      }
+                      const response = await sendTestEmailAlert();
+                      const okMsg = response.message || "Test email sent";
+                      setMessage(okMsg);
+                      setTimeout(() => setMessage(null), 4000);
+                      toast(okMsg, { tone: "success" });
                     } catch (err) {
-                      setEmailWarning(
+                      const raw =
                         err instanceof Error
-                          ? `Test alert failed: ${err.message}`
-                          : "Test alert failed — settings were not changed.",
-                      );
+                          ? err.message
+                          : "Test email failed — settings were not changed.";
+                      setEmailWarning(raw);
+                      toast(raw, { tone: "error" });
                     }
                   })
                 }

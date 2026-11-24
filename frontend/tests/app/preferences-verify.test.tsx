@@ -62,6 +62,11 @@ vi.mock("@/lib/api", () => ({
   openBillingPortal: vi.fn(),
   resendVerification: vi.fn(),
   sendNotification: vi.fn(),
+  sendTestEmailAlert: vi.fn().mockResolvedValue({
+    status: "delivered",
+    delivered: true,
+    message: "Test email sent",
+  }),
   sendTestInboxAlert: vi.fn().mockResolvedValue({
     id: 1,
     public_id: "test",

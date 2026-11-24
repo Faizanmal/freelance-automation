@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,6 +58,32 @@ def _resolve_model(model: str) -> str:
     return resolved
 
 
+def _retry_after_seconds(exc: BaseException, *, default: float = 2.0) -> float:
+    """Parse provider 429 retry hints; cap so scrapes don't stall."""
+    text = str(exc)
+    match = re.search(r"try again in\s+([\d.]+)\s*(ms|s)?", text, re.IGNORECASE)
+    if match:
+        value = float(match.group(1))
+        unit = (match.group(2) or "s").lower()
+        seconds = value / 1000.0 if unit == "ms" else value
+        return max(0.25, min(seconds, 6.0))
+    if isinstance(exc, httpx.HTTPStatusError):
+        header = exc.response.headers.get("retry-after") if exc.response else None
+        if header:
+            try:
+                return max(0.25, min(float(header), 6.0))
+            except ValueError:
+                pass
+    return default
+
+
+def _is_rate_limited(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        if exc.response.status_code == 429:
+            return True
+    return "429" in str(exc) or "rate limit" in str(exc).lower()
+
+
 async def chat_completion(
     *,
     system: str,
@@ -64,7 +92,10 @@ async def chat_completion(
     json_mode: bool = False,
     timeout: float = 45.0,
 ) -> LLMResult:
-    """Try providers in FALLBACK_ORDER; skip those without an API key."""
+    """Try providers in FALLBACK_ORDER; skip those without an API key.
+
+    On 429, retry the same provider once after a short wait, then fall through.
+    """
     settings = get_settings()
     errors: list[str] = []
 
@@ -73,33 +104,43 @@ async def chat_completion(
         if not config:
             continue
         model = _resolve_model(config["model"])
-        try:
-            content = await _call_provider(
-                name=name,
-                api_key=config["api_key"],
-                model=model,
-                base_url=config.get("base_url"),
-                system=system,
-                user=user,
-                temperature=temperature,
-                json_mode=json_mode,
-                timeout=timeout,
-            )
-            if content and content.strip():
-                logger.info("LLM success via %s (%s)", name, model)
-                return LLMResult(
-                    content=content.strip(), provider=name, model=model
+        for attempt in range(2):
+            try:
+                content = await _call_provider(
+                    name=name,
+                    api_key=config["api_key"],
+                    model=model,
+                    base_url=config.get("base_url"),
+                    system=system,
+                    user=user,
+                    temperature=temperature,
+                    json_mode=json_mode,
+                    timeout=timeout,
                 )
-            errors.append(f"{name}: empty_response")
-        except (
-            httpx.HTTPError,
-            TimeoutError,
-            ValueError,
-            RuntimeError,
-            OSError,
-        ) as exc:
-            logger.warning("LLM provider %s failed: %s", name, exc)
-            errors.append(f"{name}: {exc}")
+                if content and content.strip():
+                    logger.info("LLM success via %s (%s)", name, model)
+                    return LLMResult(
+                        content=content.strip(), provider=name, model=model
+                    )
+                errors.append(f"{name}: empty_response")
+                break
+            except (
+                httpx.HTTPError,
+                TimeoutError,
+                ValueError,
+                RuntimeError,
+                OSError,
+            ) as exc:
+                if _is_rate_limited(exc) and attempt == 0:
+                    wait = _retry_after_seconds(exc)
+                    logger.warning(
+                        "LLM provider %s rate-limited; retrying in %.2fs", name, wait
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                logger.warning("LLM provider %s failed: %s", name, exc)
+                errors.append(f"{name}: {exc}")
+                break
 
     raise LLMError(
         "All LLM providers failed or unconfigured: "

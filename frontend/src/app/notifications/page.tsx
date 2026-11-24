@@ -84,6 +84,10 @@ export default function NotificationsPage() {
     filter: InboxFilter;
     promise: Promise<{ items: InboxItem[]; unread_count: number }>;
   } | null>(null);
+  /** Ids with an in-flight archive/restore — stale All refetches must not resurrect them. */
+  const pendingArchiveIdsRef = useRef(new Set<number>());
+  const pendingRestoreIdsRef = useRef(new Set<number>());
+  const inboxEpochRef = useRef(0);
 
   // Digest Preview & Schedule state
   const [digestPreview, setDigestPreview] = useState<{
@@ -114,17 +118,29 @@ export default function NotificationsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const loadInbox = useCallback((filter?: InboxFilter) => {
+  const loadInbox = useCallback((filter?: InboxFilter, opts?: { silent?: boolean }) => {
     const activeFilter = filter ?? inboxFilterRef.current;
-    setInboxPhase("loading");
+    const epoch = ++inboxEpochRef.current;
+    // Keep prior rows visible while refreshing so Archive/Mark-read don't flash loading.
+    if (!opts?.silent) {
+      setInboxPhase((prev) => (prev === "ready" ? "ready" : "loading"));
+    }
 
     const fetchForFilter = async () => {
       const data = await getInbox({
         unread_only: activeFilter === "unread",
         archived: activeFilter === "archived",
       });
+      let items = (data.items || []) as unknown as InboxItem[];
+      // Drop rows the user just archived (stale All refetch before DB visible).
+      if (activeFilter !== "archived" && pendingArchiveIdsRef.current.size > 0) {
+        items = items.filter((item) => !pendingArchiveIdsRef.current.has(item.id));
+      }
+      if (activeFilter === "archived" && pendingRestoreIdsRef.current.size > 0) {
+        items = items.filter((item) => !pendingRestoreIdsRef.current.has(item.id));
+      }
       return {
-        items: (data.items || []) as unknown as InboxItem[],
+        items,
         unread_count: data.unread_count || 0,
       };
     };
@@ -134,15 +150,7 @@ export default function NotificationsPage() {
       ? inboxInFlightRef.current.promise
       : null;
     if (!promise) {
-      promise = (async () => {
-        let result = await fetchForFilter();
-        // Cold-start / auth race: first All response can be empty — retry once.
-        if (activeFilter === "all" && result.items.length === 0) {
-          await new Promise((r) => window.setTimeout(r, 500));
-          result = await fetchForFilter();
-        }
-        return result;
-      })();
+      promise = fetchForFilter();
       inboxInFlightRef.current = { filter: activeFilter, promise };
     }
 
@@ -150,12 +158,14 @@ export default function NotificationsPage() {
       .then((result) => {
         // Only apply if this filter is still selected — never blank the list for a stale filter.
         if (inboxFilterRef.current !== activeFilter) return;
+        if (epoch !== inboxEpochRef.current) return;
         setInboxItems(result.items);
         setUnreadCount(result.unread_count);
         setInboxPhase("ready");
       })
       .catch((err) => {
         if (inboxFilterRef.current !== activeFilter) return;
+        if (epoch !== inboxEpochRef.current) return;
         setError(err instanceof Error ? err.message : "Failed loading inbox");
         setInboxPhase("error");
       })
@@ -275,18 +285,25 @@ export default function NotificationsPage() {
 
   const handleArchive = (id: number) => {
     const previous = inboxItems;
+    pendingArchiveIdsRef.current.add(id);
     // Optimistic remove from active view; await durable write before toasting success.
     setInboxItems((prev) => prev.filter((item) => item.id !== id));
     void (async () => {
       try {
         const res = await archiveNotification(id);
-        if (!res?.archived) {
+        if (!res?.archived || !res.archived_at) {
+          pendingArchiveIdsRef.current.delete(id);
           setInboxItems(previous);
           setError("Archive did not persist. Try again.");
           return;
         }
         setSuccessMsg("Moved to Archived. You can restore it anytime.");
+        // Confirm Archived tab from server after durable write (not before).
+        if (inboxFilterRef.current === "archived") {
+          loadInbox("archived", { silent: true });
+        }
       } catch (err) {
+        pendingArchiveIdsRef.current.delete(id);
         setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed archiving");
       }
@@ -295,17 +312,25 @@ export default function NotificationsPage() {
 
   const handleRestore = (id: number) => {
     const previous = inboxItems;
+    pendingRestoreIdsRef.current.add(id);
+    pendingArchiveIdsRef.current.delete(id);
     setInboxItems((prev) => prev.filter((item) => item.id !== id));
     void (async () => {
       try {
         const res = await unarchiveNotification(id);
         if (res?.archived) {
+          pendingRestoreIdsRef.current.delete(id);
           setInboxItems(previous);
           setError("Restore did not persist. Try again.");
           return;
         }
+        pendingRestoreIdsRef.current.delete(id);
         setSuccessMsg("Restored to Inbox.");
+        if (inboxFilterRef.current === "all") {
+          loadInbox("all", { silent: true });
+        }
       } catch (err) {
+        pendingRestoreIdsRef.current.delete(id);
         setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed restoring");
       }

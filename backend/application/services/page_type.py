@@ -37,6 +37,21 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "anti-job-board.com",
     "techteems.com",
     "feedinkoo.com",
+    # News / local-media hosts (not contract postings).
+    "alohastatedaily.com",
+    "staradvertiser.com",
+    "hawaiinewsnow.com",
+    "kitv.com",
+    "civilbeat.org",
+    "techcrunch.com",
+    "theverge.com",
+    "wired.com",
+    "arstechnica.com",
+    "bloomberg.com",
+    "reuters.com",
+    "cnn.com",
+    "bbc.com",
+    "nytimes.com",
 )
 
 # Aggregators / boards: reject index/search pages, but keep single-job URLs.
@@ -404,6 +419,32 @@ def classify_page_type(
         if re.search(
             r"\b(?:boilerplate|starter\s+kit|template|resource|tool|guide|sitemap|"
             r"directory|jobs?\s+near\s+me|job\s+openings?)\b",
+            blob,
+            re.IGNORECASE,
+        ):
+            return PAGE_TYPE_LISTICLE
+        # News / spill / weather / politics stories with zero hiring language.
+        if re.search(
+            r"\b(?:fuel\s+spill|oil\s+spill|breaking\s+news|weather\s+alert|"
+            r"police\s+say|died\s+at|killed\s+in|lawsuit\s+filed|election|"
+            r"press\s+release)\b",
+            blob,
+            re.IGNORECASE,
+        ):
+            return PAGE_TYPE_LISTICLE
+
+    # Require a hiring signal for unknown hosts — freelance discovery often
+    # returns news pages that only match a skill keyword like "remote".
+    if (
+        not HIRING_SIGNAL_RE.search(blob)
+        and not SINGLE_POSTING_PATH_RE.search(path)
+        and host
+        and host not in BOARD_AGGREGATOR_HOSTS
+        and not any(host == h or host.endswith(f".{h}") for h in ALWAYS_NOISE_HOSTS)
+    ):
+        if not re.search(
+            r"\b(?:engineer|developer|designer|freelance|contractor|hiring|"
+            r"looking\s+for|apply\s+now|job\s+description|role)\b",
             blob,
             re.IGNORECASE,
         ):

@@ -235,6 +235,56 @@ async def notification_history(
 # -------------------------------------------------------------------------
 
 
+@router.post("/email/test")
+async def send_test_email_alert(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Send a one-off test email without creating a lead_match inbox row."""
+    from backend.application.services.notification_service import (
+        EmailAdapter,
+        NotificationChannel,
+        NotificationEnvelope,
+        NotificationPriority,
+    )
+
+    destinations = await _load_destinations(session, current_user)
+    to_address = destinations.get("email") or current_user.email
+    if not to_address:
+        raise HTTPException(status_code=400, detail="No alert email configured")
+
+    envelope = NotificationEnvelope(
+        id=f"email-test-{uuid4()}",
+        user_id=str(current_user.id),
+        title="Signal Desk test email",
+        body=(
+            "This is a test from Digest settings. If you received it, "
+            "outbound email is working. This message is email-only — "
+            "it does not create an in-app lead match."
+        ),
+        channels=[NotificationChannel.EMAIL],
+        priority=NotificationPriority.NORMAL,
+        digest=False,
+        ai_summary="Preferences email delivery test",
+        actions=[],
+        destinations=destinations,
+        metadata={"event_type": "test_email", "source": "preferences_test"},
+    )
+    result = await EmailAdapter().send(envelope)
+    if not result.delivered:
+        raise HTTPException(
+            status_code=502,
+            detail=result.error
+            or "Could not deliver test email. Check RESEND_API_KEY or EMAIL_SMTP_* on the API.",
+        )
+    return {
+        "status": "delivered",
+        "delivered": True,
+        "message": "Test email sent",
+        "recipient": to_address,
+    }
+
+
 @router.post("/inbox/test")
 async def create_test_inbox_alert(
     session: Annotated[AsyncSession, Depends(get_db)],

@@ -89,16 +89,8 @@ class JobIngestionService:
                 "reason": "non_opportunity_noise",
             }
 
-        # Optional LLM refine: reject boards/hubs that slipped past rules.
-        llm_type = await classify_page_type_llm(
-            candidate.title, candidate.description, candidate.url
-        )
-        if llm_type and llm_type != PAGE_TYPE_JOB_POST:
-            return {
-                "action": "rejected",
-                "reason": f"non_opportunity_noise:{llm_type}",
-            }
-
+        # Dedupe BEFORE any LLM call — scrapes re-see the same URLs constantly and
+        # were burning Groq TPM classifying already-indexed rows (429 storms).
         existing = await self.repository.get_by_source(
             candidate.source_name, candidate.source_id
         )
@@ -174,6 +166,16 @@ class JobIngestionService:
                     "reasons": decision.reasons,
                     "job_id": job.id,
                 }
+
+        # Optional LLM refine only for net-new candidates.
+        llm_type = await classify_page_type_llm(
+            candidate.title, candidate.description, candidate.url
+        )
+        if llm_type and llm_type != PAGE_TYPE_JOB_POST:
+            return {
+                "action": "rejected",
+                "reason": f"non_opportunity_noise:{llm_type}",
+            }
 
         enrichment = await self.enrichment_service.enrich(candidate)
         meta = candidate.metadata or {}

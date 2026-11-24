@@ -203,14 +203,18 @@ async def _purge_non_opportunity_jobs(
 async def _archive_noise_lead_actions(
     session: AsyncSession, user_id: str
 ) -> int:
-    """Soft-delete saved/pipeline actions whose job is still classified as noise.
+    """Soft-delete accidental Saves of clear board/listicle noise only.
 
-    Does not archive merely because a job was previously expired — false-positive
-    expires must not wipe a user's Save of a real contract posting.
+    Never touches pitched/won/skip. Not called from GET /findings or
+    /pipeline-stats (those races wiped optimistic Save/Undo).
     """
     from datetime import datetime, timezone
 
     from backend.application.services.page_type import (
+        PAGE_TYPE_BOARD_INDEX,
+        PAGE_TYPE_CAREERS_HUB,
+        PAGE_TYPE_LISTICLE,
+        PAGE_TYPE_SPAM_HOST,
         classify_page_type,
         is_non_opportunity_noise,
     )
@@ -221,8 +225,15 @@ async def _archive_noise_lead_actions(
         .where(
             UserLeadAction.user_id == user_id,
             UserLeadAction.deleted_at.is_(None),
+            UserLeadAction.status == "save",
         )
     )
+    hub_types = {
+        PAGE_TYPE_LISTICLE,
+        PAGE_TYPE_BOARD_INDEX,
+        PAGE_TYPE_CAREERS_HUB,
+        PAGE_TYPE_SPAM_HOST,
+    }
     archived = 0
     now = datetime.now(timezone.utc)
     for action, job in result.all():
@@ -241,7 +252,7 @@ async def _archive_noise_lead_actions(
             company,
             enrichment=enrichment_dict,
         )
-        if page_type not in _PURGE_PAGE_TYPES:
+        if page_type not in hub_types:
             continue
         if not is_non_opportunity_noise(
             title,
@@ -704,8 +715,7 @@ async def list_findings(
         if freelance_focus is not None
         else bool(getattr(prefs, "freelance_focus", True))
     )
-    # Drop saved/pipeline noise so Desk, /leads Saved, and Pipeline counts match.
-    await _archive_noise_lead_actions(session, user.id)
+    # Do not auto-archive on findings GET — it raced Save/Undo and wiped counts.
     actions_res = await session.execute(
         select(UserLeadAction).where(
             UserLeadAction.user_id == user.id,
@@ -880,8 +890,11 @@ async def get_pipeline_stats(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
-    """Compute lead conversion funnel metrics and estimated pipeline value in O(N)."""
-    await _archive_noise_lead_actions(session, user.id)
+    """Compute lead conversion funnel metrics and estimated pipeline value in O(N).
+
+    Do not auto-archive on this GET — mutating saves/pitches here raced optimistic
+    UI and made counts snap back a few seconds after Save/Undo.
+    """
     actions_res = await session.execute(
         select(UserLeadAction, JobRecord)
         .outerjoin(JobRecord, UserLeadAction.job_id == JobRecord.id)

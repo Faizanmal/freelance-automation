@@ -142,7 +142,11 @@ class JobExpirationService:
     async def sweep_stale_jobs(
         self, *, max_stale_days: int = 45, limit: int = 100
     ) -> int:
-        """Find and expire active jobs that have passed maximum TTL."""
+        """Find and expire active jobs that have passed maximum TTL.
+
+        Never expire jobs with an active user Save/Pitch/Won — those are still
+        in someone's desk and must not vanish from inventory mid-pipeline.
+        """
         if self.session is None:
             raise RuntimeError("Database session required to sweep stale jobs")
 
@@ -154,10 +158,26 @@ class JobExpirationService:
         )
         res = await self.session.execute(query)
         candidates = list(res.scalars().all())
+        if not candidates:
+            return 0
+
+        protected_ids: set[int] = set()
+        job_ids = [j.id for j in candidates if j.id is not None]
+        if job_ids:
+            protected_res = await self.session.execute(
+                select(UserLeadAction.job_id).where(
+                    UserLeadAction.job_id.in_(job_ids),
+                    UserLeadAction.deleted_at.is_(None),
+                    UserLeadAction.status.in_(("save", "pitched", "won")),
+                )
+            )
+            protected_ids = {row[0] for row in protected_res.all()}
 
         expired_count = 0
         now = datetime.now(UTC)
         for job in candidates:
+            if job.id in protected_ids:
+                continue
             if self.is_stale_by_ttl(job):
                 job.is_expired = True
                 job.expired_at = now

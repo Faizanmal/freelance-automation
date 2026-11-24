@@ -293,6 +293,7 @@ class ScrapeService:
                         "merged": 0,
                         "linked": 0,
                         "skipped": 0,
+                        "rejected": 0,
                     }
                     continue
 
@@ -303,6 +304,7 @@ class ScrapeService:
                     "merged": 0,
                     "linked": 0,
                     "skipped": 0,
+                    "rejected": 0,
                 }
                 for candidate in candidates:
                     candidate = enrich_candidate_classification(candidate)
@@ -338,6 +340,16 @@ class ScrapeService:
                         summary["total_merged"] = int(summary["total_merged"]) + 1
                     elif action in {"skipped", "linked"}:
                         summary["total_skipped"] = int(summary["total_skipped"]) + 1
+                    elif action == "rejected":
+                        summary["total_skipped"] = int(summary["total_skipped"]) + 1
+                        counts.setdefault("reject_reasons", [])
+                        if (
+                            isinstance(counts["reject_reasons"], list)
+                            and len(counts["reject_reasons"]) < 8
+                        ):
+                            counts["reject_reasons"].append(
+                                str(result.get("reason") or "rejected")[:120]
+                            )
 
                 await record_source_success(source_name)
                 record_source_health(

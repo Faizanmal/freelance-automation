@@ -234,13 +234,16 @@ function LeadsPageInner() {
         // Don't clobber in-flight Save/Skip/Undo writes with a stale fetch.
         if (pendingWritesRef.current === 0) {
           setData(response);
-        }
-        if (token) {
-          void getPipelineStats()
-            .then(setPipelineStats)
-            .catch(() => setPipelineStats(null));
-        } else {
-          setPipelineStats(null);
+          if (token) {
+            void getPipelineStats()
+              .then((stats) => {
+                if (pendingWritesRef.current > 0) return;
+                setPipelineStats(stats);
+              })
+              .catch(() => setPipelineStats(null));
+          } else {
+            setPipelineStats(null);
+          }
         }
 
       } catch (err) {
@@ -768,7 +771,8 @@ function LeadsPageInner() {
     setError(null);
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
-    // Keepalive on every lead write so immediate hard-reload cannot abort Save/Unsave.
+    // Interactive writes: normal fetch (await confirm). Keepalive only on pagehide flush —
+    // always-on keepalive was regressing Pitch/Skip Undo (response/rollback races).
     const writeOpts = {
       write_version: gen,
       client_ts: clientTs,
@@ -779,7 +783,7 @@ function LeadsPageInner() {
           : status === "pitched" || status === "won"
             ? "outcome"
             : undefined,
-      keepalive: true as const,
+      keepalive: false as const,
     };
 
     // Fire durable PUT first — before toast/Why? chips. Same path for Save and Pitch.
@@ -803,6 +807,11 @@ function LeadsPageInner() {
             `Save did not confirm (got ${String(confirmed.status)}, expected ${String(expected)})`,
           );
         }
+
+        // Keep optimistic card status — do not re-fetch findings (stale cache races).
+        setData((current) =>
+          current ? applyOptimisticStatus(current, jobId, status) : current,
+        );
 
         // Ranking feedback after durable confirm — must not race or block Save.
         if (!opts?.reasonOnly) {
@@ -839,8 +848,14 @@ function LeadsPageInner() {
           }
         }
 
+        // Reconcile shared Desk/Leads counts only after write confirmed; ignore if a
+        // newer write started, and never let a lagging GET wipe optimistic counts.
         void getPipelineStats()
-          .then(setPipelineStats)
+          .then((stats) => {
+            if (!isLatest()) return;
+            if (pendingWritesRef.current > 0) return;
+            setPipelineStats(stats);
+          })
           .catch(() => null);
       } catch (err) {
         if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
