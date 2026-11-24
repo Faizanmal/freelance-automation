@@ -32,6 +32,7 @@ from backend.application.services.matching import (
     MatchingService,
     is_non_opportunity_noise,
 )
+from backend.application.services.page_type import has_hiring_signal
 from backend.application.services.ranking.pipeline import RankedMatch, RankingPipeline
 
 from backend.application.services.proposal_draft import extract_apply_email
@@ -333,7 +334,19 @@ class LeadFindingsService:
 
         findings = [f for f in findings if not _is_blocked_full_time(f)]
 
-
+        # Cap score so STRONG FIT never appears without a role/hiring signal.
+        for finding in findings:
+            if finding.job.id in preserved_ids:
+                continue
+            if has_hiring_signal(
+                finding.job.title, finding.job.description, finding.job.url
+            ):
+                continue
+            # Strong fit UI threshold is 70% — keep below that without hiring signal.
+            if finding.fit_score is not None and finding.fit_score >= 0.70:
+                finding.fit_score = 0.69
+            if finding.score is not None and finding.score >= 0.70:
+                finding.score = 0.69
 
         if not include_skipped and skipped:
 
@@ -1126,7 +1139,10 @@ class LeadFindingsService:
 
             "employment_risks": employment_risks,
 
-            "suppress_fit_badge": bool(employment_risks),
+            "suppress_fit_badge": bool(employment_risks)
+            or not has_hiring_signal(job.title, job.description, job.url),
+
+            "has_hiring_signal": has_hiring_signal(job.title, job.description, job.url),
 
             "client_signal": finding.client_signal or {},
 

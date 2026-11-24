@@ -324,6 +324,10 @@ LEAD_ACTION_COLUMNS = {
         "ALTER TABLE user_lead_actions ADD COLUMN deleted_at DATETIME",
         "ALTER TABLE user_lead_actions ADD COLUMN deleted_at TIMESTAMPTZ",
     ),
+    "client_write_version": (
+        "ALTER TABLE user_lead_actions ADD COLUMN client_write_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_lead_actions ADD COLUMN client_write_version INTEGER NOT NULL DEFAULT 0",
+    ),
 }
 
 

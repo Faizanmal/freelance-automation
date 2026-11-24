@@ -23,6 +23,10 @@ PAGE_TYPE_UNKNOWN = "unknown"
 
 BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "starterindex.com",
+    "instahyre.com",
+    "beaconbid.com",
+    "crossover.com",
+    "zippia.com",
     "remoteleaf.com",
     "jobleads.com",
     "jobleads.co",
@@ -84,6 +88,7 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "reed.co.uk",
     "europol.europa.eu",
     "mwaa.com",
+    "codesquad.org",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -170,15 +175,32 @@ LISTICLE_RE = re.compile(
     r"(?:"
     r"\btop\s+\d+\b"
     r"|\b\d+\s+(?:best|free|open[\s-]?source|amazing|essential)\b"
-    r"|\b\d+\s+.*\b(?:boilerplates?|starter\s+kits?|templates?|resources?|tools?)\b"
+    r"|\b\d+[,\d]*\s+[\w,+/\s&.-]{0,80}\b(?:boilerplates?|starter\s+kits?|templates?|resources?|tools?|libraries|frameworks)\b"
     r"|\bbest\s+(?:freelance|remote)\b"
     r"|\bhow\s+to\s+(?:become|hire|find|get|start|land|choose)\b"
+    r"|\bbecome\s+a\s+(?:developer|engineer|freelancer|programmer)\b"
     r"|\b(?:ultimate|complete|definitive)\s+guide\b"
     r"|\bboilerplates?\b"
     r"|\bstarter\s+kits?\b"
     r"|\bawesome-[\w-]+\b"
     r"|\banti[\s-]?job[\s-]?board\b"
     r"|\bjob\s+board\b"
+    r"|\b(?:sitemap|round[\s-]?up|curated\s+list|directory\s+of)\b"
+    r"|\bjobs?\s+near\s+me\b"
+    r"|\b\d+\s+remote\s+\w+\s+job\s+openings?\b"
+    r"|\bapply\s+to\s+\d+\s+remote\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Real postings mention a role/engagement; listicles/directories usually do not.
+HIRING_SIGNAL_RE = re.compile(
+    r"(?:"
+    r"\b(?:hir(?:e|ing)|looking\s+for|seeking|we're\s+hiring|now\s+hiring)\b"
+    r"|\b(?:freelance|contractor|contract(?:ing)?|consultant|gig)\b"
+    r"|\b(?:role|position|opening|vacancy|apply|application)\b"
+    r"|\b(?:engineer|developer|designer|architect|specialist)\b"
+    r"|\b(?:full[\s-]?stack|back[\s-]?end|front[\s-]?end|devops|sre)\b"
     r")",
     re.IGNORECASE,
 )
@@ -353,12 +375,37 @@ def classify_page_type(
     ):
         return PAGE_TYPE_LISTICLE
 
+    # Content / roundup pages with no hiring language are not job posts.
+    if not HIRING_SIGNAL_RE.search(blob) and not SINGLE_POSTING_PATH_RE.search(path):
+        if re.search(
+            r"\b(?:boilerplate|starter\s+kit|template|resource|tool|guide|sitemap|"
+            r"directory|jobs?\s+near\s+me|job\s+openings?)\b",
+            blob,
+            re.IGNORECASE,
+        ):
+            return PAGE_TYPE_LISTICLE
+
     rule_type = PAGE_TYPE_JOB_POST
     if enrichment:
         prior = str(enrichment.get("page_type") or "").strip().lower()
         if prior in _NOISE_PAGE_TYPES:
             return prior
     return rule_type
+
+
+def has_hiring_signal(
+    title: str | None,
+    description: str | None = None,
+    url: str | None = None,
+) -> bool:
+    """True when the listing mentions a role, engagement, or apply/hiring language."""
+    _host, path = _host_path(url)
+    blob = f"{title or ''} {description or ''}"
+    if HIRING_SIGNAL_RE.search(blob):
+        return True
+    if SINGLE_POSTING_PATH_RE.search(path):
+        return True
+    return False
 
 
 def estimate_monthly_salary_usd(

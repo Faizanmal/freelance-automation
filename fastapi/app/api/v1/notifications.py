@@ -371,13 +371,12 @@ async def mark_all_read(
     return {"marked_read": result.rowcount, "read_at": now.isoformat()}
 
 
-@router.delete("/inbox/{notification_id}")
-async def archive_notification(
+async def _archive_inbox_item(
     notification_id: int,
-    session: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    session: AsyncSession,
+    current_user: User,
 ) -> dict[str, Any]:
-    """Archives a notification from the inbox."""
+    """Persist archived_at; used by DELETE and POST archive routes."""
     user_id = str(current_user.id)
     res = await session.execute(
         select(NotificationRecord).where(
@@ -390,8 +389,34 @@ async def archive_notification(
         raise HTTPException(status_code=404, detail="Notification not found")
 
     record.archived_at = datetime.now(UTC)
+    session.add(record)
     await session.commit()
-    return {"id": record.id, "archived": True}
+    await session.refresh(record)
+    return {
+        "id": record.id,
+        "archived": True,
+        "archived_at": record.archived_at.isoformat() if record.archived_at else None,
+    }
+
+
+@router.delete("/inbox/{notification_id}")
+async def archive_notification(
+    notification_id: int,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Archives a notification from the inbox (DELETE)."""
+    return await _archive_inbox_item(notification_id, session, current_user)
+
+
+@router.post("/inbox/{notification_id}/archive")
+async def archive_notification_post(
+    notification_id: int,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Archives a notification (POST — preferred; survives proxies that strip DELETE)."""
+    return await _archive_inbox_item(notification_id, session, current_user)
 
 
 @router.post("/inbox/{notification_id}/unarchive")
@@ -413,8 +438,14 @@ async def unarchive_notification(
         raise HTTPException(status_code=404, detail="Notification not found")
 
     record.archived_at = None
+    session.add(record)
     await session.commit()
-    return {"id": record.id, "archived": False}
+    await session.refresh(record)
+    return {
+        "id": record.id,
+        "archived": False,
+        "archived_at": None,
+    }
 
 
 # -------------------------------------------------------------------------

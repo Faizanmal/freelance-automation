@@ -46,6 +46,69 @@ router = APIRouter(prefix="/preferences", tags=["preferences"])
 ExperienceLevel = Literal["any", "junior", "mid", "senior", "lead"]
 
 
+async def _purge_non_opportunity_jobs(
+    session: AsyncSession, jobs: list[JobRecord]
+) -> list[JobRecord]:
+    """Mark stored listicles/directories expired so they leave the index."""
+    from datetime import datetime, timezone
+
+    from backend.application.services.page_type import (
+        BOARD_AGGREGATOR_HOSTS,
+        is_non_opportunity_noise,
+    )
+    from sqlalchemy import or_
+
+    changed = False
+    keep: list[JobRecord] = []
+    now = datetime.now(timezone.utc)
+    seen_ids: set[int] = set()
+    for job in jobs:
+        if getattr(job, "is_expired", False):
+            continue
+        enrichment = getattr(job, "enrichment", None)
+        if is_non_opportunity_noise(
+            job.title,
+            job.description,
+            job.url,
+            job.company,
+            enrichment=enrichment if isinstance(enrichment, dict) else None,
+        ):
+            job.is_expired = True
+            job.expired_reason = "non_opportunity_noise"
+            job.expired_at = now
+            session.add(job)
+            changed = True
+            if job.id is not None:
+                seen_ids.add(job.id)
+            continue
+        keep.append(job)
+
+    # Also expire denylisted hosts already stored outside the candidate window.
+    host_clauses = [
+        JobRecord.url.ilike(f"%{host}%") for host in BOARD_AGGREGATOR_HOSTS[:20]
+    ]
+    if host_clauses:
+        result = await session.execute(
+            select(JobRecord).where(
+                JobRecord.is_expired.is_(False),
+                or_(*host_clauses),
+            ).limit(500)
+        )
+        for job in result.scalars().all():
+            if job.id in seen_ids:
+                continue
+            job.is_expired = True
+            job.expired_reason = "non_opportunity_noise"
+            job.expired_at = now
+            session.add(job)
+            changed = True
+
+    if changed:
+        await session.commit()
+        get_recommendation_cache().invalidate_prefix()
+    return keep
+
+
 class PreferencesPayload(BaseModel):
     keywords: list[str] = Field(
         default_factory=list, max_length=40
@@ -102,6 +165,8 @@ class LeadActionPayload(BaseModel):
     status: Literal["save", "skip", "pitched", "won", "clear"]
     reason: str | None = Field(default=None, max_length=64)
     feedback_kind: str | None = Field(default=None, max_length=32)
+    write_version: int | None = Field(default=None, ge=0)
+    client_ts: int | None = Field(default=None, ge=0)
 
 
 class MatchFeedbackPayload(BaseModel):
@@ -116,6 +181,8 @@ class MatchFeedbackPayload(BaseModel):
     ]
     reason: str | None = Field(default=None, max_length=64)
     outcome: Literal["interview", "contract", "rejected", "none"] | None = None
+    write_version: int | None = Field(default=None, ge=0)
+    client_ts: int | None = Field(default=None, ge=0)
 
 
 async def _lead_status_sets(
@@ -525,21 +592,18 @@ async def list_findings(
         freelance_focus=focus,
         include_skipped=include_skipped,
     )
-    cache = get_recommendation_cache()
-    cached = cache.get(cache_key)
-    if isinstance(cached, dict):
-        return {**cached, "cache_hit": True}
-
-    repo = SQLAlchemyJobRepository(session)
-    jobs = await _load_match_candidate_jobs(session, prefs, limit=300)
-    # Always include actioned leads so Saved/Pitched stay visible even when the
-    # source is later filtered as noise or falls outside the candidate window.
     actioned_ids = [
         jid
         for jid, status in lead_actions.items()
         if status in {"save", "pitched", "won"}
         or (include_skipped and status == "skip")
     ]
+    preserved = set(actioned_ids)
+
+    repo = SQLAlchemyJobRepository(session)
+    jobs = await _load_match_candidate_jobs(session, prefs, limit=300)
+    # Always include actioned leads so Saved/Pitched stay visible even when the
+    # source is later filtered as noise or falls outside the candidate window.
     if actioned_ids:
         known = {j.id for j in jobs if j.id is not None}
         missing = [jid for jid in actioned_ids if jid not in known]
@@ -548,6 +612,22 @@ async def list_findings(
                 select(JobRecord).where(JobRecord.id.in_(missing))
             )
             jobs = list(jobs) + list(extra_res.scalars().all())
+    # Purge listicles/directories already stored (e.g. starterindex) before cache.
+    purge_candidates = [
+        j for j in jobs if j.id is None or j.id not in preserved
+    ]
+    await _purge_non_opportunity_jobs(session, purge_candidates)
+    jobs = [
+        j
+        for j in jobs
+        if not getattr(j, "is_expired", False) or (j.id is not None and j.id in preserved)
+    ]
+
+    cache = get_recommendation_cache()
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return {**cached, "cache_hit": True}
+
     total_indexed = await repo.count_jobs()
     skill_weights = await feedback.skill_weights(user.id)
     payload = LeadFindingsService(pipeline=pipeline).build(
@@ -590,17 +670,13 @@ async def set_lead_action(
     pipeline = PipelineService(session)
 
     if payload.status == "clear":
-        await pipeline.clear_lead(user_id=user.id, job_id=job_id)
-        # Preserve prior delete semantics for callers that expect row removal.
-        result = await session.execute(
-            select(UserLeadAction).where(
-                UserLeadAction.user_id == user.id,
-                UserLeadAction.job_id == job_id,
-            )
+        # Soft-delete only — keep client_write_version so a late original write
+        # cannot recreate the row after Undo.
+        await pipeline.clear_lead(
+            user_id=user.id,
+            job_id=job_id,
+            write_version=payload.write_version,
         )
-        row = result.scalar_one_or_none()
-        if row is not None:
-            await session.delete(row)
         await session.commit()
         get_recommendation_cache().invalidate_user(str(user.id))
         return {"job_id": job_id, "status": None}
@@ -611,6 +687,7 @@ async def set_lead_action(
         status=payload.status,
         reason=payload.reason,
         feedback_kind=payload.feedback_kind or payload.status,
+        write_version=payload.write_version,
     )
     await session.commit()
     if row is not None:
@@ -719,6 +796,7 @@ async def demo_findings(
     """Unauthenticated lead findings digest for the desk demo."""
     repo = SQLAlchemyJobRepository(session)
     jobs = await repo.list_recent(limit=300)
+    jobs = await _purge_non_opportunity_jobs(session, list(jobs))
     total_indexed = await repo.count_jobs()
     prefs = UserPreferences(
         user_id="demo",
@@ -870,18 +948,10 @@ async def post_match_feedback(
         from backend.application.services.pipeline import PipelineService
 
         await PipelineService(session).clear_lead(
-            user_id=user.id, job_id=payload.job_id
+            user_id=user.id,
+            job_id=payload.job_id,
+            write_version=payload.write_version,
         )
-        # Re-fetch — clear_lead soft-deletes; hard-delete for legacy callers.
-        result = await session.execute(
-            select(UserLeadAction).where(
-                UserLeadAction.user_id == user.id,
-                UserLeadAction.job_id == payload.job_id,
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row is not None:
-            await session.delete(row)
         await session.commit()
         get_recommendation_cache().invalidate_user(str(user.id))
         return {"job_id": payload.job_id, "status": None, "feedback_kind": "clear"}
@@ -957,6 +1027,7 @@ async def post_match_feedback(
         status=status,
         reason=reason,
         feedback_kind=kind,
+        write_version=payload.write_version,
     )
     await session.commit()
     if row is not None:

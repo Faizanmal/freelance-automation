@@ -24,6 +24,7 @@ from backend.application.services.page_type import (
     classify_page_type,
     classify_page_type_llm,
     domain_key,
+    has_hiring_signal,
     is_non_opportunity_noise,
 )
 
@@ -46,6 +47,7 @@ __all__ = (
     "classify_page_type",
     "classify_page_type_llm",
     "domain_key",
+    "has_hiring_signal",
     "is_non_opportunity_noise",
 )
 from database.models.job import JobRecord

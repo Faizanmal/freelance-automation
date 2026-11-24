@@ -1,21 +1,21 @@
 {
   "dataset": "matching_eval_v1",
   "weighted_v1": {
-    "precision_at_5": 1.0,
-    "precision_at_10": 0.7778,
-    "ndcg_at_10": 0.9298,
-    "recall_at_20": 0.875,
+    "precision_at_5": 0.5,
+    "precision_at_10": 0.5,
+    "ndcg_at_10": 0.2887,
+    "recall_at_20": 0.125,
     "duplicate_rate": 0.0,
-    "latency_ms": 2.17,
+    "latency_ms": 7.98,
     "cost_usd": 0.0
   },
   "hybrid_v1": {
-    "precision_at_5": 1.0,
-    "precision_at_10": 0.7778,
-    "ndcg_at_10": 0.9298,
-    "recall_at_20": 0.875,
+    "precision_at_5": 0.5,
+    "precision_at_10": 0.5,
+    "ndcg_at_10": 0.2887,
+    "recall_at_20": 0.125,
     "duplicate_rate": 0.0,
-    "latency_ms": 3.35,
+    "latency_ms": 9.69,
     "cost_usd": 0.0
   },
   "examples": {

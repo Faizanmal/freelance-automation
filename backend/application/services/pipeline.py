@@ -106,6 +106,7 @@ class PipelineService:
         reason: str | None = None,
         feedback_kind: str | None = None,
         source: str = "user",
+        write_version: int | None = None,
     ) -> UserLeadAction:
         row = await self._get_action(user_id, job_id, include_deleted=True)
         target_stage = stage or stage_for_status(status)
@@ -119,12 +120,18 @@ class PipelineService:
                 pipeline_stage=target_stage,
                 reason=reason,
                 feedback_kind=feedback_kind,
+                client_write_version=int(write_version or 0),
             )
             self.session.add(row)
             await self.session.flush()
             await self._record_stage(
                 row, from_stage=None, to_stage=target_stage, reason=reason, source=source
             )
+            return row
+
+        # Ignore stale/late writes so Undo cannot be overridden by the original.
+        current_version = int(getattr(row, "client_write_version", 0) or 0)
+        if write_version is not None and int(write_version) < current_version:
             return row
 
         if row.deleted_at is not None:
@@ -137,6 +144,8 @@ class PipelineService:
             row.reason = reason
         if feedback_kind is not None:
             row.feedback_kind = feedback_kind
+        if write_version is not None:
+            row.client_write_version = int(write_version)
         if prev != target_stage:
             await self._record_stage(
                 row, from_stage=prev, to_stage=target_stage, reason=reason, source=source
@@ -151,10 +160,13 @@ class PipelineService:
         status: str,
         reason: str | None = None,
         feedback_kind: str | None = None,
+        write_version: int | None = None,
     ) -> UserLeadAction | None:
         """Keep pipeline_stage aligned when Save/Skip / apply paths mutate status."""
         if status == "clear":
-            return await self.clear_lead(user_id=user_id, job_id=job_id)
+            return await self.clear_lead(
+                user_id=user_id, job_id=job_id, write_version=write_version
+            )
 
         stage = stage_for_status(status)
         return await self.ensure_lead(
@@ -165,16 +177,28 @@ class PipelineService:
             reason=reason,
             feedback_kind=feedback_kind,
             source="system",
+            write_version=write_version,
         )
 
-    async def clear_lead(self, *, user_id: str, job_id: int) -> UserLeadAction | None:
-        row = await self._get_action(user_id, job_id)
+    async def clear_lead(
+        self,
+        *,
+        user_id: str,
+        job_id: int,
+        write_version: int | None = None,
+    ) -> UserLeadAction | None:
+        row = await self._get_action(user_id, job_id, include_deleted=True)
         if row is None:
             return None
+        current_version = int(getattr(row, "client_write_version", 0) or 0)
+        if write_version is not None and int(write_version) < current_version:
+            return row
         prev = row.pipeline_stage
         row.deleted_at = _utcnow()
         row.status = "skip"
         row.pipeline_stage = "archived"
+        if write_version is not None:
+            row.client_write_version = int(write_version)
         await self._record_stage(
             row, from_stage=prev, to_stage="archived", reason="clear", source="user"
         )
@@ -722,13 +746,8 @@ class PipelineService:
         def _rate(num: int, den: int) -> float:
             return round(num / den, 3) if den > 0 else 0.0
 
-        qualified = (
-            stage_counts.get("researching", 0)
-            + stage_counts.get("ready", 0)
-            + stage_counts.get("applied", 0)
-            + stage_counts.get("interview", 0)
-            + stage_counts.get("negotiating", 0)
-        )
+        # Qualified = Ready + Applied only (outreach-ready / submitted).
+        qualified = stage_counts.get("ready", 0) + stage_counts.get("applied", 0)
         active = sum(stage_counts.get(s, 0) for s in ACTIVE_STAGES)
 
         return {

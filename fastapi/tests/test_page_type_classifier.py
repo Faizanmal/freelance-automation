@@ -138,6 +138,11 @@ def test_rejects_starterindex_even_with_stale_job_post_enrichment():
         url="https://www.starterindex.com/fastapi",
         enrichment={"page_type": "job_post"},
     )
+    assert is_non_opportunity_noise(
+        "27 Python, Typescript SaaS Boilerplates and Starter Kits",
+        url="https://www.starterindex.com/python-typescript",
+        enrichment={"page_type": "job_post"},
+    )
 
 
 def test_rules_win_over_stale_enrichment_for_deployed_noise():
