@@ -54,7 +54,7 @@ export default function FinancePage() {
   const [feeTaxPct, setFeeTaxPct] = useState<number>(0.0);
   const [withholdingPct, setWithholdingPct] = useState<number>(0.0);
   const [withdrawalFee, setWithdrawalFee] = useState<number>(0.0);
-  const [withdrawalCount, setWithdrawalCount] = useState<number>(1);
+  const [withdrawalCount] = useState<number>(1);
   const [processorFeePct, setProcessorFeePct] = useState<number>(2.9);
   const [processorFeeFixed, setProcessorFeeFixed] = useState<number>(0.3);
   const [actualFxRate, setActualFxRate] = useState<number | undefined>(90.0);
@@ -96,6 +96,8 @@ export default function FinancePage() {
     if (token) {
       loadEarnings();
     }
+    // Mount-only template/earnings bootstrap; template selection is applied after load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleTemplateChange = (tplId: string) => {
@@ -234,6 +236,7 @@ export default function FinancePage() {
       });
     }, 200);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on inputs only
   }, [
     grossAmount,
     baseCurrency,
@@ -266,6 +269,7 @@ export default function FinancePage() {
       });
     }, 200);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on inputs only
   }, [
     tab,
     targetNet,

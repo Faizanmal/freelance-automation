@@ -1,30 +1,21 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   AlertTriangle,
   Building2,
-  Calendar,
   CheckCircle2,
-  Clock,
   DollarSign,
   FileText,
-  Filter,
-  HelpCircle,
-  Layers,
   MessageSquare,
   Plus,
   RefreshCw,
-  Search,
   Send,
-  Shield,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
-  UserCheck,
   Users,
 } from "lucide-react";
 import {
@@ -33,10 +24,8 @@ import {
   appealProjectModeration,
   approveProjectAiScope,
   clarifyProjectScope,
-  counterProposeOffer,
   createProjectBrief,
   createProjectOffer,
-  declineApplication,
   draftNegotiationTerms,
   getConversationMessages,
   getEmployerOrgs,
@@ -50,7 +39,6 @@ import {
   listProjectApplications,
   listProjects,
   reconfirmProjectHiringIntent,
-  reportProjectConversation,
   sendConversationMessage,
   shortlistProjectCandidate,
   submitProjectBrief,
@@ -85,17 +73,17 @@ export default function EmployerProjectsPage() {
   const [rawDescription, setRawDescription] = useState("");
   const [budgetMin, setBudgetMin] = useState<number>(2000);
   const [budgetMax, setBudgetMax] = useState<number>(5000);
-  const [currency, setCurrency] = useState("USD");
+  const [currency] = useState("USD");
   const [ratePeriod, setRatePeriod] = useState<"hourly" | "fixed" | "monthly_retainer">("fixed");
   const [scopeLevel, setScopeLevel] = useState<"small" | "medium" | "large" | "enterprise">("medium");
   const [workType, setWorkType] = useState<"remote" | "hybrid" | "onsite">("remote");
-  const [commitmentType, setCommitmentType] = useState<"contract" | "full_time" | "part_time">("contract");
-  const [requiredHours, setRequiredHours] = useState(20);
+  const [commitmentType] = useState<"contract" | "full_time" | "part_time">("contract");
+  const [requiredHours] = useState(20);
   const [hiringDeadlineDays, setHiringDeadlineDays] = useState(14);
   const [clarificationResult, setClarificationResult] = useState<ScopeClarificationResult | null>(null);
   const [clarifyingScope, setClarifyingScope] = useState(false);
-  const [aiApproved, setAiApproved] = useState(false);
-  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
+  const [, setAiApproved] = useState(false);
+  const [, setCreatedProjectId] = useState<string | null>(null);
 
   // Clarifications state
   const [clarifications, setClarifications] = useState<ProjectClarificationItem[]>([]);
@@ -191,7 +179,7 @@ export default function EmployerProjectsPage() {
     try {
       const res = await getProjectClarifications(projectId, true);
       setClarifications(res.clarifications || []);
-    } catch (err: unknown) {
+    } catch {
       // Non-fatal
     }
   }
@@ -211,7 +199,7 @@ export default function EmployerProjectsPage() {
       setMatches(shortlistRes.shortlist || []);
       setApplications(appRes.applications || []);
       setOffers(offersRes.offers || []);
-    } catch (err: unknown) {
+    } catch {
       // Non-fatal
     } finally {
       setLoadingMatches(false);

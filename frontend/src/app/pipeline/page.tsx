@@ -393,6 +393,9 @@ export default function PipelinePage() {
           <Card className="p-4">
             <p className="text-sm text-[var(--text-muted)]">Qualified leads</p>
             <p className="mt-1 text-2xl font-semibold">{dashboard.qualified_leads}</p>
+            <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
+              Ready · Applied · Interview · Negotiating
+            </p>
           </Card>
           <Card className="p-4">
             <p className="text-sm text-[var(--text-muted)]">Active opportunities</p>

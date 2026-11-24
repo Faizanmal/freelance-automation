@@ -7,25 +7,15 @@ import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   AlertTriangle,
-  Building2,
-  Calendar,
-  CheckCircle2,
-  Clock,
   DollarSign,
-  FileText,
-  HelpCircle,
-  Layers,
   MessageSquare,
   Send,
-  Shield,
-  ShieldAlert,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import {
   acceptProjectOffer,
   counterProposeOffer,
-  declineProjectOffer,
   getProjectClarifications,
   getProjectDetails,
   getProjectOffers,
@@ -195,7 +185,7 @@ export default function NativeProjectDetailPage() {
     try {
       setSaving(true);
       setError(null);
-      const res = await submitProjectClarification(projectId, {
+      await submitProjectClarification(projectId, {
         question: questionText.trim(),
       });
       setSuccess("Your question was submitted to the client! Once answered, it will appear publicly below.");

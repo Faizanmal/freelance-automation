@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, ShieldCheck, Zap, AlertCircle } from "lucide-react";
+import { Check, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export default function PricingPage() {
@@ -34,9 +34,8 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState(false);
   const [userUsage, setUserUsage] = useState<UserUsageStatus | null>(null);
-  const [unitEconomics, setUnitEconomics] = useState<Awaited<ReturnType<typeof getUnitEconomics>> | null>(null);
-  const [providerEligibility, setProviderEligibility] = useState<Awaited<ReturnType<typeof getProviderEligibility>> | null>(null);
-  const [showTransparency, setShowTransparency] = useState(false);
+  const [, setUnitEconomics] = useState<Awaited<ReturnType<typeof getUnitEconomics>> | null>(null);
+  const [, setProviderEligibility] = useState<Awaited<ReturnType<typeof getProviderEligibility>> | null>(null);
 
   useEffect(() => {
     const token = getToken();

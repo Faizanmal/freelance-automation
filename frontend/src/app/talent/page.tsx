@@ -1,24 +1,18 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
-  Briefcase,
   CheckCircle2,
   Clock,
-  ExternalLink,
-  Filter,
   Mail,
   RefreshCw,
-  Search,
   Shield,
-  ShieldAlert,
   ShieldCheck,
   Sparkles,
   UserCheck,
-  X,
 } from "lucide-react";
 import { getNetworkReputation, searchTalentDirectory, type TalentDirectoryItem } from "@/lib/api";
 
@@ -32,10 +26,10 @@ export default function TalentDirectoryPage() {
   const [searchSkill, setSearchSkill] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [workType, setWorkType] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  const [currency] = useState("USD");
   const [minRate, setMinRate] = useState<number | undefined>(undefined);
   const [maxRate, setMaxRate] = useState<number | undefined>(undefined);
-  const [availability, setAvailability] = useState("");
+  const [availability] = useState("");
   const [minLevel, setMinLevel] = useState<number | undefined>(undefined);
   const [includeSample, setIncludeSample] = useState(false);
 
@@ -49,7 +43,7 @@ export default function TalentDirectoryPage() {
   const [contactMsg, setContactMsg] = useState("");
   const [contactSuccess, setContactSuccess] = useState(false);
 
-  async function fetchDirectory() {
+  const fetchDirectory = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -71,12 +65,21 @@ export default function TalentDirectoryPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [
+    selectedSkills,
+    workType,
+    currency,
+    minRate,
+    maxRate,
+    availability,
+    minLevel,
+    includeSample,
+  ]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchDirectory(), 0);
     return () => window.clearTimeout(timer);
-  }, [selectedSkills, workType, currency, minRate, maxRate, availability, minLevel, includeSample]);
+  }, [fetchDirectory]);
 
   function handleAddSkillFilter(e: React.FormEvent) {
     e.preventDefault();

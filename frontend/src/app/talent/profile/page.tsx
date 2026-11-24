@@ -5,9 +5,7 @@ import Link from "next/link";
 import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
-  Briefcase,
   CheckCircle2,
-  Clock,
   Eye,
   Globe,
   Lock,
@@ -15,11 +13,9 @@ import {
   RefreshCw,
   Save,
   Shield,
-  ShieldAlert,
   ShieldCheck,
   Trash2,
   Unlock,
-  UploadCloud,
 } from "lucide-react";
 import {
   addNetworkArtifact,
@@ -85,7 +81,6 @@ export default function TalentProfileEditorPage() {
   const [showPreview, setShowPreview] = useState(false);
 
   // Sandbox Verification Modal
-  const [verifyingArtifact, setVerifyingArtifact] = useState<NetworkArtifactItem | null>(null);
   const [verificationFeedback, setVerificationFeedback] = useState<string | null>(null);
 
   useEffect(() => {

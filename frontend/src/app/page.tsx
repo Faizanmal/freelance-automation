@@ -865,7 +865,13 @@ export default function HomePage() {
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-[var(--text-muted)]">Shared pool</dt>
-                <dd className="text-[var(--text)]">{total} indexed</dd>
+                <dd className="text-[var(--text)]">
+                  {loading ? (
+                    <Skeleton className="inline-block h-4 w-20 align-middle" />
+                  ) : (
+                    `${total} indexed`
+                  )}
+                </dd>
               </div>
               {findingsMeta?.total_scanned ? (
                 <div className="flex justify-between gap-3">

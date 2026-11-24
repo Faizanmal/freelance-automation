@@ -50,7 +50,15 @@ export class ErrorBoundary extends Component<Props, State> {
           <Button type="button" onClick={this.reset}>
             Try again
           </Button>
-          <Button type="button" variant="outline" onClick={() => { window.location.href = "/"; }}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              // Class error boundary cannot use useRouter; full navigation resets app state.
+              // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+              window.location.href = "/";
+            }}
+          >
             Back to desk
           </Button>
         </div>

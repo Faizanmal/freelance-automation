@@ -206,9 +206,9 @@ function LeadsPageInner() {
   const writeGenRef = useRef(new Map<number, number>());
   const pendingWritesRef = useRef(0);
   const dataRef = useRef(data);
-  dataRef.current = data;
-
-
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   const load = useCallback((value: string, focus?: boolean, silent = false) => {
     startTransition(async () => {
@@ -646,9 +646,20 @@ function LeadsPageInner() {
       } else {
         body = JSON.stringify({ status: write.status, reason: write.reason });
       }
+      const url = `${apiBase}${path}`;
+      const method = isClear || path.endsWith("/action") ? "PUT" : "POST";
       try {
-        void fetch(`${apiBase}${path}`, {
-          method: isClear || path.endsWith("/action") ? "PUT" : "POST",
+        // Prefer sendBeacon for unload durability (no Leave-site dialog).
+        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+          const blob = new Blob([body], { type: "application/json" });
+          // sendBeacon cannot set Authorization — fall through to keepalive fetch.
+          if (!token) {
+            navigator.sendBeacon(url, blob);
+            continue;
+          }
+        }
+        void fetch(url, {
+          method,
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
@@ -665,30 +676,74 @@ function LeadsPageInner() {
   useEffect(() => {
     const hasPending = () =>
       pendingWritesRef.current > 0 || pendingPayloadsRef.current.size > 0;
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (hasPending()) {
-        flushPendingWrites();
-        event.preventDefault();
-        event.returnValue = "";
-      }
+    // Silent flush only — never call preventDefault (that triggers "Leave site?").
+    const onPageHide = () => {
+      if (hasPending()) flushPendingWrites();
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden" && hasPending()) {
         flushPendingWrites();
       }
     };
-    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onPageHide);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [flushPendingWrites]);
 
+  const bumpPipelineStats = useCallback(
+    (
+      previousStatus: string | null,
+      nextStatus: "save" | "skip" | "pitched" | "won" | "clear",
+    ) => {
+      setPipelineStats((prev) => {
+        if (!prev) {
+          // Seed a local store so header counts move with the card immediately.
+          return {
+            saved_count: nextStatus === "save" ? 1 : 0,
+            pitched_count: nextStatus === "pitched" ? 1 : 0,
+            won_count: nextStatus === "won" ? 1 : 0,
+            skipped_count: nextStatus === "skip" ? 1 : 0,
+            total_engaged: nextStatus === "skip" || nextStatus === "clear" ? 0 : 1,
+            pitch_rate: 0,
+            win_rate: 0,
+            saved_value: 0,
+            pitched_value: 0,
+            won_value: 0,
+            active_pipeline_value: 0,
+          };
+        }
+        let saved = prev.saved_count || 0;
+        let pitched = prev.pitched_count || 0;
+        let won = prev.won_count || 0;
+        let skipped = prev.skipped_count || 0;
+        if (previousStatus === "save") saved = Math.max(0, saved - 1);
+        if (previousStatus === "skip") skipped = Math.max(0, skipped - 1);
+        if (previousStatus === "pitched") pitched = Math.max(0, pitched - 1);
+        if (previousStatus === "won") won = Math.max(0, won - 1);
+        if (nextStatus === "save") saved += 1;
+        if (nextStatus === "skip") skipped += 1;
+        if (nextStatus === "pitched") pitched += 1;
+        if (nextStatus === "won") won += 1;
+        return {
+          ...prev,
+          saved_count: saved,
+          pitched_count: pitched,
+          won_count: won,
+          skipped_count: skipped,
+          total_engaged: saved + pitched + won,
+        };
+      });
+    },
+    [],
+  );
+
   const updateLeadStatus = (
     jobId: number,
     status: "save" | "skip" | "pitched" | "won" | "clear",
-    opts?: { reason?: string },
+    opts?: { reason?: string; silentToast?: boolean },
   ) => {
     if (!getToken()) {
       router.push("/auth");
@@ -696,23 +751,118 @@ function LeadsPageInner() {
     }
 
     const reason = opts?.reason;
+    const snapshot = dataRef.current;
     const previousStatus =
-      dataRef.current?.items.find((item) => item.job_id === jobId)?.user_status ?? null;
+      snapshot?.items.find((item) => item.job_id === jobId)?.user_status ?? null;
+    const previousStats = pipelineStats;
     // Each click (including Undo) gets its own generation so a stale success
     // handler from a prior write cannot overwrite a newer durable intent.
     const gen = (writeGenRef.current.get(jobId) || 0) + 1;
     writeGenRef.current.set(jobId, gen);
     pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen });
 
-    // Await durable write BEFORE mutating UI — prevents hard-reload races.
+    // Optimistic UI first — toast + counts update immediately.
+    setData((current) =>
+      current ? applyOptimisticStatus(current, jobId, status) : current,
+    );
+    bumpPipelineStats(previousStatus, status);
     setWritingJobIds((prev) => new Set(prev).add(jobId));
+
+    const message =
+      status === "save"
+        ? "Lead saved"
+        : status === "pitched"
+          ? "Lead marked as pitched / interview"
+          : status === "won"
+            ? "Lead marked as contract won"
+            : status === "skip"
+              ? "Lead skipped — hidden from default list"
+              : previousStatus === "save"
+                ? "Lead unsaved"
+                : previousStatus === "skip"
+                  ? "Lead restored"
+                  : previousStatus === "pitched"
+                    ? "Pitched cleared"
+                    : "Lead status cleared";
+
+    setSubmitMessage(message);
+    setError(null);
+
+    if (!opts?.silentToast) {
+      try {
+        if (status === "skip") {
+          toast(message, {
+            tone: "success",
+            actionLabel: "Undo",
+            durationMs: 10000,
+            onAction: () => updateLeadStatus(jobId, "clear"),
+            chipsLabel: "Why?",
+            chips: SKIP_REASONS.map((chip) => ({
+              id: chip.id,
+              label: chip.label,
+              onSelect: () =>
+                updateLeadStatus(jobId, "skip", {
+                  reason: chip.id,
+                  silentToast: true,
+                }),
+            })),
+          });
+        } else if (status === "save") {
+          toast(message, {
+            tone: "success",
+            actionLabel: "Undo",
+            durationMs: 10000,
+            onAction: () => updateLeadStatus(jobId, "clear"),
+            chipsLabel: "Why?",
+            chips: SAVE_REASONS.map((chip) => ({
+              id: chip.id,
+              label: chip.label,
+              onSelect: () =>
+                updateLeadStatus(jobId, "save", {
+                  reason: chip.id,
+                  silentToast: true,
+                }),
+            })),
+          });
+        } else if (status === "pitched" || status === "won") {
+          toast(message, {
+            tone: "success",
+            actionLabel: "Undo",
+            durationMs: 8000,
+            onAction: () => updateLeadStatus(jobId, "clear"),
+          });
+        } else if (status === "clear" && previousStatus === "save") {
+          toast(message, {
+            tone: "success",
+            actionLabel: "Undo",
+            durationMs: 8000,
+            onAction: () => updateLeadStatus(jobId, "save"),
+          });
+        } else if (status === "clear" && previousStatus === "skip") {
+          toast(message, {
+            tone: "success",
+            actionLabel: "Undo",
+            durationMs: 8000,
+            onAction: () => updateLeadStatus(jobId, "skip"),
+          });
+        } else if (status === "clear" && previousStatus === "pitched") {
+          toast(message, {
+            tone: "success",
+            actionLabel: "Undo",
+            durationMs: 8000,
+            onAction: () => updateLeadStatus(jobId, "pitched"),
+          });
+        }
+      } catch {
+        /* ignore UI-only failures */
+      }
+    }
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
 
     const runWrite = async () => {
       pendingWritesRef.current += 1;
       try {
-        setError(null);
         if (status === "won") {
           await postMatchFeedback({
             job_id: jobId,
@@ -760,63 +910,7 @@ function LeadsPageInner() {
           }
         }
 
-        setData((current) =>
-          current ? applyOptimisticStatus(current, jobId, status) : current,
-        );
-
-        const message =
-          status === "save"
-            ? "Lead saved"
-            : status === "pitched"
-              ? "Lead marked as pitched / interview"
-              : status === "won"
-                ? "Lead marked as contract won"
-                : status === "skip"
-                  ? "Lead skipped — hidden from default list"
-                  : previousStatus === "save"
-                    ? "Lead unsaved"
-                    : previousStatus === "skip"
-                      ? "Lead restored"
-                      : previousStatus === "pitched"
-                        ? "Pitched cleared"
-                        : "Lead status cleared";
-
-        setSubmitMessage(message);
-
-        try {
-          if (status === "save" || status === "skip" || status === "pitched" || status === "won") {
-            toast(message, {
-              tone: "success",
-              actionLabel: "Undo",
-              durationMs: 8000,
-              onAction: () => updateLeadStatus(jobId, "clear"),
-            });
-          } else if (status === "clear" && previousStatus === "save") {
-            toast(message, {
-              tone: "success",
-              actionLabel: "Undo",
-              durationMs: 8000,
-              onAction: () => updateLeadStatus(jobId, "save"),
-            });
-          } else if (status === "clear" && previousStatus === "skip") {
-            toast(message, {
-              tone: "success",
-              actionLabel: "Undo",
-              durationMs: 8000,
-              onAction: () => updateLeadStatus(jobId, "skip"),
-            });
-          } else if (status === "clear" && previousStatus === "pitched") {
-            toast(message, {
-              tone: "success",
-              actionLabel: "Undo",
-              durationMs: 8000,
-              onAction: () => updateLeadStatus(jobId, "pitched"),
-            });
-          }
-        } catch {
-          /* ignore UI-only failures */
-        }
-
+        // Reconcile header counts with server truth after durable write.
         void getPipelineStats()
           .then(setPipelineStats)
           .catch(() => null);
@@ -825,6 +919,9 @@ function LeadsPageInner() {
           pendingPayloadsRef.current.delete(jobId);
         }
         if (!isLatest()) return;
+        // Rollback optimistic UI on failure.
+        if (snapshot) setData(snapshot);
+        if (previousStats) setPipelineStats(previousStats);
         setError(err instanceof Error ? err.message : "Could not update lead");
       } finally {
         pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
@@ -1480,6 +1577,7 @@ function LeadsPageInner() {
                     showLabel={
                       !(
                         finding.suppress_fit_badge
+                        || finding.has_hiring_signal === false
                         || (finding.employment_risks && finding.employment_risks.length > 0)
                       )
                     }
@@ -1487,6 +1585,8 @@ function LeadsPageInner() {
                   {(finding.suppress_fit_badge
                     || (finding.employment_risks && finding.employment_risks.length > 0)) ? (
                     <Badge variant="warning">Full-time / salary watchout</Badge>
+                  ) : finding.has_hiring_signal === false ? (
+                    <Badge variant="muted">No hiring signal</Badge>
                   ) : null}
 
                   {finding.client_signal?.poster_type === "direct_founder" ? (
@@ -1700,8 +1800,8 @@ function LeadsPageInner() {
                       </Button>
                       {finding.user_status !== "save" ? (
                         <details className="relative">
-                          <summary className="cursor-pointer list-none rounded px-1.5 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]">
-                            reason
+                          <summary className="cursor-pointer list-none rounded-md border border-[var(--accent)]/40 bg-[var(--accent-muted)] px-2.5 py-1 text-xs font-semibold text-[var(--accent)] hover:border-[var(--accent)]">
+                            Why?
                           </summary>
                           <div className="absolute right-0 z-20 mt-1 flex min-w-[11rem] flex-col gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-md">
                             {SAVE_REASONS.map((reason) => (
@@ -1806,8 +1906,8 @@ function LeadsPageInner() {
                       </Button>
                       {finding.user_status !== "skip" && (
                         <details className="relative">
-                          <summary className="cursor-pointer list-none rounded px-1.5 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]">
-                            reason
+                          <summary className="cursor-pointer list-none rounded-md border border-[var(--accent)]/40 bg-[var(--accent-muted)] px-2.5 py-1 text-xs font-semibold text-[var(--accent)] hover:border-[var(--accent)]">
+                            Why?
                           </summary>
                           <div className="absolute right-0 z-20 mt-1 flex min-w-[11rem] flex-col gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-md">
                             {SKIP_REASONS.map((reason) => (

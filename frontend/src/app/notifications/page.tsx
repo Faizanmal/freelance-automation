@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import {
   archiveNotification,
   getInbox,
@@ -29,8 +29,6 @@ const channelOptions = [
   "discord",
   "whatsapp",
 ] as const;
-const priorityOptions = ["low", "normal", "high", "urgent"] as const;
-
 type TabKind = "inbox" | "digest_preview" | "compose" | "providers";
 
 type DeliveryRow = {
@@ -90,16 +88,16 @@ export default function NotificationsPage() {
     schedule?: Record<string, unknown>;
   } | null>(null);
   const [scheduleData, setScheduleData] = useState<Record<string, unknown> | null>(null);
-  const [testSendResult, setTestSendResult] = useState<Record<string, unknown> | null>(null);
+  const [, setTestSendResult] = useState<Record<string, unknown> | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
 
   // Compose Alert state
   const [title, setTitle] = useState("New high-priority job match");
   const [body, setBody] = useState("A new job matches your profile and is ready for review.");
   const [channels, setChannels] = useState<string[]>(["email", "in_app"]);
-  const [priority, setPriority] = useState<string>("high");
-  const [digest, setDigest] = useState(false);
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [priority] = useState<string>("high");
+  const [digest] = useState(false);
+  const [, setResult] = useState<Record<string, unknown> | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   // Provider Status state
@@ -109,7 +107,7 @@ export default function NotificationsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const loadInbox = () => {
+  const loadInbox = useCallback(() => {
     startTransition(async () => {
       try {
         const data = await getInbox({
@@ -122,7 +120,7 @@ export default function NotificationsPage() {
         setError(err instanceof Error ? err.message : "Failed loading inbox");
       }
     });
-  };
+  }, [inboxFilter, startTransition]);
 
   const loadPreview = () => {
     startTransition(async () => {
@@ -162,7 +160,7 @@ export default function NotificationsPage() {
         // history optional on initial load
       }
     });
-  }, [authed, inboxFilter]);
+  }, [authed, inboxFilter, loadInbox, startTransition]);
 
   useEffect(() => {
     if (!authed) return;
@@ -216,24 +214,39 @@ export default function NotificationsPage() {
   };
 
   const handleArchive = (id: number) => {
+    const previous = inboxItems;
+    // Optimistic remove from active view; await durable write before toasting success.
+    setInboxItems((prev) => prev.filter((item) => item.id !== id));
     startTransition(async () => {
       try {
-        await archiveNotification(id);
-        setInboxItems((prev) => prev.filter((item) => item.id !== id));
+        const res = await archiveNotification(id);
+        if (!res?.archived) {
+          setInboxItems(previous);
+          setError("Archive did not persist. Try again.");
+          return;
+        }
         setSuccessMsg("Moved to Archived. You can restore it anytime.");
       } catch (err) {
+        setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed archiving");
       }
     });
   };
 
   const handleRestore = (id: number) => {
+    const previous = inboxItems;
+    setInboxItems((prev) => prev.filter((item) => item.id !== id));
     startTransition(async () => {
       try {
-        await unarchiveNotification(id);
-        setInboxItems((prev) => prev.filter((item) => item.id !== id));
+        const res = await unarchiveNotification(id);
+        if (res?.archived) {
+          setInboxItems(previous);
+          setError("Restore did not persist. Try again.");
+          return;
+        }
         setSuccessMsg("Restored to Inbox.");
       } catch (err) {
+        setInboxItems(previous);
         setError(err instanceof Error ? err.message : "Failed restoring");
       }
     });

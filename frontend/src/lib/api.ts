@@ -509,6 +509,8 @@ export async function request<T>(
       setToken(null);
       setRefreshToken(null);
       if (typeof window !== "undefined" && !window.location.pathname.startsWith("/auth")) {
+        // Non-React API client cannot call useRouter; hard redirect for expired sessions.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.assign("/auth/session-expired");
       }
       throw new Error("Session expired. Please sign in again.");
@@ -943,6 +945,8 @@ export type LeadFinding = {
 
   suppress_fit_badge?: boolean;
 
+  has_hiring_signal?: boolean;
+
   client_signal?: {
     poster_type?: string;
     poster_label?: string;
@@ -1274,9 +1278,10 @@ export async function markAllNotificationsRead() {
 }
 
 export async function archiveNotification(id: number) {
-  return request<{ id: number; archived: boolean }>(
-    `/notifications/inbox/${id}`,
-    { method: "DELETE", auth: true },
+  // Prefer POST — some gateways/proxies mishandle DELETE and drop the write.
+  return request<{ id: number; archived: boolean; archived_at?: string | null }>(
+    `/notifications/inbox/${id}/archive`,
+    { method: "POST", auth: true },
   );
 }
 

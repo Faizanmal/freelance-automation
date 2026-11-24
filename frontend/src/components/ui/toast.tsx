@@ -7,12 +7,20 @@ import { cn } from "@/lib/cn";
 
 type ToastTone = "default" | "success" | "error";
 
+export type ToastChip = {
+  id: string;
+  label: string;
+  onSelect: () => void;
+};
+
 type ToastItem = {
   id: string;
   message: string;
   tone: ToastTone;
   actionLabel?: string;
   onAction?: () => void;
+  chips?: ToastChip[];
+  chipsLabel?: string;
 };
 
 type ToastOptions = {
@@ -20,6 +28,8 @@ type ToastOptions = {
   actionLabel?: string;
   onAction?: () => void;
   durationMs?: number;
+  chips?: ToastChip[];
+  chipsLabel?: string;
 };
 
 type ToastContextValue = {
@@ -50,9 +60,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           tone: opts.tone || "default",
           actionLabel: opts.actionLabel,
           onAction: opts.onAction,
+          chips: opts.chips,
+          chipsLabel: opts.chipsLabel,
         },
       ]);
-      window.setTimeout(() => dismiss(id), opts.durationMs ?? (opts.onAction ? 6000 : 3200));
+      const holdMs = opts.chips?.length
+        ? Math.max(opts.durationMs ?? 8000, 10000)
+        : opts.durationMs ?? (opts.onAction ? 6000 : 3200);
+      window.setTimeout(() => dismiss(id), holdMs);
     },
     [dismiss],
   );
@@ -71,7 +86,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8 }}
               className={cn(
-                "pointer-events-auto flex items-start gap-3 rounded-[var(--radius)] border px-4 py-3 shadow-[var(--shadow-md)]",
+                "pointer-events-auto flex flex-col gap-2 rounded-[var(--radius)] border px-4 py-3 shadow-[var(--shadow-md)]",
                 item.tone === "success" &&
                   "border-[var(--success)]/30 bg-[var(--surface)] text-[var(--success)]",
                 item.tone === "error" &&
@@ -81,28 +96,53 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               )}
               role="status"
             >
-              <p className="flex-1 text-sm text-[var(--text)]">{item.message}</p>
-              {item.actionLabel && item.onAction ? (
+              <div className="flex items-start gap-3">
+                <p className="flex-1 text-sm text-[var(--text)]">{item.message}</p>
+                {item.actionLabel && item.onAction ? (
+                  <button
+                    type="button"
+                    data-testid="toast-undo"
+                    className="shrink-0 rounded-md border border-[var(--accent)]/40 bg-[var(--accent-muted)] px-2.5 py-1 text-sm font-semibold text-[var(--accent)] hover:border-[var(--accent)]"
+                    onClick={() => {
+                      item.onAction?.();
+                      dismiss(item.id);
+                    }}
+                  >
+                    {item.actionLabel}
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  data-testid="toast-undo"
-                  className="shrink-0 rounded-md border border-[var(--accent)]/40 bg-[var(--accent-muted)] px-2.5 py-1 text-sm font-semibold text-[var(--accent)] hover:border-[var(--accent)]"
-                  onClick={() => {
-                    item.onAction?.();
-                    dismiss(item.id);
-                  }}
+                  className="rounded p-0.5 text-[var(--text-muted)] hover:text-[var(--text)]"
+                  onClick={() => dismiss(item.id)}
+                  aria-label="Dismiss"
                 >
-                  {item.actionLabel}
+                  <X className="size-4" />
                 </button>
+              </div>
+              {item.chips && item.chips.length > 0 ? (
+                <div className="border-t border-[var(--border)] pt-2">
+                  <p className="mb-1.5 text-[11px] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+                    {item.chipsLabel || "Why?"}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {item.chips.map((chip) => (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        data-testid={`toast-chip-${chip.id}`}
+                        className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1 text-xs font-semibold text-[var(--text)] hover:border-[var(--accent)] hover:bg-[var(--accent-muted)] hover:text-[var(--accent)]"
+                        onClick={() => {
+                          chip.onSelect();
+                          dismiss(item.id);
+                        }}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ) : null}
-              <button
-                type="button"
-                className="rounded p-0.5 text-[var(--text-muted)] hover:text-[var(--text)]"
-                onClick={() => dismiss(item.id)}
-                aria-label="Dismiss"
-              >
-                <X className="size-4" />
-              </button>
             </motion.div>
           ))}
         </AnimatePresence>

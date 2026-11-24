@@ -1,23 +1,16 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import { getErrorMessage } from "@/lib/errors";
 import {
   AlertCircle,
   Building2,
   CheckCircle2,
-  Clock,
-  Globe,
-  Key,
   Plus,
   RefreshCw,
   Shield,
   ShieldCheck,
-  Trash2,
-  UserCheck,
   UserPlus,
-  Users,
 } from "lucide-react";
 import {
   createEmployerOrg,
@@ -43,7 +36,7 @@ export default function EmployerSettingsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [orgName, setOrgName] = useState("");
   const [orgWebsite, setOrgWebsite] = useState("");
-  const [orgIndustry, setOrgIndustry] = useState("technology");
+  const [orgIndustry] = useState("technology");
   const [orgDomain, setOrgDomain] = useState("");
 
   // Invite Member Form
@@ -56,7 +49,7 @@ export default function EmployerSettingsPage() {
   const [showAuditLogs, setShowAuditLogs] = useState(false);
 
   useEffect(() => {
-    loadOrganizations();
+    void loadOrganizations();
   }, []);
 
   useEffect(() => {
@@ -71,8 +64,8 @@ export default function EmployerSettingsPage() {
       setError(null);
       const res = await getEmployerOrgs();
       setOrgs(res.organizations || []);
-      if (res.organizations?.length > 0 && !selectedOrgId) {
-        setSelectedOrgId(res.organizations[0].org_id);
+      if (res.organizations?.length > 0) {
+        setSelectedOrgId((current) => current ?? res.organizations[0].org_id);
       }
     } catch (err: unknown) {
       setError(getErrorMessage(err, "") || "Failed to load organizations");
