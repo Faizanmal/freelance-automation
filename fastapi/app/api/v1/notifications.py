@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hmac
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
+from uuid import uuid4
 
 from app.api.dependencies import get_current_user
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -232,6 +233,64 @@ async def notification_history(
 # -------------------------------------------------------------------------
 # In-App Inbox Endpoints
 # -------------------------------------------------------------------------
+
+
+@router.post("/inbox/test")
+async def create_test_inbox_alert(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Create an unread in-app inbox alert immediately (bypasses channel plan filters).
+
+    Used by Preferences → Digest → Send test inbox alert. Always writes a durable
+    NotificationRecord so /notifications shows it without waiting on email adapters.
+    """
+    user_id = str(current_user.id)
+    # Soft rate limit: at most 5 test alerts per minute per user.
+    cutoff = datetime.now(UTC) - timedelta(seconds=60)
+    recent = await session.execute(
+        select(func.count(NotificationRecord.id)).where(
+            NotificationRecord.user_id == user_id,
+            NotificationRecord.event_type == "test_inbox",
+            NotificationRecord.created_at >= cutoff,
+        )
+    )
+    if (recent.scalar() or 0) >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limited — wait a minute before sending another test alert",
+        )
+
+    record = NotificationRecord(
+        public_id=str(uuid4()),
+        user_id=user_id,
+        title="Test inbox alert",
+        body=(
+            "Unread test alert from Preferences. Use Mark read on this item, "
+            "reload, and confirm it stays under All as read."
+        ),
+        channels=["in_app"],
+        priority="high",
+        digest=False,
+        ai_summary="Test alert for inbox Mark-read verification",
+        status="delivered",
+        job_id=None,
+        metadata_json={"source": "preferences_test"},
+        is_read=False,
+        event_type="test_inbox",
+        group_key="test_inbox",
+    )
+    session.add(record)
+    await session.commit()
+    await session.refresh(record)
+    return {
+        "id": record.id,
+        "public_id": record.public_id,
+        "status": "delivered",
+        "is_read": False,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "message": "Test alert sent",
+    }
 
 
 @router.get("/inbox")

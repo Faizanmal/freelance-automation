@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 WORKER_KEY = "signaldesk:heartbeat:worker"
 BEAT_KEY = "signaldesk:heartbeat:beat"
-DEFAULT_TTL = 120
+# Longer than the 60s heartbeat task interval; short enough to detect a dead beat.
+DEFAULT_TTL = 180
 
 
 def _sync_redis():

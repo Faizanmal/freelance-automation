@@ -65,12 +65,16 @@ def retry_countdown(base: int = 60, attempt: int = 0, cap: int = 600) -> int:
 from celery.schedules import crontab
 
 celery_app.conf.beat_schedule = {
+    "heartbeat-every-60s": {
+        "task": "tasks.touch_heartbeat",
+        "schedule": 60.0,  # keep readiness beat/worker keys fresh between scrapes
+    },
     "scrape-v1-hunters-every-30m": {
         "task": "tasks.scrape_jobs",
         "schedule": 1800.0,  # every 30 minutes — fill shared job inventory
         "kwargs": {
             "sources": ["serpapi_freelance", "serpapi_jobs", "serpapi_companies"],
-            "limit": 20,
+            "limit": 40,
             "notify_matches": False,
         },
     },

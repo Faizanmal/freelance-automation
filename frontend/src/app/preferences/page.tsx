@@ -15,6 +15,7 @@ import {
   openBillingPortal,
   resendVerification,
   sendNotification,
+  sendTestInboxAlert,
   startCheckout,
   testWebhook,
   getLearnedAffinities,
@@ -35,6 +36,7 @@ import { sanitizeExternalUrl } from "@/lib/security";
 import { Button } from "@/components/ui/button";
 import { SecuritySettings } from "@/components/security-settings";
 import { AccountSettings } from "@/components/account-settings";
+import { useToast } from "@/components/ui/toast";
 
 const emptyPrefs: Preferences = {
   keywords: [],
@@ -88,6 +90,7 @@ function parseTab(value: string | null): PrefTab {
 function PreferencesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
   const tab = parseTab(searchParams.get("tab"));
   const [user, setUser] = useState<User | null>(null);
   const [prefs, setPrefs] = useState<Preferences>(emptyPrefs);
@@ -890,29 +893,22 @@ function PreferencesPageInner() {
                     try {
                       setError(null);
                       setEmailWarning(null);
-                      const response = await sendNotification({
-                        title: "Inbox Mark-read test",
-                        body: "Unread test alert for /notifications. Use Mark read on this item, reload, and confirm it stays under All as read.",
-                        channels: ["in_app"],
-                        priority: "high",
-                        digest: false,
-                      });
-                      if (response.status === "failed") {
-                        setEmailWarning(
-                          "Could not create an in-app inbox alert. Check API logs / notification service.",
-                        );
-                      } else {
-                        setMessage(
-                          "Test inbox alert created — open Notifications → All to Mark read.",
-                        );
-                        setTimeout(() => setMessage(null), 5000);
-                      }
+                      const response = await sendTestInboxAlert();
+                      const okMsg = response.message || "Test alert sent";
+                      setMessage(okMsg);
+                      setTimeout(() => setMessage(null), 5000);
+                      toast(okMsg, { tone: "success" });
                     } catch (err) {
-                      setEmailWarning(
-                        err instanceof Error
-                          ? `Inbox test alert failed: ${err.message}`
-                          : "Inbox test alert failed.",
-                      );
+                      const raw =
+                        err instanceof Error ? err.message : "Inbox test alert failed.";
+                      const rateLimited =
+                        /\b429\b|rate.?limit/i.test(raw) ||
+                        /wait a minute/i.test(raw);
+                      const failMsg = rateLimited
+                        ? "Rate limited — wait a minute before sending another test alert"
+                        : raw;
+                      setEmailWarning(failMsg);
+                      toast(failMsg, { tone: "error" });
                     }
                   })
                 }

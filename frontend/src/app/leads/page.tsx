@@ -618,7 +618,7 @@ function LeadsPageInner() {
       return;
     }
     if (!apiBase) return;
-    // Same durable PUT path as interactive Save/Undo — keepalive only on unload.
+    // Same durable PUT path as interactive Save/Undo — keepalive flush on pagehide.
     for (const write of pendingPayloadsRef.current.values()) {
       const path = `/preferences/leads/${write.jobId}/action`;
       const body = JSON.stringify({
@@ -718,7 +718,7 @@ function LeadsPageInner() {
   const updateLeadStatus = (
     jobId: number,
     status: "save" | "skip" | "pitched" | "won" | "clear",
-    opts?: { reason?: string; silentToast?: boolean },
+    opts?: { reason?: string; silentToast?: boolean; reasonOnly?: boolean },
   ) => {
     if (!getToken()) {
       router.push("/auth");
@@ -738,11 +738,13 @@ function LeadsPageInner() {
     const clientTs = gen;
     pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen, clientTs });
 
-    // Optimistic UI first — toast + counts update immediately.
-    setData((current) =>
-      current ? applyOptimisticStatus(current, jobId, status) : current,
-    );
-    bumpPipelineStats(previousStatus, status);
+    // Optimistic UI first — toast + counts update immediately (unless reason-only PATCH).
+    if (!opts?.reasonOnly) {
+      setData((current) =>
+        current ? applyOptimisticStatus(current, jobId, status) : current,
+      );
+      bumpPipelineStats(previousStatus, status);
+    }
     setWritingJobIds((prev) => new Set(prev).add(jobId));
 
     const message =
@@ -765,7 +767,105 @@ function LeadsPageInner() {
     setSubmitMessage(message);
     setError(null);
 
-    if (!opts?.silentToast) {
+    const isLatest = () => writeGenRef.current.get(jobId) === gen;
+    // Keepalive on every lead write so immediate hard-reload cannot abort Save/Unsave.
+    const writeOpts = {
+      write_version: gen,
+      client_ts: clientTs,
+      reason,
+      feedback_kind:
+        status === "save" || status === "skip" || status === "clear"
+          ? status
+          : status === "pitched" || status === "won"
+            ? "outcome"
+            : undefined,
+      keepalive: true as const,
+    };
+
+    // Fire durable PUT first — before toast/Why? chips. Same path for Save and Pitch.
+    pendingWritesRef.current += 1;
+    void (async () => {
+      try {
+        const confirmed = await setLeadAction(jobId, status, writeOpts);
+
+        if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
+          pendingPayloadsRef.current.delete(jobId);
+        }
+
+        if (!isLatest()) {
+          return;
+        }
+
+        const expected =
+          status === "clear" ? null : (status as "save" | "skip" | "pitched" | "won");
+        if (confirmed.status !== expected) {
+          throw new Error(
+            `Save did not confirm (got ${String(confirmed.status)}, expected ${String(expected)})`,
+          );
+        }
+
+        // Ranking feedback after durable confirm — must not race or block Save.
+        if (!opts?.reasonOnly) {
+          if (status === "won" || status === "pitched") {
+            void postMatchFeedback({
+              job_id: jobId,
+              kind: "outcome",
+              outcome: status === "won" ? "contract" : "interview",
+              reason: reason || status,
+              write_version: gen,
+              client_ts: clientTs,
+            }).catch(() => null);
+          } else if (status === "save" || status === "skip") {
+            void postMatchFeedback({
+              job_id: jobId,
+              kind: status,
+              reason,
+              write_version: gen,
+              client_ts: clientTs,
+            }).catch(() => null);
+          }
+        }
+
+        if (status === "save" || status === "skip") {
+          try {
+            void Promise.resolve(
+              recordProductEvent(
+                status === "save" ? "lead_saved" : "lead_skipped",
+                "discovery",
+              ),
+            ).catch(() => null);
+          } catch {
+            /* analytics must not fail the durable write */
+          }
+        }
+
+        void getPipelineStats()
+          .then(setPipelineStats)
+          .catch(() => null);
+      } catch (err) {
+        if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
+          pendingPayloadsRef.current.delete(jobId);
+        }
+        if (!isLatest()) return;
+        if (!opts?.reasonOnly) {
+          if (snapshot) setData(snapshot);
+          if (previousStats) setPipelineStats(previousStats);
+        }
+        setError(err instanceof Error ? err.message : "Could not update lead");
+      } finally {
+        pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+        if (isLatest()) {
+          setWritingJobIds((prev) => {
+            const next = new Set(prev);
+            next.delete(jobId);
+            return next;
+          });
+        }
+      }
+    })();
+
+    // Toast after the write is already in-flight. Why? chips only PATCH reason later.
+    if (!opts?.silentToast && !opts?.reasonOnly) {
       try {
         if (status === "skip") {
           toast(message, {
@@ -781,6 +881,7 @@ function LeadsPageInner() {
                 updateLeadStatus(jobId, "skip", {
                   reason: chip.id,
                   silentToast: true,
+                  reasonOnly: true,
                 }),
             })),
           });
@@ -798,6 +899,7 @@ function LeadsPageInner() {
                 updateLeadStatus(jobId, "save", {
                   reason: chip.id,
                   silentToast: true,
+                  reasonOnly: true,
                 }),
             })),
           });
@@ -834,100 +936,6 @@ function LeadsPageInner() {
         /* ignore UI-only failures */
       }
     }
-
-    const isLatest = () => writeGenRef.current.get(jobId) === gen;
-    // Interactive writes: normal fetch (visible in Network). Keepalive only on unload flush.
-    const writeOpts = {
-      write_version: gen,
-      client_ts: clientTs,
-      reason,
-      feedback_kind:
-        status === "save" || status === "skip" || status === "clear"
-          ? status
-          : status === "pitched" || status === "won"
-            ? "outcome"
-            : undefined,
-    };
-
-    // Fire immediately — no debounce/batch. Same durable PUT path as Undo/Unsave.
-    pendingWritesRef.current += 1;
-    void (async () => {
-      try {
-        // Ranking feedback is best-effort; persistence is always setLeadAction.
-        if (status === "won" || status === "pitched") {
-          void postMatchFeedback({
-            job_id: jobId,
-            kind: "outcome",
-            outcome: status === "won" ? "contract" : "interview",
-            reason: reason || status,
-            write_version: gen,
-            client_ts: clientTs,
-          }).catch(() => null);
-        } else if (status === "save" || status === "skip") {
-          void postMatchFeedback({
-            job_id: jobId,
-            kind: status,
-            reason,
-            write_version: gen,
-            client_ts: clientTs,
-          }).catch(() => null);
-        }
-
-        const confirmed = await setLeadAction(jobId, status, writeOpts);
-
-        if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
-          pendingPayloadsRef.current.delete(jobId);
-        }
-
-        if (!isLatest()) {
-          return;
-        }
-
-        const expected =
-          status === "clear" ? null : (status as "save" | "skip" | "pitched" | "won");
-        if (confirmed.status !== expected) {
-          throw new Error(
-            `Save did not confirm (got ${String(confirmed.status)}, expected ${String(expected)})`,
-          );
-        }
-
-        if (status === "save" || status === "skip") {
-          try {
-            void Promise.resolve(
-              recordProductEvent(
-                status === "save" ? "lead_saved" : "lead_skipped",
-                "discovery",
-              ),
-            ).catch(() => null);
-          } catch {
-            /* analytics must not fail the durable write */
-          }
-        }
-
-        // Reconcile header counts with server truth after durable write.
-        void getPipelineStats()
-          .then(setPipelineStats)
-          .catch(() => null);
-      } catch (err) {
-        if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
-          pendingPayloadsRef.current.delete(jobId);
-        }
-        if (!isLatest()) return;
-        // Rollback optimistic UI on failure.
-        if (snapshot) setData(snapshot);
-        if (previousStats) setPipelineStats(previousStats);
-        setError(err instanceof Error ? err.message : "Could not update lead");
-      } finally {
-        pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
-        if (isLatest()) {
-          setWritingJobIds((prev) => {
-            const next = new Set(prev);
-            next.delete(jobId);
-            return next;
-          });
-        }
-      }
-    })();
   };
 
 

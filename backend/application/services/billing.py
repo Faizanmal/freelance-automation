@@ -20,8 +20,8 @@ FREE_MAX_DIGEST = 5
 PRO_MAX_DIGEST = 25
 FREE_DAILY_SCRAPE_RUNS = 3
 PRO_DAILY_SCRAPE_RUNS = 50
-FREE_CHANNELS = {"email"}
-PRO_CHANNELS = {"email", "slack", "telegram", "discord", "whatsapp", "webhook"}
+FREE_CHANNELS = {"email", "in_app"}
+PRO_CHANNELS = {"email", "in_app", "slack", "telegram", "discord", "whatsapp", "webhook"}
 
 # Phase 08 productivity entitlements — never gate native applications or organic ranking.
 FREE_COPILOT_RUNS_PER_DAY = 10

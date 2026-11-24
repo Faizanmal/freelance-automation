@@ -103,6 +103,20 @@ async def _scrape_jobs_async(
         return result
 
 
+@celery_app.task(name="tasks.touch_heartbeat")
+def touch_heartbeat_task():
+    """Keep worker + beat readiness keys fresh between 30m scrapes."""
+    try:
+        from workers.heartbeat import touch_beat, touch_worker
+
+        touch_worker()
+        touch_beat()
+        return {"status": "ok"}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("touch_heartbeat failed: %s", exc.__class__.__name__)
+        return {"status": "error", "error": exc.__class__.__name__}
+
+
 @celery_app.task(
     name="tasks.scrape_jobs",
     bind=True,
@@ -125,6 +139,13 @@ def scrape_jobs_task(
             logger.info("scrape_jobs skipped (overlap lock) run_id=%s", run_id)
             return {"status": "skipped", "reason": "overlap_lock", "run_id": run_id}
         try:
+            try:
+                from workers.heartbeat import touch_beat, touch_worker
+
+                touch_worker()
+                touch_beat()
+            except Exception:
+                pass
             result = _run_async(
                 _scrape_jobs_async(sources, limit, notify_matches, query)
             )

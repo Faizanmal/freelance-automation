@@ -1275,6 +1275,21 @@ export async function sendNotification(payload: {
 
 }
 
+/** Immediate unread in-app alert for Preferences → Send test inbox alert. */
+export async function sendTestInboxAlert() {
+  return request<{
+    id: number;
+    public_id: string;
+    status: string;
+    is_read: boolean;
+    created_at: string | null;
+    message: string;
+  }>("/notifications/inbox/test", {
+    method: "POST",
+    auth: true,
+  });
+}
+
 
 
 export async function getNotificationHistory() {

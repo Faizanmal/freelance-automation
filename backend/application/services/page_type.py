@@ -35,6 +35,8 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "jobboardsearch.com",
     "theantijobboard.com",
     "anti-job-board.com",
+    "techteems.com",
+    "feedinkoo.com",
 )
 
 # Aggregators / boards: reject index/search pages, but keep single-job URLs.
@@ -93,6 +95,8 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "indeed.co.uk",
     "europol.europa.eu",
     "mwaa.com",
+    "free-work.com",
+    "remotejobs.org",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -383,7 +387,8 @@ def classify_page_type(
         return PAGE_TYPE_CAREERS_HUB
     title_l = (title or "").lower()
     if re.search(
-        r"\b(?:careers?(?:\s+and\s+benefits)?|open vacancies|search jobs|technology careers)\b",
+        r"\b(?:careers?(?:\s+and\s+benefits)?|open vacancies|current vacancies|"
+        r"search jobs|technology careers|permanent employees)\b",
         title_l,
     ) and not SINGLE_POSTING_PATH_RE.search(path):
         return PAGE_TYPE_CAREERS_HUB

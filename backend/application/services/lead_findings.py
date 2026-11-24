@@ -220,7 +220,22 @@ class LeadFindingsService:
 
         # Noise filter wins everywhere — including previously saved listicles.
         # (API layer auto-archives matching lead actions so counts stay aligned.)
+        import logging
+
+        _reject_log = logging.getLogger("signaldesk.findings.reject")
         rejection_log: list[dict[str, Any]] = []
+
+        def _record_rejection(entry: dict[str, Any]) -> None:
+            rejection_log.append(entry)
+            _reject_log.info(
+                "reject job_id=%s stage=%s reason=%s title=%s url=%s",
+                entry.get("job_id"),
+                entry.get("stage"),
+                entry.get("reason"),
+                entry.get("title"),
+                entry.get("url"),
+            )
+
         filtered_jobs: list[Any] = []
         for j in jobs:
             enrichment = (
@@ -233,7 +248,7 @@ class LeadFindingsService:
             ):
                 from backend.application.services.page_type import classify_page_type
 
-                rejection_log.append(
+                _record_rejection(
                     {
                         "job_id": j.id,
                         "title": (j.title or "")[:120],
@@ -312,7 +327,7 @@ class LeadFindingsService:
                 ):
                     kept.append(finding)
                 else:
-                    rejection_log.append(
+                    _record_rejection(
                         {
                             "job_id": finding.job.id,
                             "title": (finding.job.title or "")[:120],
@@ -325,28 +340,42 @@ class LeadFindingsService:
             findings = kept
             after_freelance = len(findings)
 
-        # Hard-drop full-time / salaried employee watchouts unless monthly pay > $10k.
-        # (Badge suppression alone left these ranked as STRONG FIT on /leads.)
+        # Hard-drop clear FTE-only posts unless monthly pay > $10k.
+        # Do not hard-drop on a lone "full-time"/"salary" mention when the post
+        # also signals freelance/contract — those stay ranked with watchouts.
         def _is_blocked_full_time(finding: LeadFinding) -> bool:
             if finding.job.id in preserved_ids:
+                return False
+            text = f"{finding.job.title or ''} {finding.job.description or ''}"
+            if re.search(
+                r"\b(?:freelance|freelancer|contractor|contract(?:ing|or)?|"
+                r"fractional|hourly|day\s*rate|ir35|outside\s+ir35|gig)\b",
+                text,
+                re.IGNORECASE,
+            ):
                 return False
             risks = finding.employment_risks or []
             if not risks:
                 return False
-            fte_labels = {
-                "Full-time employee posting",
+            strong = {
                 "W2 employment",
-                "Salary role",
-                "Permanent hire",
                 "Employee benefits package",
                 "Employee benefits signal",
             }
-            if not any(r in fte_labels for r in risks):
+            weak = {
+                "Full-time employee posting",
+                "Salary role",
+                "Permanent hire",
+            }
+            has_strong = any(r in strong for r in risks)
+            weak_count = sum(1 for r in risks if r in weak)
+            # Lone weak signal (e.g. "full-time" in a mixed page) is not enough.
+            if not has_strong and weak_count < 2:
                 return False
             from backend.application.services.page_type import estimate_monthly_salary_usd
 
             monthly = estimate_monthly_salary_usd(
-                f"{finding.job.title or ''} {finding.job.description or ''}",
+                text,
                 finding.job.enrichment if isinstance(finding.job.enrichment, dict) else None,
                 budget_min=finding.job.budget_min,
                 budget_max=finding.job.budget_max,
@@ -356,7 +385,7 @@ class LeadFindingsService:
         fte_kept: list[LeadFinding] = []
         for finding in findings:
             if _is_blocked_full_time(finding):
-                rejection_log.append(
+                _record_rejection(
                     {
                         "job_id": finding.job.id,
                         "title": (finding.job.title or "")[:120],
@@ -427,7 +456,7 @@ class LeadFindingsService:
                     seen_domains.add(domain)
                 continue
             if domain and domain != "unknown" and domain in seen_domains:
-                rejection_log.append(
+                _record_rejection(
                     {
                         "job_id": finding.job.id,
                         "title": (finding.job.title or "")[:120],
@@ -449,7 +478,7 @@ class LeadFindingsService:
         # a replacement lead on reload (keeps All/Skipped stable across refresh).
         if len(findings) > cap:
             for finding in findings[cap:]:
-                rejection_log.append(
+                _record_rejection(
                     {
                         "job_id": finding.job.id,
                         "title": (finding.job.title or "")[:120],

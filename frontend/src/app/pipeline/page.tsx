@@ -145,6 +145,11 @@ export default function PipelinePage() {
     });
   }, [columns, q]);
 
+  // Same client state as board columns — updates in the same render as stage moves.
+  const qualifiedLeads = useMemo(
+    () => (columns.ready?.length || 0) + (columns.applied?.length || 0),
+    [columns],
+  );
   const calendarDays = useMemo(() => {
     const byDay = new Map<string, PipelineLead[]>();
     const unscheduled: PipelineLead[] = [];
@@ -435,7 +440,7 @@ export default function PipelinePage() {
           </Card>
           <Card className="p-4">
             <p className="text-sm text-[var(--text-muted)]">Qualified leads</p>
-            <p className="mt-1 text-2xl font-semibold">{dashboard.qualified_leads}</p>
+            <p className="mt-1 text-2xl font-semibold">{qualifiedLeads}</p>
             <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
               Ready · Applied
             </p>
