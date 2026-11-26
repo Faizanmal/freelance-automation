@@ -64,6 +64,7 @@ vi.mock('@/lib/api', () => ({
       active_pipeline_value: 3000,
     }),
   ),
+  prefetchInbox: vi.fn(),
 }))
 
 vi.mock('@/components/activation-checklist', () => ({

@@ -983,6 +983,10 @@ async def set_lead_action(
     if row is not None:
         await session.refresh(row)
     get_recommendation_cache().invalidate_user(str(user.id))
+    # Soft-deleted row that a stale write_version could not revive — tell the
+    # client status is cleared so optimistic UI does not "confirm" a ghost skip.
+    if row is not None and getattr(row, "deleted_at", None) is not None:
+        return {"job_id": job_id, "status": None, "pipeline_stage": "archived"}
     return {
         "job_id": job_id,
         "status": row.status if row else payload.status,
@@ -1328,6 +1332,13 @@ async def post_match_feedback(
     if row is not None:
         await session.refresh(row)
     get_recommendation_cache().invalidate_user(str(user.id))
+    if row is not None and getattr(row, "deleted_at", None) is not None:
+        return {
+            "job_id": payload.job_id,
+            "status": None,
+            "feedback_kind": kind,
+            "counts_as_success": False,
+        }
     return {
         "job_id": payload.job_id,
         "status": row.status if row else status,

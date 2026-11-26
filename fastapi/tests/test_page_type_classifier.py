@@ -9,6 +9,7 @@ from backend.application.services.page_type import (
     PAGE_TYPE_CAREERS_HUB,
     PAGE_TYPE_FULL_TIME,
     PAGE_TYPE_JOB_POST,
+    PAGE_TYPE_LISTICLE,
     PAGE_TYPE_NON_DEV,
     PAGE_TYPE_SPAM_HOST,
     classify_page_type,
@@ -223,8 +224,6 @@ def test_full_time_allowed_only_above_10k_month():
 
 
 def test_rejects_board_indexes_and_non_posting_hosts():
-    from backend.application.services.page_type import PAGE_TYPE_LISTICLE
-
     assert (
         classify_page_type(
             "Python + FastAPI Developer",
@@ -248,6 +247,30 @@ def test_rejects_board_indexes_and_non_posting_hosts():
     assert is_non_opportunity_noise(
         "Senior Full Stack Developer",
         url="https://www.helloworld.rs/posao/Senior-Full-Stack/739480",
+    )
+    assert is_non_opportunity_noise(
+        "Job : Xpertise Recruitment",
+        url="https://www.xpertise-recruitment.com/jobs/job/15398/technical-lead",
+    )
+    assert is_non_opportunity_noise(
+        "Remote Chemistry AI Training Jobs | OpenTrain AI",
+        url="https://www.opentrain.ai/jobs/domain/chemistry",
+    )
+    assert (
+        classify_page_type(
+            "Platform Engineer",
+            url="https://cba.wd3.myworkdayjobs.com/en-US/CommBank_Careers",
+        )
+        == PAGE_TYPE_CAREERS_HUB
+    )
+    # Deep Workday job posting kept.
+    assert (
+        classify_page_type(
+            "Platform Engineer",
+            description="Contract remote role for a Python developer",
+            url="https://cba.wd3.myworkdayjobs.com/en-US/CommBank_Careers/job/Sydney/Platform-Engineer_REQ268046-1",
+        )
+        == PAGE_TYPE_JOB_POST
     )
 
 

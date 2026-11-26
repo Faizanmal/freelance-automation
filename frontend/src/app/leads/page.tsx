@@ -204,7 +204,9 @@ function LeadsPageInner() {
   const [writingJobIds, setWritingJobIds] = useState<Set<number>>(() => new Set());
   const writeGenRef = useRef(new Map<number, number>());
   const pendingWritesRef = useRef(0);
-  /** Recent confirmed/optimistic statuses — block stale GET findings from re-skipping. */
+  /** Bumped on every lead write — in-flight findings fetches that started earlier are ignored. */
+  const writeBarrierRef = useRef(0);
+  /** Recent optimistic/confirmed statuses — block stale GET findings from re-applying old state. */
   const recentStatusRef = useRef(
     new Map<number, { status: "save" | "skip" | "pitched" | "won" | null; gen: number }>(),
   );
@@ -216,25 +218,39 @@ function LeadsPageInner() {
   const applyRecentStatusOverlay = useCallback((response: LeadFindingsResponse) => {
     const overrides = recentStatusRef.current;
     if (overrides.size === 0) return response;
-    const items = response.items.map((item) => {
+    let items = response.items.map((item) => {
       const over = overrides.get(item.job_id);
       if (!over) return item;
-      // Server caught up — drop the override.
+      // Only drop override when server agrees — never trust an older null/skip.
       if (item.user_status === over.status) {
         overrides.delete(item.job_id);
         return item;
       }
       return { ...item, user_status: over.status };
     });
+    // Restored/cleared skips may be absent from a stale skipped list — re-inject from overrides.
+    for (const [jobId, over] of overrides.entries()) {
+      if (over.status === "skip") continue;
+      if (items.some((item) => item.job_id === jobId)) continue;
+      const fromResponse = response.items.find((item) => item.job_id === jobId);
+      const fromCurrent = dataRef.current?.items.find((item) => item.job_id === jobId);
+      const base = fromResponse || fromCurrent;
+      if (base) {
+        items = [{ ...base, user_status: over.status }, ...items];
+      }
+    }
     const skipped = items.filter((i) => i.user_status === "skip").length;
+    const active = items.filter((i) => i.user_status !== "skip");
     return {
       ...response,
-      items,
+      items: [...active, ...items.filter((i) => i.user_status === "skip")],
+      total_findings: active.length,
       skipped_count: Math.max(Number(response.skipped_count) || 0, skipped),
     };
   }, []);
 
   const load = useCallback((value: string, focus?: boolean, silent = false) => {
+    const barrierAtStart = writeBarrierRef.current;
     startTransition(async () => {
       try {
         if (!silent) {
@@ -252,24 +268,29 @@ function LeadsPageInner() {
 
           : await getDemoFindings(value, 10, focus ?? true);
 
+        // A lead write started after this fetch — response is older than local truth.
+        if (writeBarrierRef.current !== barrierAtStart) {
+          return;
+        }
+        if (pendingWritesRef.current > 0) {
+          return;
+        }
+
         if (typeof response.freelance_focus === "boolean") {
           setFreelanceFocus(response.freelance_focus);
         }
 
-        // Don't clobber in-flight Save/Skip/Undo writes with a stale fetch.
-        // Also overlay recent writes so a late initial-load response cannot re-skip.
-        if (pendingWritesRef.current === 0) {
-          setData(applyRecentStatusOverlay(response));
-          if (token) {
-            void getPipelineStats()
-              .then((stats) => {
-                if (pendingWritesRef.current > 0) return;
-                setPipelineStats(stats);
-              })
-              .catch(() => setPipelineStats(null));
-          } else {
-            setPipelineStats(null);
-          }
+        setData(applyRecentStatusOverlay(response));
+        if (token) {
+          void getPipelineStats()
+            .then((stats) => {
+              if (writeBarrierRef.current !== barrierAtStart) return;
+              if (pendingWritesRef.current > 0) return;
+              setPipelineStats(stats);
+            })
+            .catch(() => setPipelineStats(null));
+        } else {
+          setPipelineStats(null);
         }
 
       } catch (err) {
@@ -778,6 +799,8 @@ function LeadsPageInner() {
     // Monotonic per-lead gen doubles as client_ts for server ordering (avoid Date.now purity lint).
     const clientTs = gen;
     pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen, clientTs });
+    // Invalidate in-flight findings/stats so a late GET cannot overwrite this write.
+    writeBarrierRef.current += 1;
     if (!opts?.reasonOnly) {
       recentStatusRef.current.set(jobId, {
         status: status === "clear" ? null : status,
@@ -815,8 +838,8 @@ function LeadsPageInner() {
     setError(null);
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
-    // Fire synchronously in the click path with keepalive so a hard reload ~300ms
-    // later still delivers the write. write_version + isLatest guard Undo races.
+    // Interactive click: normal fetch (commit + await). Keepalive only on unload flush —
+    // keepalive-on-every-click delayed/queued writes and let stale GETs win the UI.
     const writeOpts = {
       write_version: gen,
       client_ts: clientTs,
@@ -827,7 +850,7 @@ function LeadsPageInner() {
           : status === "pitched" || status === "won"
             ? "outcome"
             : undefined,
-      keepalive: true as const,
+      keepalive: false as const,
       reason_only: opts?.reasonOnly === true,
     };
 

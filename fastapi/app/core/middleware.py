@@ -26,10 +26,26 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         response.headers[REQUEST_ID_HEADER] = request_id
+        # Lead/Desk reads must never be served from CDN/browser caches — user
+        # Save/Skip state changes every click and stale GETs snap the UI back.
+        path = request.url.path or ""
+        if any(
+            marker in path
+            for marker in (
+                "/preferences/findings",
+                "/preferences/demo-findings",
+                "/preferences/leads/",
+                "/pipeline",
+                "/jobs",
+                "/notifications/inbox",
+            )
+        ):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
         logger.info(
             "request method=%s path=%s status=%s duration_ms=%s request_id=%s",
             request.method,
-            request.url.path,
+            path,
             response.status_code,
             elapsed_ms,
             request_id,

@@ -214,36 +214,31 @@ class PipelineService:
         return row
 
     async def _sibling_job_ids(self, job: JobRecord) -> list[int]:
-        """Other job rows that are the same listing (URL or title+company)."""
-        from urllib.parse import urlparse
+        """Other job rows that are the same listing.
 
+        Exact URL / title+company equality only — never ilike scans on the
+        interactive write path (those delayed commits by seconds–minutes).
+        """
         ids: set[int] = set()
-        url = (job.url or "").strip().lower()
+        url = (job.url or "").strip()
         if url:
-            try:
-                parsed = urlparse(url if "://" in url else f"https://{url}")
-                host = (parsed.hostname or "").lower().removeprefix("www.")
-                path = (parsed.path or "").rstrip("/")
-                host_path = f"%{host}{path}%" if host else ""
-            except Exception:
-                host_path = ""
-            if host_path and len(host_path) > 8:
-                res = await self.session.execute(
-                    select(JobRecord.id).where(
-                        JobRecord.id != job.id,
-                        JobRecord.url.ilike(host_path),
-                    ).limit(20)
-                )
-                ids.update(int(r) for r in res.scalars().all() if r is not None)
+            res = await self.session.execute(
+                select(JobRecord.id)
+                .where(JobRecord.id != job.id, JobRecord.url == url)
+                .limit(10)
+            )
+            ids.update(int(r) for r in res.scalars().all() if r is not None)
         title = (job.title or "").strip()
         company = (job.company or "").strip()
         if title and company and company.lower() not in {"unknown", "n/a", "na"}:
             res = await self.session.execute(
-                select(JobRecord.id).where(
+                select(JobRecord.id)
+                .where(
                     JobRecord.id != job.id,
-                    JobRecord.title.ilike(title),
-                    JobRecord.company.ilike(company),
-                ).limit(20)
+                    JobRecord.title == title,
+                    JobRecord.company == company,
+                )
+                .limit(10)
             )
             ids.update(int(r) for r in res.scalars().all() if r is not None)
         return list(ids)

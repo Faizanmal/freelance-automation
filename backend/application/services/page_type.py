@@ -121,6 +121,8 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "mwaa.com",
     "free-work.com",
     "remotejobs.org",
+    "opentrain.ai",
+    "xpertise-recruitment.com",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -202,6 +204,30 @@ NON_DEV_ROLE_RE = re.compile(
     r"|\b(?:recruiter|talent\s+acquisition|hr\s+manager|people\s+ops)\b"
     r"|\b(?:sales\s+(?:executive|manager|representative)|account\s+executive)\b"
     r"|\b(?:receptionist|office\s+manager|administrative\s+assistant)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Recruiter landings / domain indexes / generic board titles — not a single posting.
+THIN_LISTING_TITLE_RE = re.compile(
+    r"(?:"
+    r"^job\s*:\s*"
+    r"|\bai\s+training\s+jobs?\b"
+    r"|\bremote\s+[a-z][a-z\s]{0,40}?\s+ai\s+training\s+jobs?\b"
+    r"|\b(?:browse|search|view)\s+(?:all\s+)?(?:jobs?|openings|careers)\b"
+    r"|\bmyworkdayjobs\.com\b"
+    r")",
+    re.IGNORECASE,
+)
+
+DOMAIN_INDEX_PATH_RE = re.compile(
+    r"(?:"
+    r"/jobs?/domain/"
+    r"|/jobs?/category/"
+    r"|/jobs?/categories/"
+    r"|/jobs?/skills?/"
+    r"|/remote-jobs?/?$"
+    r"|/careers?/search"
     r")",
     re.IGNORECASE,
 )
@@ -391,6 +417,20 @@ def classify_page_type(
         if path.rstrip("/") in {"", "/careers", "/career", "/jobs", "/join-us", "/joinus", "/openings"}:
             return PAGE_TYPE_CAREERS_HUB
 
+    if DOMAIN_INDEX_PATH_RE.search(path):
+        return PAGE_TYPE_BOARD_INDEX
+    if THIN_LISTING_TITLE_RE.search(title or ""):
+        return PAGE_TYPE_BOARD_INDEX
+    # Bare recruiter/agency landings with no deep posting path.
+    if re.search(r"^job\s*:\s*", title or "", re.IGNORECASE) or (
+        re.fullmatch(r"job\s*:?\s*[\w.&'\s-]{2,60}", (title or "").strip(), re.IGNORECASE)
+        and not SINGLE_POSTING_PATH_RE.search(path)
+    ):
+        return PAGE_TYPE_BOARD_INDEX
+    if host.endswith(".myworkdayjobs.com") and not re.search(
+        r"/job/", path, re.IGNORECASE
+    ):
+        return PAGE_TYPE_CAREERS_HUB
     if PORTFOLIO_RE.search(blob):
         return PAGE_TYPE_PORTFOLIO
     if LISTICLE_RE.search(blob) or LISTING_PAGE_TEXT_RE.search(blob):
