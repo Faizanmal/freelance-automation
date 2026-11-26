@@ -206,7 +206,7 @@ function LeadsPageInner() {
   const pendingWritesRef = useRef(0);
   /** Recent confirmed/optimistic statuses — block stale GET findings from re-skipping. */
   const recentStatusRef = useRef(
-    new Map<number, { status: "save" | "skip" | "pitched" | "won" | null; at: number }>(),
+    new Map<number, { status: "save" | "skip" | "pitched" | "won" | null; gen: number }>(),
   );
   const dataRef = useRef(data);
   useEffect(() => {
@@ -214,16 +214,16 @@ function LeadsPageInner() {
   }, [data]);
 
   const applyRecentStatusOverlay = useCallback((response: LeadFindingsResponse) => {
-    const now = Date.now();
-    const ttlMs = 45_000;
     const overrides = recentStatusRef.current;
-    for (const [jobId, entry] of [...overrides.entries()]) {
-      if (now - entry.at > ttlMs) overrides.delete(jobId);
-    }
     if (overrides.size === 0) return response;
     const items = response.items.map((item) => {
       const over = overrides.get(item.job_id);
       if (!over) return item;
+      // Server caught up — drop the override.
+      if (item.user_status === over.status) {
+        overrides.delete(item.job_id);
+        return item;
+      }
       return { ...item, user_status: over.status };
     });
     const skipped = items.filter((i) => i.user_status === "skip").length;
@@ -781,7 +781,7 @@ function LeadsPageInner() {
     if (!opts?.reasonOnly) {
       recentStatusRef.current.set(jobId, {
         status: status === "clear" ? null : status,
-        at: Date.now(),
+        gen,
       });
     }
 

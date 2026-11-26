@@ -422,7 +422,7 @@ test("single Unsave dismisses Why chips, clears save, and survives Saved filter 
       return { job_id: jobId, status: null };
     }
     saved = status === "save";
-    return { job_id: jobId, status: status === "clear" ? null : status };
+    return { job_id: jobId, status };
   });
   vi.mocked(api.getPipelineStats).mockImplementation(async () => ({
     saved_count: saved ? 1 : 0,

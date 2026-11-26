@@ -140,14 +140,18 @@ async def regression_engine():
         )
         session.add(bob_earning)
 
-        # Sample public job
+        # Sample public job — deep single-posting URL so /jobs noise filter keeps it.
         job = JobRecord(
             source_name="remoteok",
             source_id="job-sec-1",
             canonical_id="remoteok::job-sec-1",
             title="FastAPI Integration Specialist",
-            description="Looking for an engineer to build secure FastAPI APIs.",
-            url="https://remoteok.com/remote-jobs/sec-1",
+            description=(
+                "Looking for a freelance engineer to build secure FastAPI APIs "
+                "on a 3-month contract. Hourly remote."
+            ),
+            url="https://boards.greenhouse.io/acme/jobs/1234567",
+            company="Acme",
             budget_min=60.0,
             budget_max=120.0,
             is_expired=False,
