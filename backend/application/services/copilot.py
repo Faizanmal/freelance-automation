@@ -103,9 +103,21 @@ class CopilotService:
             if existing is not None:
                 return await self.get_run(user_id=user.id, run_id=existing.id)
 
-        lead = await self.pipeline.ensure_lead(
-            user_id=user.id, job_id=job.id, status="save", stage="researching"
-        )
+        # Attach to existing lead without downgrading pitched/won back to save.
+        existing = await self.pipeline._get_action(user.id, job.id, include_deleted=True)
+        if existing is not None and existing.deleted_at is None:
+            lead = existing
+            if (existing.pipeline_stage or "") in {"", "saved"}:
+                lead = await self.pipeline.ensure_lead(
+                    user_id=user.id,
+                    job_id=job.id,
+                    status=existing.status or "save",
+                    stage="researching",
+                )
+        else:
+            lead = await self.pipeline.ensure_lead(
+                user_id=user.id, job_id=job.id, status="save", stage="researching"
+            )
 
         run = AgentRun(
             id=str(uuid4()),

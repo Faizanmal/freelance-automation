@@ -331,6 +331,8 @@ class LeadActionPayload(BaseModel):
     feedback_kind: str | None = Field(default=None, max_length=32)
     write_version: int | None = Field(default=None, ge=0)
     client_ts: int | None = Field(default=None, ge=0)
+    # Why? chip after Save/Skip — must not revive a soft-deleted Unsave/Undo.
+    reason_only: bool = False
 
 
 class MatchFeedbackPayload(BaseModel):
@@ -845,6 +847,26 @@ async def set_lead_action(
         await session.commit()
         get_recommendation_cache().invalidate_user(str(user.id))
         return {"job_id": job_id, "status": None}
+
+    if payload.reason_only:
+        # Attach Why? reason without undeleting a cleared lead (Unsave race).
+        row = await pipeline.patch_reason(
+            user_id=user.id,
+            job_id=job_id,
+            status=payload.status,
+            reason=payload.reason,
+            write_version=payload.write_version,
+        )
+        await session.commit()
+        get_recommendation_cache().invalidate_user(str(user.id))
+        if row is None or getattr(row, "deleted_at", None) is not None:
+            return {"job_id": job_id, "status": None, "reason": None}
+        return {
+            "job_id": job_id,
+            "status": row.status,
+            "reason": getattr(row, "reason", None),
+            "feedback_kind": getattr(row, "feedback_kind", None),
+        }
 
     row = await pipeline.sync_from_legacy_status(
         user_id=user.id,

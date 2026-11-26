@@ -241,7 +241,7 @@ export default function PricingPage() {
                     )
                   ) : (
                     <Link
-                      href={authed ? "/preferences" : "/auth"}
+                      href={authed ? "/preferences" : "/auth?mode=register"}
                       className="inline-flex h-10 w-full items-center justify-center rounded-[var(--radius)] border border-[var(--border)] px-5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
                     >
                       {authed ? "Current Plan (Free)" : "Get Started Free"}

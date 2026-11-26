@@ -137,7 +137,7 @@ function LeadsPageInner() {
 
   const searchParams = useSearchParams();
 
-  const { toast } = useToast();
+  const { toast, dismissAll } = useToast();
 
   const [keywords, setKeywords] = useState(DEFAULT_KEYWORDS);
 
@@ -784,7 +784,13 @@ function LeadsPageInner() {
             ? "outcome"
             : undefined,
       keepalive: false as const,
+      reason_only: opts?.reasonOnly === true,
     };
+
+    // Unsave/Undo: dismiss Why? chips so a late "reason" click cannot re-PUT save.
+    if (status === "clear") {
+      dismissAll();
+    }
 
     // Fire durable PUT first — before toast/Why? chips. Same path for Save and Pitch.
     pendingWritesRef.current += 1;
@@ -797,6 +803,11 @@ function LeadsPageInner() {
         }
 
         if (!isLatest()) {
+          return;
+        }
+
+        // Why? chips only attach a reason — null status means Unsave already won.
+        if (opts?.reasonOnly) {
           return;
         }
 
@@ -1498,13 +1509,25 @@ function LeadsPageInner() {
 
             <p>
 
-              <span className="text-[var(--text)]">Scanned {data.total_scanned} recent listings</span>{data.total_indexed && data.total_indexed > data.total_scanned ? ` (of ${data.total_indexed} indexed)` : ""} · matched {data.total_matched} ·
+              <span className="text-[var(--text)]">Scanned {data.total_scanned} recent listings</span>{data.total_indexed && data.total_indexed > data.total_scanned ? ` (of ${data.total_indexed} indexed)` : ""} · matched {data.total_matched}
 
-              showing {visibleItems.length}
-
-              {typeof data.total_matched === "number" && data.total_matched > visibleItems.length
-                ? ` (${data.total_matched - visibleItems.length} dropped after match: fit, FTE, domain dedupe, or list cap)`
-                : ""}
+              {statusFilter === "all" && sourceFilter === "all" && !search.trim() && !hideAgenciesFilter
+                ? <> · showing {visibleItems.length}{typeof data.total_matched === "number" && data.total_matched > visibleItems.length
+                  ? ` (${data.total_matched - visibleItems.length} dropped after match: fit, FTE, domain dedupe, or list cap)`
+                  : ""}</>
+                : <> · {statusFilter === "saved"
+                  ? `Saved filter · ${visibleItems.length} saved`
+                  : statusFilter === "skipped"
+                    ? `Skipped filter · ${visibleItems.length} skipped`
+                    : statusFilter === "pitched"
+                      ? `Pitched filter · ${visibleItems.length} shown`
+                      : statusFilter === "won"
+                        ? `Won filter · ${visibleItems.length} shown`
+                        : statusFilter === "high"
+                          ? `High-fit filter · ${visibleItems.length} shown`
+                          : statusFilter === "new"
+                            ? `New filter · ${visibleItems.length} shown`
+                            : `Filtered view · ${visibleItems.length} shown`}{search.trim() ? " (search applied)" : ""}{sourceFilter !== "all" ? ` · source: ${sourceFilter}` : ""}{hideAgenciesFilter ? " · agencies hidden" : ""}</>}
 
               {data.freelance_focus ? " · freelance focus on" : " · all matches"}
 

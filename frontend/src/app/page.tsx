@@ -277,7 +277,7 @@ export default function HomePage() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
-                href="/auth"
+                href="/auth?mode=register"
                 className="inline-flex h-10 items-center rounded-[var(--radius)] bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)]"
               >
                 Start free
@@ -483,7 +483,7 @@ export default function HomePage() {
               </div>
               <div className="flex shrink-0 gap-3">
                 <Link
-                  href="/auth"
+                  href="/auth?mode=register"
                   className="inline-flex h-10 items-center justify-center rounded-[var(--radius)] bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)]"
                 >
                   Create free account

@@ -34,6 +34,7 @@ type ToastOptions = {
 
 type ToastContextValue = {
   toast: (message: string, options?: ToastTone | ToastOptions) => void;
+  dismissAll: () => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -72,7 +73,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [dismiss],
   );
 
-  const value = useMemo(() => ({ toast }), [toast]);
+  const dismissAll = useCallback(() => {
+    setItems([]);
+  }, []);
+
+  const value = useMemo(() => ({ toast, dismissAll }), [toast, dismissAll]);
 
   return (
     <ToastContext.Provider value={value}>
@@ -160,6 +165,7 @@ export function useToast() {
           console.info(message);
         }
       },
+      dismissAll: () => undefined,
     };
   }
   return ctx;

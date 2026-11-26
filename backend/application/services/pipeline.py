@@ -180,6 +180,35 @@ class PipelineService:
             write_version=write_version,
         )
 
+    async def patch_reason(
+        self,
+        *,
+        user_id: str,
+        job_id: int,
+        status: str,
+        reason: str | None = None,
+        write_version: int | None = None,
+    ) -> UserLeadAction | None:
+        """Update Why? reason on an active lead only — never undelete after Unsave."""
+        row = await self._get_action(user_id, job_id, include_deleted=True)
+        if row is None:
+            return None
+        current_version = int(getattr(row, "client_write_version", 0) or 0)
+        if write_version is not None and int(write_version) < current_version:
+            return row
+        if row.deleted_at is not None:
+            # Unsave/Undo already won — ignore late Why? chip.
+            if write_version is not None:
+                row.client_write_version = max(current_version, int(write_version))
+            return row
+        if row.status != status:
+            return row
+        if reason is not None:
+            row.reason = reason
+        if write_version is not None:
+            row.client_write_version = int(write_version)
+        return row
+
     async def clear_lead(
         self,
         *,

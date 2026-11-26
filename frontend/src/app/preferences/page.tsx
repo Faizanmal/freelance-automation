@@ -108,6 +108,8 @@ function PreferencesPageInner() {
   const [emailWarning, setEmailWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [authReady, setAuthReady] = useState(false);
+  const [authDenied, setAuthDenied] = useState(false);
   const allowDevVerify = process.env.NEXT_PUBLIC_ALLOW_DEV_VERIFY === "true";
 
   const verifyParam = searchParams.get("verify");
@@ -123,9 +125,12 @@ function PreferencesPageInner() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/auth");
+      setAuthDenied(true);
+      setAuthReady(true);
+      router.replace("/auth");
       return;
     }
+    let cancelled = false;
     startTransition(async () => {
       try {
         const [currentUser, currentPrefs, authMatches, currentBilling, learnedAffinities, profile, consents] = await Promise.all([
@@ -137,6 +142,7 @@ function PreferencesPageInner() {
           typeof getMatchProfile === "function" ? getMatchProfile().catch(() => null) : Promise.resolve(null),
           typeof listConsents === "function" ? listConsents().catch(() => null) : Promise.resolve(null),
         ]);
+        if (cancelled) return;
         setUser(currentUser);
         setPrefs(currentPrefs);
         setBilling(currentBilling);
@@ -169,13 +175,20 @@ function PreferencesPageInner() {
         setExcludeText((currentPrefs.exclude_keywords || []).join(", "));
         setChannelsText((currentPrefs.notification_channels || ["email"]).join(", "));
         setMatches(authMatches.items);
+        setAuthReady(true);
       } catch {
+        if (cancelled) return;
         setError("Failed to load preferences");
-        void logout().then(() => router.push("/auth"));
+        setAuthDenied(true);
+        setAuthReady(true);
+        void logout().then(() => router.replace("/auth"));
       } finally {
-        setMatchesLoading(false);
+        if (!cancelled) setMatchesLoading(false);
       }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   const selectTab = (next: PrefTab) => {
@@ -249,6 +262,17 @@ function PreferencesPageInner() {
 
   const inputClass = "sd-input";
 
+  // Resolve auth before painting Hunt Rules / Sign out (avoids signed-out flash).
+  if (!authReady || authDenied || !user) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24">
+        <p className="text-sm text-[var(--text-muted)]">
+          {authDenied ? "Redirecting to sign in…" : "Loading Hunt Rules…"}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-1 flex-col gap-8">
       <section className="flex flex-wrap items-end justify-between gap-4">
@@ -257,20 +281,16 @@ function PreferencesPageInner() {
             Hunt Rules
           </h1>
           <p className="mt-2 text-[var(--text-secondary)]">
-            {user
-              ? `Configure your discovery engine · ${user.email}`
-              : "Loading…"}
-            {user ? (
-              user.is_verified ? (
-                <span className="ml-2 inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  Verified
-                </span>
-              ) : (
-                <span className="ml-2 inline-flex items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                  Unverified
-                </span>
-              )
-            ) : null}
+            {`Configure your discovery engine · ${user.email}`}
+            {user.is_verified ? (
+              <span className="ml-2 inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                Verified
+              </span>
+            ) : (
+              <span className="ml-2 inline-flex items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                Unverified
+              </span>
+            )}
             {billing ? (
               <span className="ml-2 inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--accent-muted)] px-2 py-0.5 text-xs font-semibold tracking-wide text-[var(--accent)] uppercase">
                 {billing.is_pro ? "PRO" : "FREE"}

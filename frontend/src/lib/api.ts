@@ -1145,6 +1145,7 @@ export async function setLeadAction(
     write_version?: number;
     client_ts?: number;
     keepalive?: boolean;
+    reason_only?: boolean;
   },
 ) {
 
@@ -1174,6 +1175,7 @@ export async function setLeadAction(
         feedback_kind: opts?.feedback_kind,
         write_version: opts?.write_version,
         client_ts: opts?.client_ts,
+        reason_only: opts?.reason_only === true,
       }),
 
     },

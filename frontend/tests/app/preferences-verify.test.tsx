@@ -12,9 +12,15 @@ vi.mock("react", async () => {
   };
 });
 
+const routerMock = { push: vi.fn(), replace: vi.fn() };
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => routerMock,
   useSearchParams: () => new URLSearchParams("verify=auto"),
+}));
+
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: vi.fn(), dismissAll: vi.fn() }),
 }));
 
 vi.mock("framer-motion", () => ({
@@ -85,6 +91,9 @@ vi.mock("@/lib/api", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  routerMock.push.mockReset();
+  routerMock.replace.mockReset();
+  vi.mocked(api.getToken).mockReturnValue("fake-token");
   vi.mocked(api.me).mockResolvedValue({
     id: "u1",
     email: "dev@example.com",
@@ -154,5 +163,19 @@ test("displays consistent match score (95%) once findings settle", async () => {
     expect(screen.getByText("API Engineer")).toBeInTheDocument();
     expect(screen.getAllByText("95%")[0]).toBeInTheDocument();
   });
+});
+
+test("signed-out visit never paints Hunt Rules form or Sign out", async () => {
+  vi.mocked(api.getToken).mockReturnValue(null);
+
+  render(<PreferencesPage />);
+
+  expect(screen.queryByRole("heading", { name: /Hunt Rules/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Sign out/i })).not.toBeInTheDocument();
+  await waitFor(() => {
+    expect(routerMock.replace).toHaveBeenCalledWith("/auth");
+  });
+  expect(screen.getByText(/Redirecting to sign in/i)).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: /Hunt Rules/i })).not.toBeInTheDocument();
 });
 

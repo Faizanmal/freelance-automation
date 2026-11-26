@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useState, useTransition } from "react";
 import { getGitHubAuthUrl, getGoogleAuthUrl, getToken, login, register, setToken, me, type User } from "@/lib/api";
 import { AccountSettings } from "@/components/account-settings";
 import { Button } from "@/components/ui/button";
@@ -43,9 +43,16 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
-export default function AuthPage() {
+function parseAuthMode(value: string | null): "login" | "register" {
+  return value === "register" || value === "signup" ? "register" : "login";
+}
+
+function AuthPageInner() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const searchParams = useSearchParams();
+  const [mode, setMode] = useState<"login" | "register">(() =>
+    parseAuthMode(searchParams.get("mode")),
+  );
   const [info, setInfo] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -60,12 +67,30 @@ export default function AuthPage() {
   const [loadingSession, setLoadingSession] = useState(() => Boolean(getToken()));
 
   useEffect(() => {
+    setMode(parseAuthMode(searchParams.get("mode")));
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!getToken()) return;
     me()
       .then((data) => setUser(data))
       .catch(() => setUser(null))
       .finally(() => setLoadingSession(false));
   }, []);
+
+  const switchMode = (next: "login" | "register") => {
+    setMode(next);
+    setError(null);
+    setInfo(null);
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "register") {
+      params.set("mode", "register");
+    } else {
+      params.delete("mode");
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/auth?${qs}` : "/auth");
+  };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -80,7 +105,7 @@ export default function AuthPage() {
               created.detail ||
                 "If this email can be registered, check your inbox for next steps.",
             );
-            setMode("login");
+            switchMode("login");
             return;
           }
           await login(email, password, requireTotp ? totpCode : undefined);
@@ -204,41 +229,70 @@ export default function AuthPage() {
 
         <form onSubmit={onSubmit} className="space-y-3">
           {mode === "register" ? (
-            <input
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              placeholder="Full name"
-              className="sd-input"
-            />
+            <div className="space-y-1.5">
+              <label htmlFor="auth-full-name" className="block text-sm font-medium text-[var(--text-secondary)]">
+                Full name
+              </label>
+              <input
+                id="auth-full-name"
+                name="fullName"
+                autoComplete="name"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                className="sd-input"
+              />
+            </div>
           ) : null}
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="Email"
-            className="sd-input"
-          />
-          <input
-            type="password"
-            required
-            minLength={8}
-            maxLength={128}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Password"
-            disabled={requireTotp}
-            className="sd-input disabled:opacity-50"
-          />
-          {requireTotp ? (
+          <div className="space-y-1.5">
+            <label htmlFor="auth-email" className="block text-sm font-medium text-[var(--text-secondary)]">
+              Email
+            </label>
             <input
-              type="text"
+              id="auth-email"
+              name="email"
+              type="email"
               required
-              value={totpCode}
-              onChange={(event) => setTotpCode(event.target.value)}
-              placeholder="Authenticator code (6 digits)"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               className="sd-input"
             />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="auth-password" className="block text-sm font-medium text-[var(--text-secondary)]">
+              Password
+            </label>
+            <input
+              id="auth-password"
+              name="password"
+              type="password"
+              required
+              minLength={8}
+              maxLength={128}
+              autoComplete={mode === "register" ? "new-password" : "current-password"}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              disabled={requireTotp}
+              className="sd-input disabled:opacity-50"
+            />
+          </div>
+          {requireTotp ? (
+            <div className="space-y-1.5">
+              <label htmlFor="auth-totp" className="block text-sm font-medium text-[var(--text-secondary)]">
+                Authenticator code
+              </label>
+              <input
+                id="auth-totp"
+                name="totp"
+                type="text"
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={totpCode}
+                onChange={(event) => setTotpCode(event.target.value)}
+                className="sd-input"
+              />
+            </div>
           ) : null}
           <Button type="submit" disabled={pending} className="w-full">
             {pending ? "Working…" : mode === "login" ? "Sign in" : "Register"}
@@ -254,7 +308,7 @@ export default function AuthPage() {
           <button
             type="button"
             className="text-sm text-[var(--accent)] hover:underline"
-            onClick={() => setMode((current) => (current === "login" ? "register" : "login"))}
+            onClick={() => switchMode(mode === "login" ? "register" : "login")}
           >
             {mode === "login" ? "Need an account? Register" : "Already registered? Sign in"}
           </button>
@@ -271,5 +325,19 @@ export default function AuthPage() {
         Back to desk
       </Link>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6">
+          <p className="text-[var(--text-muted)]">Loading...</p>
+        </div>
+      }
+    >
+      <AuthPageInner />
+    </Suspense>
   );
 }

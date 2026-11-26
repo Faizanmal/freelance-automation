@@ -51,8 +51,9 @@ vi.mock("@/components/ui/card", () => ({
   Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+const dismissAll = vi.fn();
 vi.mock("@/components/ui/toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: vi.fn(), dismissAll }),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -72,6 +73,7 @@ vi.mock("@/lib/api", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  dismissAll.mockClear();
   vi.stubGlobal("open", vi.fn());
   vi.mocked(api.getToken).mockReturnValue("fake-token");
   vi.mocked(api.getPipelineStats).mockResolvedValue({
@@ -349,6 +351,134 @@ test("Restoring a skipped lead when 25 active leads are loaded keeps All at 25 (
     expect(screen.queryByRole("button", { name: "All (26)" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "All (25)" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Skipped (0)" })).toBeInTheDocument();
+  });
+});
+
+function filterLead(id: number, status: "save" | null = null) {
+  return {
+    job_id: id,
+    title: `Lead ${id}`,
+    company: "Client",
+    source_name: "remoteok",
+    url: `https://example.com/jobs/${id}`,
+    score: 0.9,
+    why: "Fit",
+    signals: [],
+    risks: [],
+    action: "draft_bid" as const,
+    matched_keywords: ["python"],
+    freshness_score: 0.8,
+    client_quality_score: 0.7,
+    red_flags: [],
+    user_status: status,
+  };
+}
+
+test("Saved filter summary reports saved count, not ranking exclusions", async () => {
+  vi.mocked(api.getPipelineStats).mockResolvedValue({
+    saved_count: 1,
+    pitched_count: 0,
+    won_count: 0,
+    skipped_count: 0,
+    total_engaged: 1,
+    pitch_rate: 0,
+    win_rate: 0,
+    saved_value: 0,
+    pitched_value: 0,
+    won_value: 0,
+    active_pipeline_value: 0,
+  });
+  vi.mocked(api.getAuthFindings).mockResolvedValue({
+    generated_at: "2026-10-05T00:00:00Z",
+    total_scanned: 10,
+    total_matched: 4,
+    total_findings: 4,
+    freelance_focus: true,
+    action_counts: { draft_bid: 4, watch: 0, skip: 0 },
+    keywords: ["python"],
+    items: [filterLead(1, "save"), filterLead(2), filterLead(3), filterLead(4)],
+  });
+
+  render(<LeadsPage />);
+  await waitFor(() => expect(screen.getByText("Lead 1")).toBeInTheDocument());
+
+  fireEvent.click(screen.getByRole("button", { name: /Saved\s*\(\s*1\s*\)/ }));
+  await waitFor(() => {
+    expect(screen.getByText(/Saved filter · 1 saved/i)).toBeInTheDocument();
+  });
+  expect(screen.queryByText(/dropped after match/i)).not.toBeInTheDocument();
+  expect(screen.getByText("Lead 1")).toBeInTheDocument();
+  expect(screen.queryByText("Lead 2")).not.toBeInTheDocument();
+});
+
+test("single Unsave dismisses Why chips, clears save, and survives Saved filter + reload", async () => {
+  let saved = true;
+  vi.mocked(api.setLeadAction).mockImplementation(async (jobId, status, opts) => {
+    if (opts?.reason_only) {
+      return { job_id: jobId, status: saved ? "save" : null };
+    }
+    if (status === "clear") {
+      saved = false;
+      return { job_id: jobId, status: null };
+    }
+    saved = status === "save";
+    return { job_id: jobId, status: status === "clear" ? null : status };
+  });
+  vi.mocked(api.getPipelineStats).mockImplementation(async () => ({
+    saved_count: saved ? 1 : 0,
+    pitched_count: 0,
+    won_count: 0,
+    skipped_count: 0,
+    total_engaged: saved ? 1 : 0,
+    pitch_rate: 0,
+    win_rate: 0,
+    saved_value: 0,
+    pitched_value: 0,
+    won_value: 0,
+    active_pipeline_value: 0,
+  }));
+  vi.mocked(api.getAuthFindings).mockImplementation(async () => ({
+    generated_at: "2026-10-05T00:00:00Z",
+    total_scanned: 10,
+    total_matched: 4,
+    total_findings: 4,
+    freelance_focus: true,
+    action_counts: { draft_bid: 4, watch: 0, skip: 0 },
+    keywords: ["python"],
+    items: [filterLead(1, saved ? "save" : null), filterLead(2), filterLead(3), filterLead(4)],
+  }));
+
+  render(<LeadsPage />);
+  await waitFor(() => expect(screen.getByText("Lead 1")).toBeInTheDocument());
+
+  fireEvent.click(screen.getByRole("button", { name: /^Unsave$/ }));
+  await waitFor(() => {
+    expect(api.setLeadAction).toHaveBeenCalledWith(
+      1,
+      "clear",
+      expect.objectContaining({ reason_only: false }),
+    );
+  });
+  expect(dismissAll).toHaveBeenCalled();
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /Saved\s*\(\s*0\s*\)/ })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /Saved\s*\(\s*0\s*\)/ }));
+  await waitFor(() => {
+    expect(screen.getByText(/Saved filter · 0 saved/i)).toBeInTheDocument();
+  });
+  expect(screen.queryByText("Lead 1")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /Refresh leads/i }));
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /Saved\s*\(\s*0\s*\)/ })).toBeInTheDocument();
+  });
+  fireEvent.click(screen.getByRole("button", { name: /All\s*\(/ }));
+  await waitFor(() => {
+    expect(screen.getAllByRole("button", { name: /^Save$/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^Unsave$/ })).not.toBeInTheDocument();
   });
 });
 
