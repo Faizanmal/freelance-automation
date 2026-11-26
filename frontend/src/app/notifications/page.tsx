@@ -12,6 +12,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   pauseNotifications,
+  peekInboxCache,
   previewDigest,
   resumeNotifications,
   sendNotification,
@@ -73,12 +74,20 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<TabKind>("inbox");
   const [authed] = useState(() => Boolean(getToken()));
 
-  // Inbox state
-  const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
+  // Inbox state — hydrate from Desk prefetch cache when present.
+  const [inboxItems, setInboxItems] = useState<InboxItem[]>(() => {
+    const hit = peekInboxCache();
+    return (hit?.items || []) as unknown as InboxItem[];
+  });
+  const [unreadCount, setUnreadCount] = useState<number>(() => {
+    const hit = peekInboxCache();
+    return hit?.unread_count || 0;
+  });
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   /** loading | ready | error — empty state only when ready && items.length === 0 */
-  const [inboxPhase, setInboxPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [inboxPhase, setInboxPhase] = useState<"loading" | "ready" | "error">(() =>
+    peekInboxCache() ? "ready" : "loading",
+  );
   const inboxFilterRef = useRef<InboxFilter>(inboxFilter);
   const inboxInFlightRef = useRef<{
     filter: InboxFilter;
@@ -210,24 +219,10 @@ export default function NotificationsPage() {
   useEffect(() => {
     if (!authed) return;
     // Defer so setState inside loadInbox is not synchronous within the effect body.
-    const timer = window.setTimeout(() => loadInbox(inboxFilter), 0);
+    // Prefer session cache (Desk prefetch) for first paint, then revalidate.
+    const timer = window.setTimeout(() => loadInbox(inboxFilter, { silent: true }), 0);
     return () => window.clearTimeout(timer);
   }, [authed, inboxFilter, loadInbox]);
-
-  useEffect(() => {
-    if (!authed) return;
-    const timer = window.setTimeout(() => {
-      startTransition(async () => {
-        try {
-          const data = await getNotificationHistory();
-          setHistory((data.items || []) as unknown as HistoryItem[]);
-        } catch {
-          // history optional on initial load
-        }
-      });
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [authed, startTransition]);
 
   useEffect(() => {
     if (!authed) return;
@@ -235,8 +230,18 @@ export default function NotificationsPage() {
       loadPreview();
     } else if (activeTab === "providers") {
       loadProviders();
+    } else if (activeTab === "compose") {
+      // History only needed on Compose — keep inbox first paint light.
+      startTransition(async () => {
+        try {
+          const data = await getNotificationHistory();
+          setHistory((data.items || []) as unknown as HistoryItem[]);
+        } catch {
+          /* optional */
+        }
+      });
     }
-  }, [activeTab, authed]);
+  }, [activeTab, authed, startTransition]);
 
   const toggleChannel = (channel: string) => {
     setChannels((current) =>

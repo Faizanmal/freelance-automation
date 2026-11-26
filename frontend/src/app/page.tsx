@@ -13,6 +13,7 @@ import {
   healthLive,
   listJobs,
   me,
+  prefetchInbox,
   scrapeJobs,
   subscribeAuth,
   type Job,
@@ -120,6 +121,8 @@ export default function HomePage() {
               : null,
           );
           setPipelineStats(pStats);
+          // Warm inbox so /notifications can paint from session cache under 2s.
+          prefetchInbox();
           return;
         }
         const data = await listJobs({ limit: 8 });

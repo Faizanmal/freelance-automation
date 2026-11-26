@@ -108,8 +108,9 @@ function PreferencesPageInner() {
   const [emailWarning, setEmailWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [authReady, setAuthReady] = useState(false);
-  const [authDenied, setAuthDenied] = useState(false);
+  // Resolve signed-out state on first render so Hunt Rules never flashes.
+  const [authReady, setAuthReady] = useState(() => !getToken());
+  const [authDenied, setAuthDenied] = useState(() => !getToken());
   const allowDevVerify = process.env.NEXT_PUBLIC_ALLOW_DEV_VERIFY === "true";
 
   const verifyParam = searchParams.get("verify");
@@ -124,9 +125,7 @@ function PreferencesPageInner() {
           : null;
 
   useEffect(() => {
-    if (!getToken()) {
-      setAuthDenied(true);
-      setAuthReady(true);
+    if (authDenied) {
       router.replace("/auth");
       return;
     }
@@ -189,7 +188,7 @@ function PreferencesPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, authDenied]);
 
   const selectTab = (next: PrefTab) => {
     const params = new URLSearchParams(searchParams.toString());

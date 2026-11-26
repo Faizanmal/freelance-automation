@@ -157,10 +157,12 @@ async def list_jobs(
             logging.getLogger(__name__).debug("Cache retrieval failed: %s", e)
 
     repo = SQLAlchemyJobRepository(session)
+    # Over-fetch then drop board/hub/FTE noise so "Latest in the desk" is postings only.
+    fetch_limit = min(max(limit * 3, limit + 16), 200)
     if cursor is not None:
         jobs = await repo.list_jobs_after_id(
             after_id=cursor,
-            limit=limit,
+            limit=fetch_limit,
             source=source,
             search=search,
             include_expired=include_expired,
@@ -170,7 +172,7 @@ async def list_jobs(
         )
     else:
         jobs = await repo.list_jobs(
-            limit=limit,
+            limit=fetch_limit,
             offset=offset,
             source=source,
             search=search,
@@ -179,6 +181,43 @@ async def list_jobs(
         total = await repo.count_jobs(
             source=source, search=search, include_expired=include_expired
         )
+
+    from backend.application.services.page_type import (
+        classify_page_type,
+        is_non_opportunity_noise,
+    )
+
+    filtered: list = []
+    for job in jobs:
+        enrichment = getattr(job, "enrichment", None)
+        enrichment_dict = enrichment if isinstance(enrichment, dict) else None
+        if is_non_opportunity_noise(
+            job.title,
+            job.description,
+            job.url,
+            job.company,
+            enrichment=enrichment_dict,
+        ):
+            page_type = classify_page_type(
+                job.title,
+                job.description,
+                job.url,
+                job.company,
+                enrichment=enrichment_dict,
+            )
+            import logging
+
+            logging.getLogger("signaldesk.jobs").info(
+                "list_jobs reject id=%s title=%r reason=non_opportunity_noise:%s",
+                getattr(job, "id", None),
+                (job.title or "")[:120],
+                page_type,
+            )
+            continue
+        filtered.append(job)
+        if len(filtered) >= limit:
+            break
+    jobs = filtered
 
     items = [
         JobOut(**(await repo.to_candidate_dict(job))).model_dump(mode="json")

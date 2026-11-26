@@ -204,10 +204,35 @@ function LeadsPageInner() {
   const [writingJobIds, setWritingJobIds] = useState<Set<number>>(() => new Set());
   const writeGenRef = useRef(new Map<number, number>());
   const pendingWritesRef = useRef(0);
+  /** Recent confirmed/optimistic statuses — block stale GET findings from re-skipping. */
+  const recentStatusRef = useRef(
+    new Map<number, { status: "save" | "skip" | "pitched" | "won" | null; at: number }>(),
+  );
   const dataRef = useRef(data);
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  const applyRecentStatusOverlay = useCallback((response: LeadFindingsResponse) => {
+    const now = Date.now();
+    const ttlMs = 45_000;
+    const overrides = recentStatusRef.current;
+    for (const [jobId, entry] of [...overrides.entries()]) {
+      if (now - entry.at > ttlMs) overrides.delete(jobId);
+    }
+    if (overrides.size === 0) return response;
+    const items = response.items.map((item) => {
+      const over = overrides.get(item.job_id);
+      if (!over) return item;
+      return { ...item, user_status: over.status };
+    });
+    const skipped = items.filter((i) => i.user_status === "skip").length;
+    return {
+      ...response,
+      items,
+      skipped_count: Math.max(Number(response.skipped_count) || 0, skipped),
+    };
+  }, []);
 
   const load = useCallback((value: string, focus?: boolean, silent = false) => {
     startTransition(async () => {
@@ -232,8 +257,9 @@ function LeadsPageInner() {
         }
 
         // Don't clobber in-flight Save/Skip/Undo writes with a stale fetch.
+        // Also overlay recent writes so a late initial-load response cannot re-skip.
         if (pendingWritesRef.current === 0) {
-          setData(response);
+          setData(applyRecentStatusOverlay(response));
           if (token) {
             void getPipelineStats()
               .then((stats) => {
@@ -287,7 +313,7 @@ function LeadsPageInner() {
 
     });
 
-  }, []);
+  }, [applyRecentStatusOverlay]);
 
 
 
@@ -621,10 +647,9 @@ function LeadsPageInner() {
       return;
     }
     if (!apiBase) return;
-    // Same durable PUT path as interactive Save/Undo — keepalive flush on pagehide.
+    // Unload flush: keepalive PUT + sendBeacon POST (beacon is POST-only).
     for (const write of pendingPayloadsRef.current.values()) {
-      const path = `/preferences/leads/${write.jobId}/action`;
-      const body = JSON.stringify({
+      const bodyObj = {
         status: write.status,
         reason: write.reason,
         feedback_kind:
@@ -633,10 +658,12 @@ function LeadsPageInner() {
             : "outcome",
         write_version: write.gen,
         client_ts: write.clientTs,
-      });
-      const url = `${apiBase}${path}`;
+      };
+      const body = JSON.stringify(bodyObj);
+      const putUrl = `${apiBase}/preferences/leads/${write.jobId}/action`;
+      const beaconUrl = `${apiBase}/preferences/leads/${write.jobId}/action-beacon`;
       try {
-        void fetch(url, {
+        void fetch(putUrl, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -646,7 +673,18 @@ function LeadsPageInner() {
           keepalive: true,
         });
       } catch {
-        /* best-effort unload flush */
+        /* best-effort */
+      }
+      try {
+        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+          const blob = new Blob(
+            [JSON.stringify({ ...bodyObj, access_token: token })],
+            { type: "application/json" },
+          );
+          navigator.sendBeacon(beaconUrl, blob);
+        }
+      } catch {
+        /* best-effort beacon */
       }
     }
   }, []);
@@ -740,6 +778,12 @@ function LeadsPageInner() {
     // Monotonic per-lead gen doubles as client_ts for server ordering (avoid Date.now purity lint).
     const clientTs = gen;
     pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen, clientTs });
+    if (!opts?.reasonOnly) {
+      recentStatusRef.current.set(jobId, {
+        status: status === "clear" ? null : status,
+        at: Date.now(),
+      });
+    }
 
     // Optimistic UI first — toast + counts update immediately (unless reason-only PATCH).
     if (!opts?.reasonOnly) {
@@ -771,8 +815,8 @@ function LeadsPageInner() {
     setError(null);
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
-    // Interactive writes: normal fetch (await confirm). Keepalive only on pagehide flush —
-    // always-on keepalive was regressing Pitch/Skip Undo (response/rollback races).
+    // Fire synchronously in the click path with keepalive so a hard reload ~300ms
+    // later still delivers the write. write_version + isLatest guard Undo races.
     const writeOpts = {
       write_version: gen,
       client_ts: clientTs,
@@ -783,7 +827,7 @@ function LeadsPageInner() {
           : status === "pitched" || status === "won"
             ? "outcome"
             : undefined,
-      keepalive: false as const,
+      keepalive: true as const,
       reason_only: opts?.reasonOnly === true,
     };
 

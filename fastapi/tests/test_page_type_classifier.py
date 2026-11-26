@@ -208,6 +208,47 @@ def test_full_time_allowed_only_above_10k_month():
         "Permanent employee role. Salary $12k/month.",
         "https://acme.com/jobs/fte-engineer-xyz789",
     )
+    # Permanent with no salary listed → reject.
+    assert is_non_opportunity_noise(
+        "Senior Full Stack Developer",
+        "Permanent full-time role. Competitive benefits.",
+        "https://helloworld.example/jobs/senior-fs-abc123",
+    )
+    # High annual salary clears the $10k/mo bar.
+    assert not is_non_opportunity_noise(
+        "Senior Engineer",
+        "Full-time permanent. Salary $150,000–$180,000 per year.",
+        "https://foxley.example/jobs/senior-eng-xyz789",
+    )
+
+
+def test_rejects_board_indexes_and_non_posting_hosts():
+    from backend.application.services.page_type import PAGE_TYPE_LISTICLE
+
+    assert (
+        classify_page_type(
+            "Python + FastAPI Developer",
+            url="https://builtin.com/job/python-fastapi/10820132",
+        )
+        == PAGE_TYPE_LISTICLE
+    )
+    assert is_non_opportunity_noise(
+        "Full Stack Developer",
+        url="https://aplin.com/job/61318990-full-stack-developer-3-canada-remote",
+    )
+    assert is_non_opportunity_noise(
+        "Sr. Software Engineer",
+        url="https://www.edtech.com/jobs/sr-software-engineer-18328",
+    )
+    assert is_non_opportunity_noise(
+        "Palmetto GBA",
+        "Agency homepage",
+        "https://dmepdac.com/",
+    )
+    assert is_non_opportunity_noise(
+        "Senior Full Stack Developer",
+        url="https://www.helloworld.rs/posao/Senior-Full-Stack/739480",
+    )
 
 
 def test_domain_cap_keeps_exactly_one_per_domain():

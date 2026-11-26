@@ -37,6 +37,15 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "anti-job-board.com",
     "techteems.com",
     "feedinkoo.com",
+    # Non-posting / agency-homepages / FTE board hosts mistaken for contract roles.
+    "dmepdac.com",
+    "builtin.com",
+    "aplin.com",
+    "edtech.com",
+    "helloworld.rs",
+    "myjobmag.co.za",
+    "myjobmag.com",
+
     # News / local-media hosts (not contract postings).
     "alohastatedaily.com",
     "staradvertiser.com",
@@ -165,17 +174,25 @@ LISTING_PAGE_TEXT_RE = re.compile(
 
 FULL_TIME_ONLY_RE = re.compile(
     r"(?:"
-    r"\bfull[\s-]?time\s+(?:employee|employment|permanent|salaried|position|role)\b"
-    r"|\bpermanent\s+(?:employee|employment|contract)\b"
+    r"\bfull[\s-]?time\b"
+    r"|\bpermanent\b"
+    r"|\bsalaried\b"
     r"|\bw-?2\b"
     r"|\bbenefits\s+package\b"
     r"|\b401\s*\(?k\)?\b"
     r"|\bpto\b"
     r"|\bpaid\s+time\s+off\b"
     r"|\bstaff\s+(?:software\s+)?(?:engineer|developer)\b"
+    r"|\bpermanent\s+(?:employee|employment|role|position|hire)\b"
     r")"
-    r"(?!.*\b(?:contract|freelance|fractional|hourly|contractor|consultant)\b)",
+    r"(?!.*\b(?:contract|freelance|fractional|hourly|contractor|consultant|gig)\b)",
     re.IGNORECASE | re.DOTALL,
+)
+
+CONTRACT_SIGNAL_RE = re.compile(
+    r"\b(?:contract|freelance|fractional|hourly|contractor|consultant|gig|"
+    r"1099|fixed[\s-]?price|project[\s-]?based)\b",
+    re.IGNORECASE,
 )
 
 NON_DEV_ROLE_RE = re.compile(
@@ -237,6 +254,9 @@ MONTHLY_SALARY_RE = re.compile(
     r"(?:"
     r"\$\s*([\d,]+(?:\.\d+)?)\s*(k)?\s*(?:/|per)\s*(?:mo(?:nth)?|m)\b"
     r"|\b([\d,]+(?:\.\d+)?)\s*(k)?\s*(?:usd|dollars?)\s*(?:/|per)\s*(?:mo(?:nth)?|m)\b"
+    r"|\$\s*([\d,]+(?:\.\d+)?)\s*(k)?\s*(?:[\u2013\-]\$?\s*[\d,]+(?:\.\d+)?\s*(k)?)?\s*"
+    r"(?:/|per)?\s*(?:yr|year|annual(?:ly)?)\b"
+    r"|\$\s*([\d,]{5,}(?:\.\d+)?)\b"
     r"|\b([\d,]+(?:\.\d+)?)\s*(k)\b"
     r")",
     re.IGNORECASE,
@@ -379,12 +399,22 @@ def classify_page_type(
         return PAGE_TYPE_BOARD_INDEX
     if NON_DEV_ROLE_RE.search(title or ""):
         return PAGE_TYPE_NON_DEV
-    if FULL_TIME_ONLY_RE.search(blob) and not re.search(
-        r"\b(?:contract|freelance|fractional|hourly|contractor|consultant|gig)\b",
-        blob,
-        re.IGNORECASE,
-    ):
-        # Allow high-paying FTE only when monthly pay clearly exceeds $10k.
+    has_contract = bool(CONTRACT_SIGNAL_RE.search(blob))
+    enrichment_emp = ""
+    if enrichment:
+        enrichment_emp = " ".join(
+            str(enrichment.get(k) or "")
+            for k in (
+                "employment_type",
+                "engagement_type",
+                "job_type",
+                "workplace_type",
+            )
+        )
+    fte_blob = f"{blob} {enrichment_emp}"
+    if FULL_TIME_ONLY_RE.search(fte_blob) and not has_contract:
+        # Permanent/FTE without contract language: keep only when monthly ≥ $10k.
+        # No listed salary → reject (cannot prove it clears the bar).
         if not _monthly_salary_above(blob, enrichment, floor_usd=10_000):
             return PAGE_TYPE_FULL_TIME
 

@@ -82,9 +82,9 @@ class MatchingServiceTests(unittest.TestCase):
                 id=2,
                 source_id="2",
                 canonical_id="c2",
-                title="Junior Python intern",
+                title="Junior Python Engineer",
                 seniority="junior",
-                description="Entry-level Python internship for graduates.",
+                description="Junior Python engineer role for early-career developers.",
             ),
             self.prefs,
         )

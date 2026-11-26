@@ -40,7 +40,11 @@ class MemoryRecommendationCache:
     def __init__(self, ttl_seconds: float = 45.0) -> None:
         self._store: dict[str, tuple[float, Any]] = {}
         self._user_keys: dict[str, set[str]] = {}
+        self._user_gen: dict[str, int] = {}
         self.ttl_seconds = ttl_seconds
+
+    def user_gen(self, user_id: str) -> int:
+        return int(self._user_gen.get(str(user_id), 0))
 
     def get(self, key: str) -> Any | None:
         item = self._store.get(key)
@@ -58,15 +62,22 @@ class MemoryRecommendationCache:
         value: Any,
         *,
         user_id: str | None = None,
+        user_gen: int | None = None,
         ttl_seconds: float | None = None,
     ) -> None:
+        # Drop stale builders that finished after a Save/Skip/Restore invalidated.
+        if user_id is not None and user_gen is not None:
+            if int(user_gen) != self.user_gen(str(user_id)):
+                return
         ttl = self.ttl_seconds if ttl_seconds is None else ttl_seconds
         self._store[key] = (time.monotonic() + ttl, value)
         if user_id:
             self._user_keys.setdefault(str(user_id), set()).add(key)
 
     def invalidate_user(self, user_id: str) -> int:
-        keys = list(self._user_keys.pop(str(user_id), set()))
+        uid = str(user_id)
+        self._user_gen[uid] = self.user_gen(uid) + 1
+        keys = list(self._user_keys.pop(uid, set()))
         for key in keys:
             self._store.pop(key, None)
         return len(keys)

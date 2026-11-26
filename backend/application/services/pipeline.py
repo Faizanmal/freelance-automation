@@ -134,7 +134,11 @@ class PipelineService:
         if write_version is not None and int(write_version) < current_version:
             return row
 
+        # Soft-deleted (Unsave/Restore): only a strictly newer write may revive.
+        # Blocks late match-feedback skip from undeleting after Restore.
         if row.deleted_at is not None:
+            if write_version is None or int(write_version) <= current_version:
+                return row
             row.deleted_at = None
 
         prev = row.pipeline_stage or stage_for_status(row.status)
@@ -209,6 +213,41 @@ class PipelineService:
             row.client_write_version = int(write_version)
         return row
 
+    async def _sibling_job_ids(self, job: JobRecord) -> list[int]:
+        """Other job rows that are the same listing (URL or title+company)."""
+        from urllib.parse import urlparse
+
+        ids: set[int] = set()
+        url = (job.url or "").strip().lower()
+        if url:
+            try:
+                parsed = urlparse(url if "://" in url else f"https://{url}")
+                host = (parsed.hostname or "").lower().removeprefix("www.")
+                path = (parsed.path or "").rstrip("/")
+                host_path = f"%{host}{path}%" if host else ""
+            except Exception:
+                host_path = ""
+            if host_path and len(host_path) > 8:
+                res = await self.session.execute(
+                    select(JobRecord.id).where(
+                        JobRecord.id != job.id,
+                        JobRecord.url.ilike(host_path),
+                    ).limit(20)
+                )
+                ids.update(int(r) for r in res.scalars().all() if r is not None)
+        title = (job.title or "").strip()
+        company = (job.company or "").strip()
+        if title and company and company.lower() not in {"unknown", "n/a", "na"}:
+            res = await self.session.execute(
+                select(JobRecord.id).where(
+                    JobRecord.id != job.id,
+                    JobRecord.title.ilike(title),
+                    JobRecord.company.ilike(company),
+                ).limit(20)
+            )
+            ids.update(int(r) for r in res.scalars().all() if r is not None)
+        return list(ids)
+
     async def clear_lead(
         self,
         *,
@@ -227,11 +266,31 @@ class PipelineService:
         # Keep prior status for audit; soft-delete is what removes it from counts.
         # (Setting status="skip" made Undo look like a Skip if deleted_at lagged.)
         row.pipeline_stage = "archived"
+        row.feedback_kind = "clear"
         if write_version is not None:
             row.client_write_version = int(write_version)
         await self._record_stage(
             row, from_stage=prev, to_stage="archived", reason="clear", source="user"
         )
+        # Twin JobRecords for the same listing (common on 9am.works) must clear too,
+        # otherwise Restore snaps back when ranking swaps to the sibling skip row.
+        job = await self.session.get(JobRecord, job_id)
+        if job is not None:
+            for sibling_id in await self._sibling_job_ids(job):
+                sibling = await self._get_action(
+                    user_id, sibling_id, include_deleted=True
+                )
+                if sibling is None or sibling.deleted_at is not None:
+                    continue
+                sibling.deleted_at = _utcnow()
+                sibling.pipeline_stage = "archived"
+                sibling.feedback_kind = "clear"
+                if write_version is not None:
+                    sibling.client_write_version = max(
+                        int(getattr(sibling, "client_write_version", 0) or 0),
+                        int(write_version),
+                    )
+                self.session.add(sibling)
         return row
 
     async def set_stage(

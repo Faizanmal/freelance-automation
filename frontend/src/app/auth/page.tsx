@@ -50,9 +50,8 @@ function parseAuthMode(value: string | null): "login" | "register" {
 function AuthPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [mode, setMode] = useState<"login" | "register">(() =>
-    parseAuthMode(searchParams.get("mode")),
-  );
+  // URL is the source of truth so mode survives reload without an effect sync.
+  const mode = parseAuthMode(searchParams.get("mode"));
   const [info, setInfo] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,10 +66,6 @@ function AuthPageInner() {
   const [loadingSession, setLoadingSession] = useState(() => Boolean(getToken()));
 
   useEffect(() => {
-    setMode(parseAuthMode(searchParams.get("mode")));
-  }, [searchParams]);
-
-  useEffect(() => {
     if (!getToken()) return;
     me()
       .then((data) => setUser(data))
@@ -79,7 +74,6 @@ function AuthPageInner() {
   }, []);
 
   const switchMode = (next: "login" | "register") => {
-    setMode(next);
     setError(null);
     setInfo(null);
     const params = new URLSearchParams(searchParams.toString());

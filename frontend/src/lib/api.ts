@@ -1310,6 +1310,78 @@ export async function getNotificationHistory() {
   return request<{ items: Array<Record<string, unknown>> }>("/notifications/history", { auth: true });
 }
 
+type InboxResponse = {
+  items: Array<Record<string, unknown>>;
+  unread_count: number;
+  offset: number;
+  limit: number;
+  archived?: boolean;
+};
+
+const INBOX_CACHE_KEY = "signaldesk:inbox:v1";
+const INBOX_CACHE_TTL_MS = 60_000;
+
+function inboxCacheKey(params?: {
+  unread_only?: boolean;
+  archived?: boolean;
+  event_type?: string;
+  group_key?: string;
+}) {
+  return [
+    INBOX_CACHE_KEY,
+    params?.unread_only ? "u" : "a",
+    params?.archived ? "arch" : "active",
+    params?.event_type || "",
+    params?.group_key || "",
+  ].join(":");
+}
+
+/** Warm the default inbox cache from Desk so /notifications paints under 2s. */
+export function prefetchInbox(): void {
+  if (typeof window === "undefined" || !getToken()) return;
+  void getInbox().catch(() => null);
+}
+
+export function peekInboxCache(params?: {
+  unread_only?: boolean;
+  archived?: boolean;
+  event_type?: string;
+  group_key?: string;
+}): InboxResponse | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(inboxCacheKey(params));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { at: number; data: InboxResponse };
+    if (!parsed?.data || Date.now() - Number(parsed.at || 0) > INBOX_CACHE_TTL_MS) {
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeInboxCache(
+  params: {
+    unread_only?: boolean;
+    archived?: boolean;
+    event_type?: string;
+    group_key?: string;
+  } | undefined,
+  data: InboxResponse,
+) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      inboxCacheKey(params),
+      JSON.stringify({ at: Date.now(), data }),
+    );
+  } catch {
+    /* quota / private mode */
+  }
+}
+
 export async function getInbox(params?: {
   unread_only?: boolean;
   archived?: boolean;
@@ -1321,43 +1393,63 @@ export async function getInbox(params?: {
   if (params?.archived) q.set("archived", "true");
   if (params?.event_type) q.set("event_type", params.event_type);
   if (params?.group_key) q.set("group_key", params.group_key);
+  // Lighter default page — enough for the inbox list; less JSON to parse.
+  q.set("limit", "40");
   const qs = q.toString() ? `?${q.toString()}` : "";
-  return request<{
-    items: Array<Record<string, unknown>>;
-    unread_count: number;
-    offset: number;
-    limit: number;
-    archived?: boolean;
-  }>(`/notifications/inbox${qs}`, { auth: true });
+  const data = await request<InboxResponse>(`/notifications/inbox${qs}`, { auth: true });
+  writeInboxCache(params, data);
+  return data;
+}
+
+function clearInboxCaches() {
+  if (typeof window === "undefined") return;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith(INBOX_CACHE_KEY)) keys.push(key);
+    }
+    for (const key of keys) sessionStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function markNotificationRead(id: number) {
-  return request<{ id: number; is_read: boolean; read_at: string }>(
+  const out = await request<{ id: number; is_read: boolean; read_at: string }>(
     `/notifications/inbox/${id}/read`,
     { method: "POST", auth: true },
   );
+  clearInboxCaches();
+  return out;
 }
 
 export async function markAllNotificationsRead() {
-  return request<{ marked_read: number; read_at: string }>(
+  const out = await request<{ marked_read: number; read_at: string }>(
     "/notifications/inbox/read-all",
     { method: "POST", auth: true },
   );
+  clearInboxCaches();
+  return out;
 }
 
 export async function archiveNotification(id: number) {
   // Prefer POST — some gateways/proxies mishandle DELETE and drop the write.
-  return request<{ id: number; archived: boolean; archived_at?: string | null }>(
+  const out = await request<{ id: number; archived: boolean; archived_at?: string | null }>(
     `/notifications/inbox/${id}/archive`,
     { method: "POST", auth: true },
   );
+  clearInboxCaches();
+  return out;
 }
 
 export async function unarchiveNotification(id: number) {
-  return request<{ id: number; archived: boolean }>(
+  const out = await request<{ id: number; archived: boolean }>(
     `/notifications/inbox/${id}/unarchive`,
     { method: "POST", auth: true },
   );
+  clearInboxCaches();
+  return out;
 }
 
 export async function getUnreadNotificationCount() {

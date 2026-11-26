@@ -38,7 +38,7 @@ from database.models.job import JobRecord
 from database.models.lead_action import UserLeadAction
 from database.models.preference import UserPreferences
 from database.models.user import User
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
@@ -69,6 +69,37 @@ _PURGE_PAGE_TYPES = frozenset(
         "full_time_employee",
     }
 )
+
+
+def _overlay_actions_on_findings(
+    payload: dict[str, Any],
+    lead_actions: dict[int, str],
+    *,
+    include_skipped: bool,
+) -> dict[str, Any]:
+    """Re-apply fresh Save/Skip/Restore onto a findings payload (cache or mid-build)."""
+    items: list[dict[str, Any]] = []
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        jid = item.get("job_id")
+        try:
+            status = lead_actions.get(int(jid)) if jid is not None else None
+        except (TypeError, ValueError):
+            status = None
+        row = {**item, "user_status": status}
+        if status == "skip" and not include_skipped:
+            continue
+        items.append(row)
+    if not include_skipped:
+        items = [i for i in items if i.get("user_status") != "skip"]
+    skipped_n = sum(1 for s in lead_actions.values() if s == "skip")
+    return {
+        **payload,
+        "items": items,
+        "skipped_count": skipped_n,
+        "actions_overlay": True,
+    }
 
 
 async def _purge_non_opportunity_jobs(
@@ -125,7 +156,14 @@ async def _purge_non_opportunity_jobs(
                     "title": (job.title or "")[:120],
                     "url": job.url,
                     "page_type": page_type,
+                    "reason": f"non_opportunity_noise:{page_type}",
                 }
+            )
+            log.info(
+                "purge reject job_id=%s title=%r reason=non_opportunity_noise:%s",
+                job.id,
+                (job.title or "")[:120],
+                page_type,
             )
             if persist:
                 job.is_expired = True
@@ -791,9 +829,15 @@ async def list_findings(
     ]
 
     cache = get_recommendation_cache()
+    build_gen = cache.user_gen(str(user.id))
     cached = cache.get(cache_key)
     if isinstance(cached, dict):
-        return {**cached, "cache_hit": True}
+        # Overlay fresh lead actions so a Restore cannot snap back via stale cache.
+        out = _overlay_actions_on_findings(
+            cached, lead_actions, include_skipped=include_skipped
+        )
+        out["cache_hit"] = True
+        return out
 
     total_indexed = await repo.count_jobs()
     skill_weights = await feedback.skill_weights(user.id)
@@ -816,8 +860,67 @@ async def list_findings(
     payload["subscription_affects_organic_rank"] = False
     payload["ineligible_samples"] = pipeline.sample_ineligible(jobs[:80], prefs, limit=5)
     payload["cache_hit"] = False
-    cache.set(cache_key, payload, user_id=str(user.id))
+    # Mid-build Restore/Save bumps user_gen — never return stale skip/save from
+    # the lead_actions snapshot taken at request start (~6s rebuild race).
+    if cache.user_gen(str(user.id)) != build_gen:
+        actions_res = await session.execute(
+            select(UserLeadAction).where(
+                UserLeadAction.user_id == user.id,
+                UserLeadAction.deleted_at.is_(None),
+            )
+        )
+        fresh_actions = {row.job_id: row.status for row in actions_res.scalars().all()}
+        return _overlay_actions_on_findings(
+            payload, fresh_actions, include_skipped=include_skipped
+        )
+    cache.set(cache_key, payload, user_id=str(user.id), user_gen=build_gen)
     return payload
+
+
+@router.post("/leads/{job_id}/action-beacon")
+async def set_lead_action_beacon(
+    job_id: int,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """POST-only unload path for navigator.sendBeacon (cannot PUT)."""
+    import jwt
+    from app.core.security.blocklist import blocklist
+    from app.core.security.jwt import decode_access_token
+    from backend.infrastructure.repositories.user_repository import (
+        SQLAlchemyUserRepository,
+    )
+
+    try:
+        raw = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="invalid_payload")
+    token = str(raw.get("access_token") or "").strip()
+    if not token:
+        auth = request.headers.get("Authorization") or ""
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        jwt_payload = decode_access_token(token)
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail="Invalid authentication token") from exc
+    jti = jwt_payload.get("jti")
+    if jti and await blocklist.is_blocked(jti):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
+    user_id = jwt_payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    user = await SQLAlchemyUserRepository(session).get_by_id(user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found")
+    payload = LeadActionPayload.model_validate(
+        {k: v for k, v in raw.items() if k != "access_token"}
+    )
+    return await set_lead_action(job_id, payload, user=user, session=session)
 
 
 @router.put("/leads/{job_id}/action")

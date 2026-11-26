@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from backend.infrastructure.repositories.job_repository import SQLAlchemyJobRepo
 from database.models.job import JobRecord, JobSource
 
 _SOURCE_ID_MAX = 512
+_log = logging.getLogger("signaldesk.ingestion")
 
 
 def _fit_source_id(value: str) -> str:
@@ -77,16 +79,28 @@ class JobIngestionService:
 
         from backend.application.services.page_type import (
             PAGE_TYPE_JOB_POST,
+            classify_page_type,
             classify_page_type_llm,
             is_non_opportunity_noise,
         )
 
+        page_type = classify_page_type(
+            candidate.title, candidate.description, candidate.url, candidate.company
+        )
         if is_non_opportunity_noise(
             candidate.title, candidate.description, candidate.url, candidate.company
         ):
+            reason = f"non_opportunity_noise:{page_type}"
+            _log.info(
+                "reject job title=%r url=%r reason=%s",
+                (candidate.title or "")[:120],
+                (candidate.url or "")[:200],
+                reason,
+            )
             return {
                 "action": "rejected",
-                "reason": "non_opportunity_noise",
+                "reason": reason,
+                "page_type": page_type,
             }
 
         # Dedupe BEFORE any LLM call — scrapes re-see the same URLs constantly and

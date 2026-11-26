@@ -369,8 +369,9 @@ class LeadFindingsService:
             }
             has_strong = any(r in strong for r in risks)
             weak_count = sum(1 for r in risks if r in weak)
-            # Lone weak signal (e.g. "full-time" in a mixed page) is not enough.
-            if not has_strong and weak_count < 2:
+            # Any FTE/permanent signal without contract language: require ≥$10k/mo.
+            # No listed salary → reject (HelloWorld / Datafin style permanent posts).
+            if not has_strong and weak_count < 1:
                 return False
             from backend.application.services.page_type import estimate_monthly_salary_usd
 
