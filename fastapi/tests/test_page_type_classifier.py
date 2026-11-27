@@ -52,7 +52,6 @@ def test_rejects_named_boards_and_aggregators():
         ("4 Day Week", "https://4dayweek.io/remote-jobs"),
         ("React Jobs", "https://reactjobs.io/"),
         ("Weekday", "https://weekday.works/"),
-        ("Jobs.ac.uk search", "https://www.jobs.ac.uk/jobs/python"),
     ]
     for title, url in samples:
         assert classify_page_type(title, url=url) == PAGE_TYPE_BOARD_INDEX
@@ -60,12 +59,32 @@ def test_rejects_named_boards_and_aggregators():
 
 
 def test_rejects_thin_recruiter_and_aggregator_hosts():
-    """Desk feed: drop unjobsapp / Hays / jobgether thin entries."""
+    """Desk feed: drop unjobsapp / Hays / jobgether / Twine / contractoruk / GM / pinpointhq."""
     thin = [
         ("UN Jobs listing", "https://unjobsapp.org/jobs/123"),
         ("Python Developer at HAYS", "https://www.hays.co.uk/job/python-123"),
         ("Contract role at HAYS", "https://djangojob.com/job/hays-python"),
         ("Remote React role", "https://jobgether.com/offer/abc123"),
+        (
+            "Freelance and remote Full stack developers jobs | Twine",
+            "https://www.twine.net/jobs/full-stack-developers",
+        ),
+        (
+            "Infrastructure Python Developer",
+            "https://www.contractoruk.com/job/462284-infrastructure_python_developer",
+        ),
+        (
+            "Senior Python Developer for Computer Vision at University of Oxford",
+            "https://www.jobs.ac.uk/job/DTQ994/senior-python-developer-for-computer-vision",
+        ),
+        (
+            "Senior Software Engineer, Remote | General Motors Careers",
+            "https://search-careers.gm.com/en/jobs/jr-202609267/senior-software-engineer",
+        ),
+        (
+            "Senior Backend Engineer - Remote - USA | ProphetX Careers",
+            "https://prophetexchange.pinpointhq.com/postings/6f920262-6974-49c7-b6ee-f584edeafe82",
+        ),
     ]
     for title, url in thin:
         assert is_non_opportunity_noise(title, url=url), (title, url)

@@ -42,6 +42,12 @@ import {
   type ProposalDraftResponse,
 
 } from "@/lib/api";
+import {
+  applyLeadOverridesToItems,
+  getLeadOverrides,
+  getLeadWriteEpoch,
+  setLeadOverride,
+} from "@/lib/lead-action-store";
 
 const SAVE_REASONS = [
   { id: "skills_fit", label: "Skills fit" },
@@ -57,36 +63,6 @@ const SKIP_REASONS = [
   { id: "spammy", label: "Spammy / low quality" },
   { id: "other", label: "Other" },
 ] as const;
-
-const LEAD_OVERRIDE_KEY = "signaldesk:lead-overrides:v1";
-
-type LeadOverride = {
-  status: "save" | "skip" | "pitched" | "won" | null;
-  gen: number;
-};
-
-function readStoredLeadOverrides(): Map<number, LeadOverride> {
-  if (typeof window === "undefined") return new Map();
-  try {
-    const raw = sessionStorage.getItem(LEAD_OVERRIDE_KEY);
-    if (!raw) return new Map();
-    const parsed = JSON.parse(raw) as Record<string, LeadOverride>;
-    return new Map(Object.entries(parsed).map(([k, v]) => [Number(k), v] as const));
-  } catch {
-    return new Map();
-  }
-}
-
-function persistOverrides(map: Map<number, LeadOverride>) {
-  if (typeof window === "undefined") return;
-  try {
-    const obj: Record<string, LeadOverride> = {};
-    for (const [k, v] of map.entries()) obj[String(k)] = v;
-    sessionStorage.setItem(LEAD_OVERRIDE_KEY, JSON.stringify(obj));
-  } catch {
-    /* quota */
-  }
-}
 
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -236,27 +212,15 @@ function LeadsPageInner() {
   const pendingWritesRef = useRef(0);
   /** Bumped on every lead write — in-flight findings fetches that started earlier are ignored. */
   const writeBarrierRef = useRef(0);
-  /** Recent optimistic/confirmed statuses — survive hard reload via sessionStorage. */
-  const recentStatusRef = useRef(readStoredLeadOverrides());
+  const loadGenRef = useRef(0);
   const dataRef = useRef(data);
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
   const applyRecentStatusOverlay = useCallback((response: LeadFindingsResponse) => {
-    const overrides = recentStatusRef.current;
-    if (overrides.size === 0) return response;
-    let items = response.items.map((item) => {
-      const over = overrides.get(item.job_id);
-      if (!over) return item;
-      // Only drop override when server agrees — never trust an older null/skip.
-      if (item.user_status === over.status) {
-        overrides.delete(item.job_id);
-        persistOverrides(overrides);
-        return item;
-      }
-      return { ...item, user_status: over.status };
-    });
+    const overrides = getLeadOverrides();
+    let items = applyLeadOverridesToItems(response.items);
     // Restored/cleared skips may be absent from a stale skipped list — re-inject from overrides.
     for (const [jobId, over] of overrides.entries()) {
       if (over.status === "skip") continue;
@@ -274,13 +238,14 @@ function LeadsPageInner() {
       ...response,
       items: [...active, ...items.filter((i) => i.user_status === "skip")],
       total_findings: active.length,
-      // Counts follow visible rows only — never inflate from a stale server skipped_count.
       skipped_count: skipped,
     };
   }, []);
 
   const load = useCallback((value: string, focus?: boolean, silent = false) => {
     const barrierAtStart = writeBarrierRef.current;
+    const epochAtStart = getLeadWriteEpoch();
+    const loadGen = ++loadGenRef.current;
     startTransition(async () => {
       try {
         if (!silent) {
@@ -302,6 +267,12 @@ function LeadsPageInner() {
         if (writeBarrierRef.current !== barrierAtStart) {
           return;
         }
+        if (getLeadWriteEpoch() !== epochAtStart) {
+          return;
+        }
+        if (loadGen !== loadGenRef.current) {
+          return;
+        }
         if (pendingWritesRef.current > 0) {
           return;
         }
@@ -315,6 +286,7 @@ function LeadsPageInner() {
           void getPipelineStats()
             .then((stats) => {
               if (writeBarrierRef.current !== barrierAtStart) return;
+              if (getLeadWriteEpoch() !== epochAtStart) return;
               if (pendingWritesRef.current > 0) return;
               setPipelineStats(stats);
             })
@@ -831,12 +803,10 @@ function LeadsPageInner() {
     pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen, clientTs });
     // Invalidate in-flight findings/stats so a late GET cannot overwrite this write.
     writeBarrierRef.current += 1;
+    loadGenRef.current += 1;
+    const nextStatus = status === "clear" ? null : status;
     if (!opts?.reasonOnly) {
-      recentStatusRef.current.set(jobId, {
-        status: status === "clear" ? null : status,
-        gen,
-      });
-      persistOverrides(recentStatusRef.current);
+      setLeadOverride(jobId, nextStatus, gen);
     }
 
     // Optimistic UI first — toast + counts update immediately (unless reason-only PATCH).
@@ -869,8 +839,10 @@ function LeadsPageInner() {
     setError(null);
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
-    // keepalive so a hard reload ~300ms after click still delivers; writeBarrier
-    // blocks stale findings from overwriting optimistic state while open.
+    // In-page writes must NOT use keepalive — browsers can drop the response body
+    // after a "successful" keepalive PUT, which triggered snapshot rollback and
+    // snapped counts back ~1s later with no new /api request. Unload flush still
+    // uses keepalive via flushPendingWrites.
     const writeOpts = {
       write_version: gen,
       client_ts: clientTs,
@@ -881,7 +853,6 @@ function LeadsPageInner() {
           : status === "pitched" || status === "won"
             ? "outcome"
             : undefined,
-      keepalive: true as const,
       reason_only: opts?.reasonOnly === true,
     };
 
@@ -917,15 +888,11 @@ function LeadsPageInner() {
           );
         }
 
-        // Keep optimistic card status — do not re-fetch findings (stale cache races).
+        // Apply the PUT result as SoT — never re-fetch findings after a write.
+        setLeadOverride(jobId, confirmed.status, gen);
         setData((current) =>
           current ? applyOptimisticStatus(current, jobId, status) : current,
         );
-        // Status is owned solely by PUT /leads/{id}/action. Do NOT post
-        // match-feedback save/skip/outcome — that second writer caused
-        // out-of-order / minutes-later status flips after Restore.
-        // Do NOT re-GET pipeline-stats here either: a stale ~2min cache hit
-        // was overwriting bumpPipelineStats and snapping counts back.
 
         if (status === "save" || status === "skip") {
           try {
@@ -944,11 +911,29 @@ function LeadsPageInner() {
           pendingPayloadsRef.current.delete(jobId);
         }
         if (!isLatest()) return;
-        if (!opts?.reasonOnly) {
+        const msg = err instanceof Error ? err.message : "Could not update lead";
+        // Ambiguous transport errors: keep optimistic state. Server may have
+        // committed (hard reload already proves writes land). Only roll back on
+        // explicit confirmation/auth failures.
+        const definitive =
+          /did not confirm|not authenticated|session expired|403|401|404|422|conflict/i.test(
+            msg,
+          );
+        if (!opts?.reasonOnly && definitive) {
           if (snapshot) setData(snapshot);
           if (previousStats) setPipelineStats(previousStats);
+          if (previousStatus) {
+            setLeadOverride(jobId, previousStatus as "save" | "skip" | "pitched" | "won", gen);
+          } else {
+            setLeadOverride(jobId, null, gen);
+          }
+          setError(msg);
+        } else if (!opts?.reasonOnly) {
+          // Keep counts; surface a soft warning without snapping UI back.
+          setSubmitMessage("Saved locally — reconnect to confirm sync.");
+        } else {
+          setError(msg);
         }
-        setError(err instanceof Error ? err.message : "Could not update lead");
       } finally {
         pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
         if (isLatest()) {

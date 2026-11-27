@@ -253,8 +253,12 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
     expect(api.setLeadAction).toHaveBeenCalledWith(
       42,
       "skip",
-      expect.objectContaining({ keepalive: true }),
+      expect.objectContaining({ write_version: expect.any(Number) }),
     );
+    const skipOpts = vi.mocked(api.setLeadAction).mock.calls.find(
+      (call) => call[1] === "skip",
+    )?.[2];
+    expect(skipOpts?.keepalive).not.toBe(true);
   });
   expect(api.postMatchFeedback).not.toHaveBeenCalled();
 

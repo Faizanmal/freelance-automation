@@ -2747,21 +2747,26 @@ export async function recordProductEvent(
   eventName: string,
   surface: "discovery" | "native_marketplace" | "billing" | "alerts" | "support",
 ) {
-  return request<{ accepted: number; duplicates: number; environment: string }>(
-    "/telemetry/product-events",
-    {
-      method: "POST",
-      auth: true,
-      body: JSON.stringify({
-        events: [{
-          event_key: crypto.randomUUID(),
-          event_name: eventName,
-          occurred_at: new Date().toISOString(),
-          surface,
-        }],
-      }),
-    },
-  );
+  try {
+    return await request<{ accepted: number; duplicates: number; environment: string }>(
+      "/telemetry/product-events",
+      {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({
+          events: [{
+            event_key: crypto.randomUUID(),
+            event_name: eventName,
+            occurred_at: new Date().toISOString(),
+            surface,
+          }],
+        }),
+      },
+    );
+  } catch {
+    // Analytics is best-effort — missing consent / 403 must not surface in UI.
+    return { accepted: 0, duplicates: 0, environment: "skipped" };
+  }
 }
 
 export async function testWebhook(webhookUrl?: string) {

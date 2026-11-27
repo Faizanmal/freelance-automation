@@ -127,11 +127,15 @@ export default function NotificationsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const loadInbox = useCallback((filter?: InboxFilter, opts?: { silent?: boolean }) => {
+  const loadInbox = useCallback((filter?: InboxFilter, opts?: { silent?: boolean; filterChanged?: boolean }) => {
     const activeFilter = filter ?? inboxFilterRef.current;
     const epoch = ++inboxEpochRef.current;
-    // Keep prior rows visible while refreshing so Archive/Mark-read don't flash loading.
-    if (!opts?.silent) {
+    // Filter changes must never keep painting the previous filter's rows
+    // (Archived was flashing All items with Restore for ~2s).
+    if (opts?.filterChanged) {
+      setInboxItems([]);
+      setInboxPhase("loading");
+    } else if (!opts?.silent) {
       setInboxPhase((prev) => (prev === "ready" ? "ready" : "loading"));
     }
 
@@ -148,16 +152,23 @@ export default function NotificationsPage() {
       if (activeFilter === "archived" && pendingRestoreIdsRef.current.size > 0) {
         items = items.filter((item) => !pendingRestoreIdsRef.current.has(item.id));
       }
+      // Defense in depth: never show the wrong archive polarity for this tab.
+      if (activeFilter === "archived") {
+        items = items.filter((item) => Boolean(item.archived_at));
+      } else {
+        items = items.filter((item) => !item.archived_at);
+      }
       return {
         items,
         unread_count: data.unread_count || 0,
       };
     };
 
-    // Coalesce duplicate in-flight fetches for the same filter (Strict Mode / remount).
-    let promise = inboxInFlightRef.current?.filter === activeFilter
-      ? inboxInFlightRef.current.promise
-      : null;
+    // Never reuse an in-flight promise from a different filter.
+    let promise =
+      inboxInFlightRef.current?.filter === activeFilter && !opts?.filterChanged
+        ? inboxInFlightRef.current.promise
+        : null;
     if (!promise) {
       promise = fetchForFilter();
       inboxInFlightRef.current = { filter: activeFilter, promise };
@@ -216,11 +227,22 @@ export default function NotificationsPage() {
     inboxFilterRef.current = inboxFilter;
   }, [inboxFilter]);
 
+  const prevInboxFilterRef = useRef<InboxFilter | null>(null);
   useEffect(() => {
     if (!authed) return;
+    const filterChanged =
+      prevInboxFilterRef.current !== null && prevInboxFilterRef.current !== inboxFilter;
+    prevInboxFilterRef.current = inboxFilter;
     // Defer so setState inside loadInbox is not synchronous within the effect body.
-    // Prefer session cache (Desk prefetch) for first paint, then revalidate.
-    const timer = window.setTimeout(() => loadInbox(inboxFilter, { silent: true }), 0);
+    // On filter change: clear + loading immediately — never paint the other tab's rows.
+    const timer = window.setTimeout(
+      () =>
+        loadInbox(inboxFilter, {
+          silent: !filterChanged,
+          filterChanged,
+        }),
+      0,
+    );
     return () => window.clearTimeout(timer);
   }, [authed, inboxFilter, loadInbox]);
 

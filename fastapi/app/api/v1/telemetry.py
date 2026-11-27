@@ -67,7 +67,8 @@ async def record_product_events(
         UserConsent.user_id == user.id, UserConsent.purpose == "analytics"
     ))
     if not consent or not consent.granted:
-        raise HTTPException(status_code=403, detail="Product analytics consent is required")
+        # Soft-skip — never 403 the product UI for missing analytics consent.
+        return {"accepted": 0, "duplicates": 0, "environment": "consent_required"}
     settings = get_settings()
     env = settings.environment.lower()
     environment = "production" if env == "production" else ("staging" if env == "staging" else ("test" if env in {"test", "testing"} else "development"))

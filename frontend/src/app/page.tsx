@@ -22,6 +22,10 @@ import {
   type Preferences,
   type User,
 } from "@/lib/api";
+import {
+  applyLeadOverridesToItems,
+  subscribeLeadActions,
+} from "@/lib/lead-action-store";
 import { sanitizeExternalUrl } from "@/lib/security";
 import { ActivationChecklist } from "@/components/activation-checklist";
 import { EarningsCalculator } from "@/components/earnings-calculator";
@@ -110,7 +114,7 @@ export default function HomePage() {
           );
           setUser(currentUser);
           setPrefs(currentPrefs);
-          setFindings(leadData?.items || []);
+          setFindings(applyLeadOverridesToItems(leadData?.items || []));
           setFindingsMeta(
             leadData
               ? {
@@ -148,6 +152,14 @@ export default function HomePage() {
     refresh(authed);
   }, [authed]);
 
+  // Re-apply cross-route lead overrides when /leads writes while Desk is mounted
+  // (or after client navigates back without a full remount).
+  useEffect(() => {
+    return subscribeLeadActions(() => {
+      setFindings((prev) => applyLeadOverridesToItems(prev));
+    });
+  }, []);
+
   const runScrape = () => {
     if (!getToken()) {
       router.push("/auth");
@@ -178,7 +190,7 @@ export default function HomePage() {
               ? data.total
               : data.items.length,
         );
-        setFindings(leadData?.items || []);
+        setFindings(applyLeadOverridesToItems(leadData?.items || []));
         setFindingsMeta(
           leadData
             ? {
@@ -213,9 +225,8 @@ export default function HomePage() {
   );
   const visibleJobs = useMemo(() => {
     const marketplacePattern = /(freelancer|upwork|fiverr|peopleperhour|guru\.com|truelancer)/i;
-    // jobs.ac.uk kept off this client denylist — API board rules keep deep contract posts.
     const nonOpportunityUrlPattern =
-      /(\/blogs?\/|\/articles?\/|\/guides?\/|\/tutorials?\/|\/tenders?\/|\/procurement\/|\/rfp\/|tendersontime\.com|tendertiger\.com|biddetail\.com|globaltenders\.com|dgmarket\.com|unjobsapp\.org|hays\.co\.uk|hays\.com|djangojob\.com|jobgether\.com)/i;
+      /(\/blogs?\/|\/articles?\/|\/guides?\/|\/tutorials?\/|\/tenders?\/|\/procurement\/|\/rfp\/|tendersontime\.com|tendertiger\.com|biddetail\.com|globaltenders\.com|dgmarket\.com|unjobsapp\.org|hays\.co\.uk|hays\.com|djangojob\.com|jobgether\.com|twine\.net|contractoruk\.com|jobs\.ac\.uk|pinpointhq\.com|search-careers\.gm\.com)/i;
     const nonOpportunityTextPattern =
       /(\btop\s+\d+\b|\b\d+\s+best\b|\bbest\s+(?:freelance|remote)\b|\bhow\s+to\s+(?:become|hire|find|get)\b|\b(?:ultimate|complete)\s+guide\b|\be-?tenders?\b|\btender\s+(?:notice|no\.?|number|id|document|for)\b|\binvitation\s+(?:to|for)\s+(?:tender|bids?)\b|\brequest\s+for\s+(?:proposals?|quotations?|tenders?)\b|\bpublic\s+procurement\b|\bgovernment\s+tender\b)/i;
     const excludes = (prefs?.exclude_keywords || [])

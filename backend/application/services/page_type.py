@@ -56,6 +56,11 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "hays.com",
     "djangojob.com",
     "jobgether.com",
+    "twine.net",
+    "contractoruk.com",
+    "jobs.ac.uk",
+    "pinpointhq.com",
+    "search-careers.gm.com",
 
     # News / local-media hosts (not contract postings).
     "alohastatedaily.com",
@@ -123,7 +128,6 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "nofluffjobs.com",
     "landing.jobs",
     "usajobs.gov",
-    "contractoruk.com",
     "calopps.org",
     "marylandbids.com",
     "gov.uk",
@@ -137,7 +141,6 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "tech.usajobs.gov",
     "computerwork.com",
     "unjobnet.org",
-    "jobs.ac.uk",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -233,6 +236,22 @@ THIN_LISTING_TITLE_RE = re.compile(
     r"|\b(?:browse|search|view)\s+(?:all\s+)?(?:jobs?|openings|careers)\b"
     r"|\bmyworkdayjobs\.com\b"
     r"|\btechnical\s+curriculum\s+developer\b"
+    # Aggregator / category listing titles (Twine-style), not a single posting.
+    r"|\b(?:freelance|remote)\s+and\s+remote\s+.+\bjobs\b"
+    r"|\b(?:full[\s-]?stack|frontend|backend|python|react)\s+developers?\s+jobs\b"
+    r"|\bjobs\s*\|\s*twine\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Academic / university staff openings are almost never freelance contracts.
+UNIVERSITY_POSTING_RE = re.compile(
+    r"(?:"
+    r"\buniversity\s+of\b"
+    r"|\b(?:oxford|cambridge|harvard|stanford|mit)\b"
+    r"|\bjobs\.ac\.uk\b"
+    r"|\bacademic\s+(?:post|position|role|job)\b"
+    r"|\bfaculty\s+(?:position|role|opening)\b"
     r")",
     re.IGNORECASE,
 )
@@ -416,6 +435,14 @@ def classify_page_type(
         if not deep:
             return PAGE_TYPE_BOARD_INDEX
 
+    # Corporate careers search portals (GM search-careers, *.pinpointhq, etc.).
+    if (
+        host.startswith("search-careers.")
+        or host.endswith(".pinpointhq.com")
+        or host == "pinpointhq.com"
+    ):
+        return PAGE_TYPE_CAREERS_HUB
+
     if (
         host.startswith("careers.")
         or host.startswith("career.")
@@ -433,6 +460,9 @@ def classify_page_type(
             return PAGE_TYPE_CAREERS_HUB
         if path.rstrip("/") in {"", "/careers", "/career", "/jobs", "/join-us", "/joinus", "/openings"}:
             return PAGE_TYPE_CAREERS_HUB
+
+    if UNIVERSITY_POSTING_RE.search(blob) and not CONTRACT_SIGNAL_RE.search(blob):
+        return PAGE_TYPE_FULL_TIME
 
     if DOMAIN_INDEX_PATH_RE.search(path):
         return PAGE_TYPE_BOARD_INDEX
