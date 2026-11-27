@@ -107,20 +107,38 @@ class PipelineService:
         feedback_kind: str | None = None,
         source: str = "user",
         write_version: int | None = None,
+        force: bool = False,
     ) -> UserLeadAction:
+        """Upsert a lead action.
+
+        ``force=True`` is for explicit PUT /leads/{id}/action clicks: always
+        apply the intended status and bump ``client_write_version``. Without
+        force, a missing/low write_version is ignored so late match-feedback
+        / beacons cannot undo a newer Save/Skip/Restore. Client gens reset on
+        remount, so force is required for durable UI actions.
+        """
         row = await self._get_action(user_id, job_id, include_deleted=True)
         target_stage = stage or stage_for_status(status)
         if target_stage not in PIPELINE_STAGES:
             raise ValueError(f"invalid_stage:{target_stage}")
+        # Forced PUT /action: keep the explicit save/skip/pitched/won.
+        # Pipeline column moves pass stage=… with default status="save": derive
+        # status from the stage so "applied" stays pitched, not save.
+        if force:
+            resolved_status = status
+        elif stage:
+            resolved_status = status_for_stage(target_stage)
+        else:
+            resolved_status = status
         if row is None:
             row = UserLeadAction(
                 user_id=user_id,
                 job_id=job_id,
-                status=status_for_stage(target_stage) if stage else status,
+                status=resolved_status,
                 pipeline_stage=target_stage,
                 reason=reason,
                 feedback_kind=feedback_kind,
-                client_write_version=int(write_version or 0),
+                client_write_version=int(write_version or 1),
             )
             self.session.add(row)
             await self.session.flush()
@@ -129,22 +147,22 @@ class PipelineService:
             )
             return row
 
-        # Missing write_version counts as 0 so late match-feedback / beacons
-        # without a version can never overwrite a versioned Save/Skip/Restore.
         current_version = int(getattr(row, "client_write_version", 0) or 0)
         effective_version = int(write_version) if write_version is not None else 0
-        if effective_version < current_version:
+        if force:
+            # Explicit user click — always win; keep versions monotonic.
+            effective_version = max(effective_version, current_version + 1)
+        elif effective_version < current_version:
             return row
 
-        # Soft-deleted (Unsave/Restore): only a strictly newer write may revive.
-        # Blocks late match-feedback skip from undeleting after Restore.
+        # Soft-deleted (Unsave/Restore): force or a strictly newer write may revive.
         if row.deleted_at is not None:
-            if effective_version <= current_version:
+            if not force and effective_version <= current_version:
                 return row
             row.deleted_at = None
 
         prev = row.pipeline_stage or stage_for_status(row.status)
-        row.status = status_for_stage(target_stage) if stage else status
+        row.status = resolved_status
         row.pipeline_stage = target_stage
         if reason is not None:
             row.reason = reason
@@ -166,11 +184,15 @@ class PipelineService:
         reason: str | None = None,
         feedback_kind: str | None = None,
         write_version: int | None = None,
+        force: bool = False,
     ) -> UserLeadAction | None:
         """Keep pipeline_stage aligned when Save/Skip / apply paths mutate status."""
         if status == "clear":
             return await self.clear_lead(
-                user_id=user_id, job_id=job_id, write_version=write_version
+                user_id=user_id,
+                job_id=job_id,
+                write_version=write_version,
+                force=force,
             )
 
         stage = stage_for_status(status)
@@ -181,8 +203,9 @@ class PipelineService:
             stage=stage,
             reason=reason,
             feedback_kind=feedback_kind,
-            source="system",
+            source="user" if force else "system",
             write_version=write_version,
+            force=force,
         )
 
     async def patch_reason(
@@ -249,13 +272,16 @@ class PipelineService:
         user_id: str,
         job_id: int,
         write_version: int | None = None,
+        force: bool = False,
     ) -> UserLeadAction | None:
         row = await self._get_action(user_id, job_id, include_deleted=True)
         if row is None:
             return None
         current_version = int(getattr(row, "client_write_version", 0) or 0)
         effective_version = int(write_version) if write_version is not None else 0
-        if effective_version < current_version:
+        if force:
+            effective_version = max(effective_version, current_version + 1)
+        elif effective_version < current_version:
             return row
         prev = row.pipeline_stage
         row.deleted_at = _utcnow()

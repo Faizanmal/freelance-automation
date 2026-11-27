@@ -85,6 +85,16 @@ def test_rejects_thin_recruiter_and_aggregator_hosts():
             "Senior Backend Engineer - Remote - USA | ProphetX Careers",
             "https://prophetexchange.pinpointhq.com/postings/6f920262-6974-49c7-b6ee-f584edeafe82",
         ),
+        ("NY State Contract Reporter", "https://www.nyscr.ny.gov/contracts"),
+        ("IT jobs search", "https://www.jobserve.com/gb/en/JobSearch.aspx"),
+        ("Notify careers board", "https://notify.careers/jobs"),
+        ("JobMail listing", "https://www.jobmail.co.za/jobs"),
+        ("IT Job Board UK", "https://www.itjobboard.co.uk/jobs"),
+        (
+            "React Project Finder | Optimize Upwork Search",
+            "https://vollna.com/react-project-finder",
+        ),
+        ("Upwork React gig", "https://www.upwork.com/jobs/~01abc"),
     ]
     for title, url in thin:
         assert is_non_opportunity_noise(title, url=url), (title, url)

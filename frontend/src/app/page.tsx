@@ -226,7 +226,7 @@ export default function HomePage() {
   const visibleJobs = useMemo(() => {
     const marketplacePattern = /(freelancer|upwork|fiverr|peopleperhour|guru\.com|truelancer)/i;
     const nonOpportunityUrlPattern =
-      /(\/blogs?\/|\/articles?\/|\/guides?\/|\/tutorials?\/|\/tenders?\/|\/procurement\/|\/rfp\/|tendersontime\.com|tendertiger\.com|biddetail\.com|globaltenders\.com|dgmarket\.com|unjobsapp\.org|hays\.co\.uk|hays\.com|djangojob\.com|jobgether\.com|twine\.net|contractoruk\.com|jobs\.ac\.uk|pinpointhq\.com|search-careers\.gm\.com)/i;
+      /(\/blogs?\/|\/articles?\/|\/guides?\/|\/tutorials?\/|\/tenders?\/|\/procurement\/|\/rfp\/|tendersontime\.com|tendertiger\.com|biddetail\.com|globaltenders\.com|dgmarket\.com|unjobsapp\.org|hays\.co\.uk|hays\.com|djangojob\.com|jobgether\.com|twine\.net|contractoruk\.com|jobs\.ac\.uk|pinpointhq\.com|search-careers\.gm\.com|nyscr\.ny\.gov|jobserve\.com|notify\.careers|jobmail\.co\.za|itjobboard\.co\.uk|vollna\.com|upwork\.com|freelancer\.com|peopleperhour\.com)/i;
     const nonOpportunityTextPattern =
       /(\btop\s+\d+\b|\b\d+\s+best\b|\bbest\s+(?:freelance|remote)\b|\bhow\s+to\s+(?:become|hire|find|get)\b|\b(?:ultimate|complete)\s+guide\b|\be-?tenders?\b|\btender\s+(?:notice|no\.?|number|id|document|for)\b|\binvitation\s+(?:to|for)\s+(?:tender|bids?)\b|\brequest\s+for\s+(?:proposals?|quotations?|tenders?)\b|\bpublic\s+procurement\b|\bgovernment\s+tender\b)/i;
     const excludes = (prefs?.exclude_keywords || [])

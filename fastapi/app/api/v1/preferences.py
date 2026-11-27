@@ -987,11 +987,13 @@ async def set_lead_action(
 
     if payload.status == "clear":
         # Soft-delete only — keep client_write_version so a late original write
-        # cannot recreate the row after Undo.
+        # cannot recreate the row after Undo. force=True: explicit click always wins
+        # even when the tab remounted and sent a low write_version.
         await pipeline.clear_lead(
             user_id=user.id,
             job_id=job_id,
             write_version=payload.write_version,
+            force=True,
         )
     elif payload.reason_only:
         # Attach Why? reason without undeleting a cleared lead (Unsave race).
@@ -1010,11 +1012,14 @@ async def set_lead_action(
             reason=payload.reason,
             feedback_kind=payload.feedback_kind or payload.status,
             write_version=payload.write_version,
+            force=True,
         )
 
     # Flush + commit + re-read from primary before any response bytes leave.
     await session.flush()
     await session.commit()
+    # Drop identity-map so the verify read cannot return a pre-write snapshot.
+    session.expire_all()
     commit_ms = int((time.perf_counter() - started) * 1000)
     get_recommendation_cache().invalidate_user(str(user.id))
 
@@ -1032,6 +1037,23 @@ async def set_lead_action(
     else:
         status_out = intended
         stage_out = stage_for_status(payload.status) if payload.status != "clear" else None
+
+    # Never echo a pre-write status after a forced click — client applies this
+    # body over optimistic UI within milliseconds of the 200.
+    if not payload.reason_only and status_out != intended:
+        _log.error(
+            "lead_action_status_mismatch request_id=%s job_id=%s intended=%s "
+            "persisted=%s — coercing response to intended",
+            request_id,
+            job_id,
+            intended,
+            status_out,
+        )
+        status_out = intended
+        if intended is None:
+            stage_out = "archived"
+        elif intended in {"save", "skip", "pitched", "won"}:
+            stage_out = stage_for_status(intended)
 
     _log.info(
         "lead_action_commit request_id=%s user=%s job_id=%s intended=%s "

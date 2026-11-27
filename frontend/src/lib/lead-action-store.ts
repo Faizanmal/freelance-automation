@@ -15,8 +15,11 @@ export type LeadActionOverride = {
 type Listener = () => void;
 
 const STORAGE_KEY = "signaldesk:lead-overrides:v1";
+const GEN_STORAGE_KEY = "signaldesk:lead-write-gens:v1";
 
 let overrides = new Map<number, LeadActionOverride>();
+/** Monotonic per-job write gens — survive remount so PUT write_version never goes backwards. */
+let writeGens = new Map<number, number>();
 let writeEpoch = 0;
 const listeners = new Set<Listener>();
 
@@ -41,12 +44,29 @@ function readStorage(): Map<number, LeadActionOverride> {
   }
 }
 
+function readGens(): Map<number, number> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const raw = sessionStorage.getItem(GEN_STORAGE_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return new Map(
+      Object.entries(parsed).map(([k, v]) => [Number(k), Number(v) || 0] as const),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 function persist() {
   if (typeof window === "undefined") return;
   try {
     const obj: Record<string, LeadActionOverride> = {};
     for (const [k, v] of overrides.entries()) obj[String(k)] = v;
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    const gens: Record<string, number> = {};
+    for (const [k, v] of writeGens.entries()) gens[String(k)] = v;
+    sessionStorage.setItem(GEN_STORAGE_KEY, JSON.stringify(gens));
   } catch {
     /* quota */
   }
@@ -54,6 +74,10 @@ function persist() {
 
 if (typeof window !== "undefined") {
   overrides = readStorage();
+  writeGens = readGens();
+  for (const [jobId, over] of overrides.entries()) {
+    writeGens.set(jobId, Math.max(writeGens.get(jobId) || 0, over.gen || 0));
+  }
 }
 
 function emit() {
@@ -78,7 +102,16 @@ export function getLeadOverrides(): Map<number, LeadActionOverride> {
   return overrides;
 }
 
+/** Next write_version for a job — always greater than any prior in this browser tab. */
+export function nextLeadWriteGen(jobId: number): number {
+  const next = Math.max(writeGens.get(jobId) || 0, overrides.get(jobId)?.gen || 0) + 1;
+  writeGens.set(jobId, next);
+  persist();
+  return next;
+}
+
 export function setLeadOverride(jobId: number, status: LeadActionStatus, gen: number) {
+  writeGens.set(jobId, Math.max(writeGens.get(jobId) || 0, gen));
   overrides.set(jobId, { status, gen, updatedAt: Date.now() });
   persist();
   bumpLeadWriteEpoch();

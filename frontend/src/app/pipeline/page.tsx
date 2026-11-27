@@ -28,6 +28,7 @@ import {
   type PipelineStage,
   type WorkspaceDashboard,
 } from "@/lib/api";
+import { subscribeLeadActions } from "@/lib/lead-action-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -113,12 +114,22 @@ export default function PipelinePage() {
       const cols = board.columns || {};
       setColumns(cols);
       // Prefer board-derived Qualified so optimistic moves aren't overwritten by a lagging dashboard.
+      const activeFromBoard = [
+        "saved",
+        "researching",
+        "ready",
+        "applied",
+        "interview",
+        "negotiating",
+      ].reduce((n, stage) => n + ((cols as Record<string, unknown[]>)[stage]?.length || 0), 0);
       setDashboard(
         dash
           ? {
               ...dash,
               qualified_leads:
                 (cols.ready?.length || 0) + (cols.applied?.length || 0),
+              // Prefer board-derived Active so Save/Pitch from /leads show up immediately.
+              active_opportunities: activeFromBoard,
             }
           : dash,
       );
@@ -132,6 +143,24 @@ export default function PipelinePage() {
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(timer);
+  }, [refresh]);
+
+  // When Desk/Leads Save or Pitch, re-pull board so Active cards match.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+    const unsub = subscribeLeadActions(() => {
+      if (cancelled) return;
+      if (timer != null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (!cancelled) void refresh({ silent: true });
+      }, 200);
+    });
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+      unsub();
+    };
   }, [refresh]);
 
   const allLeads = useMemo(() => {

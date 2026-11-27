@@ -1427,8 +1427,17 @@ function clearInboxCaches() {
 export async function markNotificationRead(id: number) {
   const out = await request<{ id: number; is_read: boolean; read_at: string }>(
     `/notifications/inbox/${id}/read`,
-    { method: "POST", auth: true },
+    {
+      method: "POST",
+      auth: true,
+      // Keepalive so a hard reload ~400ms after click still delivers the write.
+      keepalive: true,
+      timeoutMs: 0,
+    },
   );
+  if (!out?.is_read) {
+    throw new Error("Mark read did not confirm");
+  }
   clearInboxCaches();
   return out;
 }

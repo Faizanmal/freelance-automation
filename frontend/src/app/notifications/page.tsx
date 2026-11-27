@@ -287,9 +287,16 @@ export default function NotificationsPage() {
     setUnreadCount((c) => Math.max(0, c - 1));
     void (async () => {
       try {
-        await markNotificationRead(id);
+        const res = await markNotificationRead(id);
+        if (!res?.is_read) {
+          setInboxItems(previous);
+          setUnreadCount((c) => c + 1);
+          setError("Mark read did not persist. Try again.");
+          return;
+        }
       } catch (err) {
         setInboxItems(previous);
+        setUnreadCount(previous.filter((item) => !item.is_read).length);
         setError(err instanceof Error ? err.message : "Failed marking read");
       }
     })();

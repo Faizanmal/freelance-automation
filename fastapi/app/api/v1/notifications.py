@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from uuid import uuid4
 
 from app.api.dependencies import get_current_user
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -439,8 +439,14 @@ async def mark_notification_read(
     notification_id: int,
     session: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
+    response: Response,
 ) -> dict[str, Any]:
-    """Marks a single notification as read, enforcing user ownership."""
+    """Marks a single notification as read, enforcing user ownership.
+
+    Commit + re-read before responding so a hard reload ~400ms later sees read.
+    """
+    response.headers["Cache-Control"] = "private, no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     user_id = str(current_user.id)
     res = await session.execute(
         select(NotificationRecord).where(
@@ -452,10 +458,26 @@ async def mark_notification_read(
     if not record:
         raise HTTPException(status_code=404, detail="Notification not found")
 
+    now = datetime.now(UTC)
     record.is_read = True
-    record.read_at = datetime.now(UTC)
+    record.read_at = now
+    await session.flush()
     await session.commit()
-    return {"id": record.id, "is_read": True, "read_at": record.read_at.isoformat()}
+    session.expire_all()
+    verify = await session.execute(
+        select(NotificationRecord).where(
+            NotificationRecord.id == notification_id,
+            NotificationRecord.user_id == user_id,
+        )
+    )
+    verified = verify.scalar_one_or_none()
+    if verified is None or not verified.is_read:
+        raise HTTPException(status_code=500, detail="Mark read did not persist")
+    return {
+        "id": verified.id,
+        "is_read": True,
+        "read_at": (verified.read_at or now).isoformat(),
+    }
 
 
 @router.post("/inbox/read-all")

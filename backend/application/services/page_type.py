@@ -61,6 +61,16 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "jobs.ac.uk",
     "pinpointhq.com",
     "search-careers.gm.com",
+    # Government tender / job-board / tool / marketplace noise.
+    "nyscr.ny.gov",
+    "jobserve.com",
+    "notify.careers",
+    "jobmail.co.za",
+    "itjobboard.co.uk",
+    "vollna.com",
+    "upwork.com",
+    "freelancer.com",
+    "peopleperhour.com",
 
     # News / local-media hosts (not contract postings).
     "alohastatedaily.com",
@@ -240,6 +250,10 @@ THIN_LISTING_TITLE_RE = re.compile(
     r"|\b(?:freelance|remote)\s+and\s+remote\s+.+\bjobs\b"
     r"|\b(?:full[\s-]?stack|frontend|backend|python|react)\s+developers?\s+jobs\b"
     r"|\bjobs\s*\|\s*twine\b"
+    # Tool / product pages marketed as job finders (vollna, Upwork optimizers).
+    r"|\bproject\s+finder\b"
+    r"|\boptimize\s+upwork\b"
+    r"|\bupwork\s+search\b"
     r")",
     re.IGNORECASE,
 )

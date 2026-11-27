@@ -46,6 +46,7 @@ import {
   applyLeadOverridesToItems,
   getLeadOverrides,
   getLeadWriteEpoch,
+  nextLeadWriteGen,
   setLeadOverride,
 } from "@/lib/lead-action-store";
 
@@ -789,19 +790,22 @@ function LeadsPageInner() {
       return;
     }
 
+    // Explicit actions only — never toggle from a second click while in flight.
+    if (!opts?.reasonOnly && writingJobIds.has(jobId)) {
+      return;
+    }
+
     const reason = opts?.reason;
     const snapshot = dataRef.current;
     const previousStatus =
       snapshot?.items.find((item) => item.job_id === jobId)?.user_status ?? null;
     const previousStats = pipelineStats;
-    // Each click (including Undo) gets its own generation so a stale success
-    // handler from a prior write cannot overwrite a newer durable intent.
-    const gen = (writeGenRef.current.get(jobId) || 0) + 1;
+    // Session-persisted monotonic gen — remount must not send write_version=1
+    // against a DB row already at version 5 (server used to no-op and echo old status).
+    const gen = nextLeadWriteGen(jobId);
     writeGenRef.current.set(jobId, gen);
-    // Monotonic per-lead gen doubles as client_ts for server ordering (avoid Date.now purity lint).
     const clientTs = gen;
     pendingPayloadsRef.current.set(jobId, { jobId, status, reason, gen, clientTs });
-    // Invalidate in-flight findings/stats so a late GET cannot overwrite this write.
     writeBarrierRef.current += 1;
     loadGenRef.current += 1;
     const nextStatus = status === "clear" ? null : status;
@@ -809,7 +813,6 @@ function LeadsPageInner() {
       setLeadOverride(jobId, nextStatus, gen);
     }
 
-    // Optimistic UI first — toast + counts update immediately (unless reason-only PATCH).
     if (!opts?.reasonOnly) {
       setData((current) =>
         current ? applyOptimisticStatus(current, jobId, status) : current,
@@ -839,10 +842,6 @@ function LeadsPageInner() {
     setError(null);
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
-    // In-page writes must NOT use keepalive — browsers can drop the response body
-    // after a "successful" keepalive PUT, which triggered snapshot rollback and
-    // snapped counts back ~1s later with no new /api request. Unload flush still
-    // uses keepalive via flushPendingWrites.
     const writeOpts = {
       write_version: gen,
       client_ts: clientTs,
@@ -856,12 +855,10 @@ function LeadsPageInner() {
       reason_only: opts?.reasonOnly === true,
     };
 
-    // Unsave/Undo: dismiss Why? chips so a late "reason" click cannot re-PUT save.
     if (status === "clear") {
       dismissAll();
     }
 
-    // Fire durable PUT first — before toast/Why? chips. Same path for Save and Pitch.
     pendingWritesRef.current += 1;
     void (async () => {
       try {
@@ -875,24 +872,31 @@ function LeadsPageInner() {
           return;
         }
 
-        // Why? chips only attach a reason — null status means Unsave already won.
         if (opts?.reasonOnly) {
           return;
         }
 
         const expected =
           status === "clear" ? null : (status as "save" | "skip" | "pitched" | "won");
-        if (confirmed.status !== expected) {
-          throw new Error(
+        // Only trust the PUT body for THIS job id. Never let a mismatched
+        // status overwrite optimistic UI (that was the 0–50ms post-200 snap-back).
+        if (confirmed.job_id !== jobId || confirmed.status !== expected) {
+          setLeadOverride(jobId, expected, gen);
+          setData((current) =>
+            current ? applyOptimisticStatus(current, jobId, status) : current,
+          );
+          setError(
             `Save did not confirm (got ${String(confirmed.status)}, expected ${String(expected)})`,
           );
+          return;
         }
 
-        // Apply the PUT result as SoT — never re-fetch findings after a write.
         setLeadOverride(jobId, confirmed.status, gen);
-        setData((current) =>
-          current ? applyOptimisticStatus(current, jobId, status) : current,
-        );
+        setData((current) => {
+          if (!current) return current;
+          // Patch only this lead — do not replace the whole list from the PUT.
+          return applyOptimisticStatus(current, jobId, status);
+        });
 
         if (status === "save" || status === "skip") {
           try {
@@ -912,13 +916,9 @@ function LeadsPageInner() {
         }
         if (!isLatest()) return;
         const msg = err instanceof Error ? err.message : "Could not update lead";
-        // Ambiguous transport errors: keep optimistic state. Server may have
-        // committed (hard reload already proves writes land). Only roll back on
-        // explicit confirmation/auth failures.
-        const definitive =
-          /did not confirm|not authenticated|session expired|403|401|404|422|conflict/i.test(
-            msg,
-          );
+        // Auth failures only — keep optimistic state for transport/confirm noise
+        // so a 200-with-odd-body cannot snap counts back.
+        const definitive = /not authenticated|session expired|401|403|404/i.test(msg);
         if (!opts?.reasonOnly && definitive) {
           if (snapshot) setData(snapshot);
           if (previousStats) setPipelineStats(previousStats);
@@ -929,7 +929,6 @@ function LeadsPageInner() {
           }
           setError(msg);
         } else if (!opts?.reasonOnly) {
-          // Keep counts; surface a soft warning without snapping UI back.
           setSubmitMessage("Saved locally — reconnect to confirm sync.");
         } else {
           setError(msg);
