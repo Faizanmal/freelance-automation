@@ -50,6 +50,12 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "lxdguild.com",
     "bmsperformance.com",
     "morson.com",
+    # Thin aggregator / recruiter / university board landings (not single contract posts).
+    "unjobsapp.org",
+    "hays.co.uk",
+    "hays.com",
+    "djangojob.com",
+    "jobgether.com",
 
     # News / local-media hosts (not contract postings).
     "alohastatedaily.com",
@@ -131,6 +137,7 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "tech.usajobs.gov",
     "computerwork.com",
     "unjobnet.org",
+    "jobs.ac.uk",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (

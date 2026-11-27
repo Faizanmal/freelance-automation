@@ -76,6 +76,29 @@ _PURGE_PAGE_TYPES = frozenset(
 )
 
 
+def _status_counts_from_items(items: list[dict[str, Any]]) -> dict[str, int]:
+    """Tab counts must equal the number of rows visible in each filter."""
+    saved = pitched = won = skipped = 0
+    for item in items:
+        st = item.get("user_status")
+        if st == "save":
+            saved += 1
+        elif st == "pitched":
+            pitched += 1
+        elif st == "won":
+            won += 1
+        elif st == "skip":
+            skipped += 1
+    active = len([i for i in items if i.get("user_status") != "skip"])
+    return {
+        "saved": saved,
+        "pitched": pitched,
+        "won": won,
+        "skipped": skipped,
+        "all": active,
+    }
+
+
 def _overlay_actions_on_findings(
     payload: dict[str, Any],
     lead_actions: dict[int, str],
@@ -98,11 +121,13 @@ def _overlay_actions_on_findings(
         items.append(row)
     if not include_skipped:
         items = [i for i in items if i.get("user_status") != "skip"]
-    skipped_n = sum(1 for s in lead_actions.values() if s == "skip")
+    counts = _status_counts_from_items(items)
     return {
         **payload,
         "items": items,
-        "skipped_count": skipped_n,
+        "skipped_count": counts["skipped"],
+        "total_findings": counts["all"],
+        "status_counts": counts,
         "actions_overlay": True,
     }
 
@@ -824,18 +849,14 @@ async def list_findings(
         freelance_focus=focus,
         include_skipped=include_skipped,
     )
-    actioned_ids = [
-        jid
-        for jid, status in lead_actions.items()
-        if status in {"save", "pitched", "won"}
-        or (include_skipped and status == "skip")
-    ]
+    # Every non-deleted action must appear in the matching tab (incl. skips).
+    actioned_ids = list(lead_actions.keys())
     preserved = set(actioned_ids)
 
     repo = SQLAlchemyJobRepository(session)
     jobs = await _load_match_candidate_jobs(session, prefs, limit=300)
-    # Always include actioned leads so Saved/Pitched stay visible even when the
-    # source is later filtered as noise or falls outside the candidate window.
+    # Always include actioned leads so Saved/Pitched/Skipped stay visible even when
+    # the source is later filtered as noise or falls outside the candidate window.
     if actioned_ids:
         known = {j.id for j in jobs if j.id is not None}
         missing = [jid for jid in actioned_ids if jid not in known]
@@ -844,7 +865,7 @@ async def list_findings(
                 select(JobRecord).where(JobRecord.id.in_(missing))
             )
             jobs = list(jobs) + list(extra_res.scalars().all())
-    # Purge listicles/directories already stored (e.g. starterindex) before cache.
+    # Purge listicles/directories already stored (e.g. starterindex) before rank.
     purge_candidates = [
         j for j in jobs if j.id is None or j.id not in preserved
     ]
@@ -855,17 +876,11 @@ async def list_findings(
         if not getattr(j, "is_expired", False) or (j.id is not None and j.id in preserved)
     ]
 
-    cache = get_recommendation_cache()
-    build_gen = cache.user_gen(str(user.id))
-    cached = cache.get(cache_key)
-    if isinstance(cached, dict):
-        # Overlay fresh lead actions so a Restore cannot snap back via stale cache.
-        out = _overlay_actions_on_findings(
-            cached, lead_actions, include_skipped=include_skipped
-        )
-        out["cache_hit"] = True
-        return out
-
+    # Do NOT serve per-user findings from the process-local ranking cache.
+    # Multi-worker memory caches stay warm after PUT invalidates a different
+    # worker (~minutes of stale lists/counts). Always rebuild, then stamp
+    # fresh lead_actions so counts match the tabs.
+    _ = cache_key  # still computed for recommendation-meta parity / future keys
     total_indexed = await repo.count_jobs()
     skill_weights = await feedback.skill_weights(user.id)
     payload = LeadFindingsService(pipeline=pipeline).build(
@@ -887,21 +902,19 @@ async def list_findings(
     payload["subscription_affects_organic_rank"] = False
     payload["ineligible_samples"] = pipeline.sample_ineligible(jobs[:80], prefs, limit=5)
     payload["cache_hit"] = False
-    # Mid-build Restore/Save bumps user_gen — never return stale skip/save from
-    # the lead_actions snapshot taken at request start (~6s rebuild race).
-    if cache.user_gen(str(user.id)) != build_gen:
-        actions_res = await session.execute(
-            select(UserLeadAction).where(
-                UserLeadAction.user_id == user.id,
-                UserLeadAction.deleted_at.is_(None),
-            )
+    # Re-read actions after the (possibly slow) build so a mid-flight PUT wins.
+    actions_res = await session.execute(
+        select(UserLeadAction).where(
+            UserLeadAction.user_id == user.id,
+            UserLeadAction.deleted_at.is_(None),
         )
-        fresh_actions = {row.job_id: row.status for row in actions_res.scalars().all()}
-        return _overlay_actions_on_findings(
-            payload, fresh_actions, include_skipped=include_skipped
-        )
-    cache.set(cache_key, payload, user_id=str(user.id), user_gen=build_gen)
-    return payload
+    )
+    fresh_actions = {row.job_id: row.status for row in actions_res.scalars().all()}
+    # Bust any leftover process cache for this user after serving fresh data.
+    get_recommendation_cache().invalidate_user(str(user.id))
+    return _overlay_actions_on_findings(
+        payload, fresh_actions, include_skipped=include_skipped
+    )
 
 
 @router.post("/leads/{job_id}/action-beacon")
@@ -1114,6 +1127,10 @@ async def get_pipeline_stats(
     won_value = 0.0
 
     for action, job in actions_res.all():
+        # Drop ghost counts for hard-deleted jobs; keep expired jobs so Skipped
+        # still lists a Restore target matching the tab.
+        if job is None:
+            continue
         est = _estimate_job_value(job, bid_by_job.get(action.job_id))
         if action.status == "save":
             saved_count += 1
@@ -1144,6 +1161,7 @@ async def get_pipeline_stats(
         "pitched_value": round(pitched_value, 2),
         "won_value": round(won_value, 2),
         "active_pipeline_value": round(saved_value + pitched_value, 2),
+        "cache_busted": True,
     }
 
 

@@ -92,7 +92,8 @@ export default function HomePage() {
             listJobs({ limit: 8 }),
             me().catch(() => null),
             getPreferences().catch(() => null),
-            getAuthFindings(8).catch(() => null),
+            // Same include_skipped + limit as /leads so Desk Saved/Pitched match tabs.
+            getAuthFindings(25, undefined, true).catch(() => null),
             Promise.resolve(typeof getPipelineStats === "function" ? getPipelineStats() : null).catch(
               () => null,
             ),
@@ -200,18 +201,21 @@ export default function HomePage() {
     });
   };
 
-  // Single source of truth: pipeline-stats (UserLeadAction), not the current
-  // findings slice — matches Leads Saved tab and Pipeline after preserve-on-filter.
-  const savedCount = pipelineStats?.saved_count
-    ?? findings.filter((item) => item.user_status === "save").length;
+  // Same query as /leads tabs: counts from findings rows (not a lagging pipeline-stats GET).
+  const savedCount = findings.filter((item) => item.user_status === "save").length;
+  const pitchedCount = findings.filter(
+    (item) => item.user_status === "pitched" || item.user_status === "won",
+  ).length;
+  const wonCount = findings.filter((item) => item.user_status === "won").length;
   const highFitCount = useMemo(
-    () => findings.filter((item) => item.score >= 0.7).length,
+    () => findings.filter((item) => item.score >= 0.7 && item.user_status !== "skip").length,
     [findings],
   );
   const visibleJobs = useMemo(() => {
     const marketplacePattern = /(freelancer|upwork|fiverr|peopleperhour|guru\.com|truelancer)/i;
+    // jobs.ac.uk kept off this client denylist — API board rules keep deep contract posts.
     const nonOpportunityUrlPattern =
-      /(\/blogs?\/|\/articles?\/|\/guides?\/|\/tutorials?\/|\/tenders?\/|\/procurement\/|\/rfp\/|tendersontime\.com|tendertiger\.com|biddetail\.com|globaltenders\.com|dgmarket\.com)/i;
+      /(\/blogs?\/|\/articles?\/|\/guides?\/|\/tutorials?\/|\/tenders?\/|\/procurement\/|\/rfp\/|tendersontime\.com|tendertiger\.com|biddetail\.com|globaltenders\.com|dgmarket\.com|unjobsapp\.org|hays\.co\.uk|hays\.com|djangojob\.com|jobgether\.com)/i;
     const nonOpportunityTextPattern =
       /(\btop\s+\d+\b|\b\d+\s+best\b|\bbest\s+(?:freelance|remote)\b|\bhow\s+to\s+(?:become|hire|find|get)\b|\b(?:ultimate|complete)\s+guide\b|\be-?tenders?\b|\btender\s+(?:notice|no\.?|number|id|document|for)\b|\binvitation\s+(?:to|for)\s+(?:tender|bids?)\b|\brequest\s+for\s+(?:proposals?|quotations?|tenders?)\b|\bpublic\s+procurement\b|\bgovernment\s+tender\b)/i;
     const excludes = (prefs?.exclude_keywords || [])
@@ -703,13 +707,13 @@ export default function HomePage() {
                     href="/leads?filter=pitched"
                     className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
                   >
-                    Pitched ({pipelineStats?.pitched_count ?? 0})
+                    Pitched ({pitchedCount})
                   </Link>
                   <Link
                     href="/leads?filter=won"
                     className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
                   >
-                    Won ({pipelineStats?.won_count ?? 0})
+                    Won ({wonCount})
                   </Link>
                 </>
               )}
@@ -747,8 +751,7 @@ export default function HomePage() {
                     {Math.round((pipelineStats?.pitch_rate ?? 0) * 100)}%
                   </p>
                   <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                    {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched of{" "}
-                    {pipelineStats?.saved_count ?? savedCount} saved
+                    {pitchedCount} pitched of {savedCount} saved
                   </p>
                 </div>
                 <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">
@@ -757,8 +760,7 @@ export default function HomePage() {
                     {Math.round((pipelineStats?.win_rate ?? 0) * 100)}%
                   </p>
                   <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                    {pipelineStats?.won_count ?? 0} won of{" "}
-                    {(pipelineStats?.pitched_count ?? 0) + (pipelineStats?.won_count ?? 0)} pitched
+                    {wonCount} won of {pitchedCount} pitched
                   </p>
                 </div>
                 <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3.5">

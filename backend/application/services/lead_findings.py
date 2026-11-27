@@ -206,10 +206,6 @@ class LeadFindingsService:
 
     ) -> dict[str, Any]:
 
-        if not include_expired:
-
-            jobs = [j for j in jobs if not getattr(j, "is_expired", False)]
-
         actions_map = lead_actions or {}
 
         skipped = skip_job_ids if skip_job_ids is not None else {jid for jid, st in actions_map.items() if st == "skip"}
@@ -218,8 +214,20 @@ class LeadFindingsService:
 
         pitched = {jid for jid, st in actions_map.items() if st in {"pitched", "won"}}
 
-        # Noise filter wins everywhere — including previously saved listicles.
-        # (API layer auto-archives matching lead actions so counts stay aligned.)
+        # Actioned leads must survive expiry/noise so tab counts match the lists
+        # (ghost Skipped / Saved counts came from counting DB actions whose jobs
+        # were stripped here before the preserve pass).
+        preserved_ids = saved | pitched | (skipped if include_skipped else set())
+
+        if not include_expired:
+            jobs = [
+                j
+                for j in jobs
+                if not getattr(j, "is_expired", False)
+                or (j.id is not None and j.id in preserved_ids)
+            ]
+
+        # Noise filter wins for organic feed — but never hide Save/Skip/Pitch rows.
         import logging
 
         _reject_log = logging.getLogger("signaldesk.findings.reject")
@@ -238,6 +246,9 @@ class LeadFindingsService:
 
         filtered_jobs: list[Any] = []
         for j in jobs:
+            if j.id is not None and j.id in preserved_ids:
+                filtered_jobs.append(j)
+                continue
             enrichment = (
                 getattr(j, "enrichment", None)
                 if isinstance(getattr(j, "enrichment", None), dict)
@@ -274,7 +285,6 @@ class LeadFindingsService:
             item.job.id: item for item in ranked if item.job.id is not None
         }
 
-        preserved_ids = saved | pitched | (skipped if include_skipped else set())
         matched_ids = {m.job.id for m in matches if m.job.id is not None}
         for job in jobs:
             if job.id in preserved_ids and job.id not in matched_ids:
@@ -440,7 +450,7 @@ class LeadFindingsService:
                 f
                 for f in findings
                 if not (f.client_signal or {}).get("is_agency")
-                or f.job.id in (saved | pitched)
+                or f.job.id in preserved_ids
             ]
 
         # Hard dedupe: at most one lead per domain in the ranked feed
@@ -497,7 +507,7 @@ class LeadFindingsService:
         )
         findings = active_findings + skipped_findings
 
-        action_counts = {"draft_bid": 0, "watch": 0, "skip": len(skipped)}
+        action_counts = {"draft_bid": 0, "watch": 0, "skip": len(skipped_findings)}
 
         for finding in active_findings:
 
@@ -527,6 +537,12 @@ class LeadFindingsService:
 
             items.append(payload)
 
+        # Counts must equal visible rows (no ghost Skipped from DB-only actions).
+        visible_skipped = sum(1 for i in items if i.get("user_status") == "skip")
+        visible_saved = sum(1 for i in items if i.get("user_status") == "save")
+        visible_pitched = sum(1 for i in items if i.get("user_status") == "pitched")
+        visible_won = sum(1 for i in items if i.get("user_status") == "won")
+
         return {
 
             "generated_at": datetime.now(UTC).isoformat(),
@@ -539,7 +555,14 @@ class LeadFindingsService:
 
             "total_findings": len(active_findings),
 
-            "skipped_count": len(skipped),
+            "skipped_count": visible_skipped,
+            "status_counts": {
+                "saved": visible_saved,
+                "pitched": visible_pitched,
+                "won": visible_won,
+                "skipped": visible_skipped,
+                "all": len(active_findings),
+            },
 
             "freelance_focus": freelance_focus,
 

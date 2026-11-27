@@ -148,6 +148,38 @@ class LeadFindingsServiceTests(unittest.TestCase):
         self.assertEqual(restored["skipped_count"], 0)
         self.assertEqual(restored["action_counts"]["skip"], 0)
 
+    def test_skipped_noise_host_still_listed_when_include_skipped(self) -> None:
+        """Ghost Skipped badge: actioned rows must survive the noise filter."""
+        organic = _job(
+            id=1,
+            source_id="1",
+            canonical_id="c1",
+            url="https://boards.greenhouse.io/acme/jobs/111",
+        )
+        noisy_skip = _job(
+            id=2,
+            source_id="2",
+            canonical_id="c2",
+            title="Python Developer at HAYS",
+            url="https://www.hays.co.uk/job/python-999",
+            company="HAYS",
+        )
+        payload = self.service.build(
+            [organic, noisy_skip],
+            self.prefs,
+            limit=5,
+            freelance_focus=False,
+            lead_actions={2: "skip"},
+            include_skipped=True,
+        )
+        self.assertEqual(payload["skipped_count"], 1)
+        self.assertEqual(
+            payload["status_counts"]["skipped"],
+            len([i for i in payload["items"] if i["user_status"] == "skip"]),
+        )
+        statuses = {item["job_id"]: item["user_status"] for item in payload["items"]}
+        self.assertEqual(statuses.get(2), "skip")
+
     def test_41_days_old_listing_never_claims_posted_in_last_day(self) -> None:
         stale = _job(
             posted_at="41 days ago",

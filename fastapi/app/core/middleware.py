@@ -34,14 +34,18 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             for marker in (
                 "/preferences/findings",
                 "/preferences/demo-findings",
+                "/preferences/pipeline-stats",
                 "/preferences/leads/",
+                "/preferences/match-feedback",
                 "/pipeline",
                 "/jobs",
                 "/notifications/inbox",
             )
         ):
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Cache-Control"] = "private, no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Vary"] = "Authorization, Cookie"
         logger.info(
             "request method=%s path=%s status=%s duration_ms=%s request_id=%s",
             request.method,

@@ -52,10 +52,23 @@ def test_rejects_named_boards_and_aggregators():
         ("4 Day Week", "https://4dayweek.io/remote-jobs"),
         ("React Jobs", "https://reactjobs.io/"),
         ("Weekday", "https://weekday.works/"),
+        ("Jobs.ac.uk search", "https://www.jobs.ac.uk/jobs/python"),
     ]
     for title, url in samples:
         assert classify_page_type(title, url=url) == PAGE_TYPE_BOARD_INDEX
         assert is_non_opportunity_noise(title, url=url)
+
+
+def test_rejects_thin_recruiter_and_aggregator_hosts():
+    """Desk feed: drop unjobsapp / Hays / jobgether thin entries."""
+    thin = [
+        ("UN Jobs listing", "https://unjobsapp.org/jobs/123"),
+        ("Python Developer at HAYS", "https://www.hays.co.uk/job/python-123"),
+        ("Contract role at HAYS", "https://djangojob.com/job/hays-python"),
+        ("Remote React role", "https://jobgether.com/offer/abc123"),
+    ]
+    for title, url in thin:
+        assert is_non_opportunity_noise(title, url=url), (title, url)
 
 
 def test_rejects_careers_hubs_without_deep_posting_path():

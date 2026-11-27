@@ -1131,7 +1131,15 @@ export async function getAuthFindings(
   if (includeSkipped) {
     query.set("include_skipped", "true");
   }
+  // Bust intermediary caches that ignore Cache-Control on authenticated GETs.
+  query.set("_cb", `${getFindingsCacheBust()}`);
   return request<LeadFindingsResponse>(`/preferences/findings?${query}`, { auth: true });
+}
+
+let _findingsCb = 0;
+function getFindingsCacheBust(): number {
+  _findingsCb += 1;
+  return _findingsCb;
 }
 
 
@@ -1199,7 +1207,8 @@ export type PipelineStats = {
 };
 
 export async function getPipelineStats() {
-  return request<PipelineStats>("/preferences/pipeline-stats", { auth: true });
+  const cb = getFindingsCacheBust();
+  return request<PipelineStats>(`/preferences/pipeline-stats?_cb=${cb}`, { auth: true });
 }
 
 export type SeoSkillCategory = {

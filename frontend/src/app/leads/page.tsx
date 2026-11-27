@@ -274,7 +274,8 @@ function LeadsPageInner() {
       ...response,
       items: [...active, ...items.filter((i) => i.user_status === "skip")],
       total_findings: active.length,
-      skipped_count: Math.max(Number(response.skipped_count) || 0, skipped),
+      // Counts follow visible rows only — never inflate from a stale server skipped_count.
+      skipped_count: skipped,
     };
   }, []);
 
@@ -923,6 +924,8 @@ function LeadsPageInner() {
         // Status is owned solely by PUT /leads/{id}/action. Do NOT post
         // match-feedback save/skip/outcome — that second writer caused
         // out-of-order / minutes-later status flips after Restore.
+        // Do NOT re-GET pipeline-stats here either: a stale ~2min cache hit
+        // was overwriting bumpPipelineStats and snapping counts back.
 
         if (status === "save" || status === "skip") {
           try {
@@ -936,16 +939,6 @@ function LeadsPageInner() {
             /* analytics must not fail the durable write */
           }
         }
-
-        // Reconcile shared Desk/Leads counts only after write confirmed; ignore if a
-        // newer write started, and never let a lagging GET wipe optimistic counts.
-        void getPipelineStats()
-          .then((stats) => {
-            if (!isLatest()) return;
-            if (pendingWritesRef.current > 0) return;
-            setPipelineStats(stats);
-          })
-          .catch(() => null);
       } catch (err) {
         if (pendingPayloadsRef.current.get(jobId)?.gen === gen) {
           pendingPayloadsRef.current.delete(jobId);
@@ -1127,35 +1120,22 @@ function LeadsPageInner() {
 
 
   const statusCounts = useMemo(() => {
+    // Single source of truth: visible findings rows. Never Math.max with a
+    // lagging pipeline-stats GET (that caused Saved tab=4 vs badge=1).
     const items = data?.items || [];
     const nonSkipped = items.filter((item) => item.user_status !== "skip");
-    const skippedFromItems = items.filter((item) => item.user_status === "skip").length;
     return {
-      // Prefer server totals so All/Skipped stay aligned across reload.
-      all: typeof data?.total_findings === "number" ? data.total_findings : nonSkipped.length,
+      all: nonSkipped.length,
       new: nonSkipped.filter((item) => !item.user_status).length,
       high: nonSkipped.filter((item) => item.score >= 0.7).length,
-      // Pipeline-stats is the shared SoT with Desk + Pipeline.
-      saved:
-        typeof pipelineStats?.saved_count === "number"
-          ? pipelineStats.saved_count
-          : items.filter((item) => item.user_status === "save").length,
-      pitched:
-        typeof pipelineStats?.pitched_count === "number"
-          ? pipelineStats.pitched_count
-          : items.filter((item) => item.user_status === "pitched" || item.user_status === "won")
-              .length,
-      won:
-        typeof pipelineStats?.won_count === "number"
-          ? pipelineStats.won_count
-          : items.filter((item) => item.user_status === "won").length,
-      skipped: Math.max(
-        skippedFromItems,
-        typeof data?.skipped_count === "number" ? data.skipped_count : 0,
-        typeof pipelineStats?.skipped_count === "number" ? pipelineStats.skipped_count : 0,
-      ),
+      saved: items.filter((item) => item.user_status === "save").length,
+      pitched: items.filter(
+        (item) => item.user_status === "pitched" || item.user_status === "won",
+      ).length,
+      won: items.filter((item) => item.user_status === "won").length,
+      skipped: items.filter((item) => item.user_status === "skip").length,
     };
-  }, [data, pipelineStats]);
+  }, [data]);
 
   const summaryCounts = useMemo(() => {
     const items = data?.items || [];
