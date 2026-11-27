@@ -129,15 +129,17 @@ class PipelineService:
             )
             return row
 
-        # Ignore stale/late writes so Undo cannot be overridden by the original.
+        # Missing write_version counts as 0 so late match-feedback / beacons
+        # without a version can never overwrite a versioned Save/Skip/Restore.
         current_version = int(getattr(row, "client_write_version", 0) or 0)
-        if write_version is not None and int(write_version) < current_version:
+        effective_version = int(write_version) if write_version is not None else 0
+        if effective_version < current_version:
             return row
 
         # Soft-deleted (Unsave/Restore): only a strictly newer write may revive.
         # Blocks late match-feedback skip from undeleting after Restore.
         if row.deleted_at is not None:
-            if write_version is None or int(write_version) <= current_version:
+            if effective_version <= current_version:
                 return row
             row.deleted_at = None
 
@@ -148,8 +150,7 @@ class PipelineService:
             row.reason = reason
         if feedback_kind is not None:
             row.feedback_kind = feedback_kind
-        if write_version is not None:
-            row.client_write_version = int(write_version)
+        row.client_write_version = effective_version
         if prev != target_stage:
             await self._record_stage(
                 row, from_stage=prev, to_stage=target_stage, reason=reason, source=source
@@ -198,19 +199,18 @@ class PipelineService:
         if row is None:
             return None
         current_version = int(getattr(row, "client_write_version", 0) or 0)
-        if write_version is not None and int(write_version) < current_version:
+        effective_version = int(write_version) if write_version is not None else 0
+        if effective_version < current_version:
             return row
         if row.deleted_at is not None:
             # Unsave/Undo already won — ignore late Why? chip.
-            if write_version is not None:
-                row.client_write_version = max(current_version, int(write_version))
+            row.client_write_version = max(current_version, effective_version)
             return row
         if row.status != status:
             return row
         if reason is not None:
             row.reason = reason
-        if write_version is not None:
-            row.client_write_version = int(write_version)
+        row.client_write_version = max(current_version, effective_version)
         return row
 
     async def _sibling_job_ids(self, job: JobRecord) -> list[int]:
@@ -254,7 +254,8 @@ class PipelineService:
         if row is None:
             return None
         current_version = int(getattr(row, "client_write_version", 0) or 0)
-        if write_version is not None and int(write_version) < current_version:
+        effective_version = int(write_version) if write_version is not None else 0
+        if effective_version < current_version:
             return row
         prev = row.pipeline_stage
         row.deleted_at = _utcnow()
@@ -262,8 +263,7 @@ class PipelineService:
         # (Setting status="skip" made Undo look like a Skip if deleted_at lagged.)
         row.pipeline_stage = "archived"
         row.feedback_kind = "clear"
-        if write_version is not None:
-            row.client_write_version = int(write_version)
+        row.client_write_version = max(current_version, effective_version)
         await self._record_stage(
             row, from_stage=prev, to_stage="archived", reason="clear", source="user"
         )

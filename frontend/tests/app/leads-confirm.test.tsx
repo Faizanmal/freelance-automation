@@ -248,11 +248,15 @@ test("Skipped-lead counter matches between Skipped tab and summary Skip badge on
 
   fireEvent.click(screen.getByRole("button", { name: /^Skip$/ }));
 
+  // Status is owned by PUT /leads/{id}/action — match-feedback must not dual-write.
   await waitFor(() => {
-    expect(api.postMatchFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ job_id: 42, kind: "skip" }),
+    expect(api.setLeadAction).toHaveBeenCalledWith(
+      42,
+      "skip",
+      expect.objectContaining({ keepalive: true }),
     );
   });
+  expect(api.postMatchFeedback).not.toHaveBeenCalled();
 
   // Click the Skipped tab once the durable write has landed (count stays at 1).
   await waitFor(() => {

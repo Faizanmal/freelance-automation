@@ -499,8 +499,11 @@ async def _archive_inbox_item(
 
     record.archived_at = datetime.now(UTC)
     session.add(record)
+    await session.flush()
     await session.commit()
     await session.refresh(record)
+    if record.archived_at is None:
+        raise HTTPException(status_code=500, detail="Archive did not persist")
     return {
         "id": record.id,
         "archived": True,
@@ -534,8 +537,27 @@ async def unarchive_notification(
     session: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, Any]:
-    """Restores an archived notification back to the active inbox."""
+    """Restores an archived notification back to the active inbox.
+
+    Uses an explicit UPDATE … SET archived_at=NULL so the clear is never a
+    no-op ORM dirty-check miss, then re-reads before responding.
+    """
+    from sqlalchemy import update
+
     user_id = str(current_user.id)
+    result = await session.execute(
+        update(NotificationRecord)
+        .where(
+            NotificationRecord.id == notification_id,
+            NotificationRecord.user_id == user_id,
+        )
+        .values(archived_at=None)
+    )
+    if int(result.rowcount or 0) < 1:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    await session.flush()
+    await session.commit()
+
     res = await session.execute(
         select(NotificationRecord).where(
             NotificationRecord.id == notification_id,
@@ -543,13 +565,10 @@ async def unarchive_notification(
         )
     )
     record = res.scalar_one_or_none()
-    if not record:
+    if record is None:
         raise HTTPException(status_code=404, detail="Notification not found")
-
-    record.archived_at = None
-    session.add(record)
-    await session.commit()
-    await session.refresh(record)
+    if record.archived_at is not None:
+        raise HTTPException(status_code=500, detail="Unarchive did not persist")
     return {
         "id": record.id,
         "archived": False,

@@ -58,6 +58,36 @@ const SKIP_REASONS = [
   { id: "other", label: "Other" },
 ] as const;
 
+const LEAD_OVERRIDE_KEY = "signaldesk:lead-overrides:v1";
+
+type LeadOverride = {
+  status: "save" | "skip" | "pitched" | "won" | null;
+  gen: number;
+};
+
+function readStoredLeadOverrides(): Map<number, LeadOverride> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const raw = sessionStorage.getItem(LEAD_OVERRIDE_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, LeadOverride>;
+    return new Map(Object.entries(parsed).map(([k, v]) => [Number(k), v] as const));
+  } catch {
+    return new Map();
+  }
+}
+
+function persistOverrides(map: Map<number, LeadOverride>) {
+  if (typeof window === "undefined") return;
+  try {
+    const obj: Record<string, LeadOverride> = {};
+    for (const [k, v] of map.entries()) obj[String(k)] = v;
+    sessionStorage.setItem(LEAD_OVERRIDE_KEY, JSON.stringify(obj));
+  } catch {
+    /* quota */
+  }
+}
+
 import { motion, AnimatePresence } from "framer-motion";
 
 import { Card } from "@/components/ui/card";
@@ -206,10 +236,8 @@ function LeadsPageInner() {
   const pendingWritesRef = useRef(0);
   /** Bumped on every lead write — in-flight findings fetches that started earlier are ignored. */
   const writeBarrierRef = useRef(0);
-  /** Recent optimistic/confirmed statuses — block stale GET findings from re-applying old state. */
-  const recentStatusRef = useRef(
-    new Map<number, { status: "save" | "skip" | "pitched" | "won" | null; gen: number }>(),
-  );
+  /** Recent optimistic/confirmed statuses — survive hard reload via sessionStorage. */
+  const recentStatusRef = useRef(readStoredLeadOverrides());
   const dataRef = useRef(data);
   useEffect(() => {
     dataRef.current = data;
@@ -224,6 +252,7 @@ function LeadsPageInner() {
       // Only drop override when server agrees — never trust an older null/skip.
       if (item.user_status === over.status) {
         overrides.delete(item.job_id);
+        persistOverrides(overrides);
         return item;
       }
       return { ...item, user_status: over.status };
@@ -806,6 +835,7 @@ function LeadsPageInner() {
         status: status === "clear" ? null : status,
         gen,
       });
+      persistOverrides(recentStatusRef.current);
     }
 
     // Optimistic UI first — toast + counts update immediately (unless reason-only PATCH).
@@ -838,8 +868,8 @@ function LeadsPageInner() {
     setError(null);
 
     const isLatest = () => writeGenRef.current.get(jobId) === gen;
-    // Interactive click: normal fetch (commit + await). Keepalive only on unload flush —
-    // keepalive-on-every-click delayed/queued writes and let stale GETs win the UI.
+    // keepalive so a hard reload ~300ms after click still delivers; writeBarrier
+    // blocks stale findings from overwriting optimistic state while open.
     const writeOpts = {
       write_version: gen,
       client_ts: clientTs,
@@ -850,7 +880,7 @@ function LeadsPageInner() {
           : status === "pitched" || status === "won"
             ? "outcome"
             : undefined,
-      keepalive: false as const,
+      keepalive: true as const,
       reason_only: opts?.reasonOnly === true,
     };
 
@@ -890,28 +920,9 @@ function LeadsPageInner() {
         setData((current) =>
           current ? applyOptimisticStatus(current, jobId, status) : current,
         );
-
-        // Ranking feedback after durable confirm — must not race or block Save.
-        if (!opts?.reasonOnly) {
-          if (status === "won" || status === "pitched") {
-            void postMatchFeedback({
-              job_id: jobId,
-              kind: "outcome",
-              outcome: status === "won" ? "contract" : "interview",
-              reason: reason || status,
-              write_version: gen,
-              client_ts: clientTs,
-            }).catch(() => null);
-          } else if (status === "save" || status === "skip") {
-            void postMatchFeedback({
-              job_id: jobId,
-              kind: status,
-              reason,
-              write_version: gen,
-              client_ts: clientTs,
-            }).catch(() => null);
-          }
-        }
+        // Status is owned solely by PUT /leads/{id}/action. Do NOT post
+        // match-feedback save/skip/outcome — that second writer caused
+        // out-of-order / minutes-later status flips after Restore.
 
         if (status === "save" || status === "skip") {
           try {

@@ -1444,9 +1444,11 @@ export async function archiveNotification(id: number) {
 }
 
 export async function unarchiveNotification(id: number) {
+  // keepalive so Restore survives a hard reload ~300–500ms after the click
+  // (Archive already persisted reliably; Restore was lost on fast reload).
   const out = await request<{ id: number; archived: boolean }>(
     `/notifications/inbox/${id}/unarchive`,
-    { method: "POST", auth: true },
+    { method: "POST", auth: true, keepalive: true, timeoutMs: 0 },
   );
   clearInboxCaches();
   return out;

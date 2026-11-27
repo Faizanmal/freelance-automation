@@ -45,6 +45,11 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "helloworld.rs",
     "myjobmag.co.za",
     "myjobmag.com",
+    # Recruiter / curriculum / agency landings mistaken for contract posts.
+    "lxdmarketplace.lxdguild.com",
+    "lxdguild.com",
+    "bmsperformance.com",
+    "morson.com",
 
     # News / local-media hosts (not contract postings).
     "alohastatedaily.com",
@@ -123,6 +128,9 @@ BOARD_AGGREGATOR_HOSTS: tuple[str, ...] = (
     "remotejobs.org",
     "opentrain.ai",
     "xpertise-recruitment.com",
+    "tech.usajobs.gov",
+    "computerwork.com",
+    "unjobnet.org",
 )
 
 FREE_HOST_SUFFIXES: tuple[str, ...] = (
@@ -212,10 +220,12 @@ NON_DEV_ROLE_RE = re.compile(
 THIN_LISTING_TITLE_RE = re.compile(
     r"(?:"
     r"^job\s*:\s*"
+    r"|\busajobs\s*[-–—]\s*job\s+announcement\b"
     r"|\bai\s+training\s+jobs?\b"
     r"|\bremote\s+[a-z][a-z\s]{0,40}?\s+ai\s+training\s+jobs?\b"
     r"|\b(?:browse|search|view)\s+(?:all\s+)?(?:jobs?|openings|careers)\b"
     r"|\bmyworkdayjobs\.com\b"
+    r"|\btechnical\s+curriculum\s+developer\b"
     r")",
     re.IGNORECASE,
 )
@@ -431,6 +441,13 @@ def classify_page_type(
         r"/job/", path, re.IGNORECASE
     ):
         return PAGE_TYPE_CAREERS_HUB
+    if "oraclecloud.com" in host and not re.search(
+        r"/job/\d+", path, re.IGNORECASE
+    ):
+        return PAGE_TYPE_CAREERS_HUB
+    if host.endswith("macquarie.com") or "recruitment.macquarie.com" in host:
+        if "jobdetail" not in path.lower() and "jobid" not in url_lower:
+            return PAGE_TYPE_CAREERS_HUB
     if PORTFOLIO_RE.search(blob):
         return PAGE_TYPE_PORTFOLIO
     if LISTICLE_RE.search(blob) or LISTING_PAGE_TEXT_RE.search(blob):

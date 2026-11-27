@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
+import logging
 import random
+import time
 import urllib.parse
 
 from app.api.dependencies import get_current_user
+from app.core.middleware import get_request_id
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+_log = logging.getLogger("signaldesk.lead_actions")
 
 from backend.application.services.billing import (
     clamp_digest_limit,
@@ -150,6 +155,26 @@ async def _purge_non_opportunity_jobs(
             enrichment=enrichment_dict,
         )
         if noise:
+            host = ""
+            try:
+                from urllib.parse import urlparse
+
+                host = (urlparse(job.url or "").hostname or "").lower().removeprefix(
+                    "www."
+                )
+            except Exception:
+                host = ""
+            denylist_hit = any(
+                host == h or host.endswith(f".{h}") for h in ALWAYS_NOISE_HOSTS
+            )
+            # Hard-expire only denylist / spam / clear listicles. Borderline
+            # careers_hub / FTE stay indexed so inventory does not keep shrinking
+            # from aggressive misclassification — they are still filtered out of
+            # the response via `keep`.
+            hard_expire = denylist_hit or page_type in {
+                "listicle",
+                "spam_host",
+            }
             purged.append(
                 {
                     "job_id": job.id,
@@ -157,15 +182,17 @@ async def _purge_non_opportunity_jobs(
                     "url": job.url,
                     "page_type": page_type,
                     "reason": f"non_opportunity_noise:{page_type}",
+                    "hard_expire": hard_expire,
                 }
             )
             log.info(
-                "purge reject job_id=%s title=%r reason=non_opportunity_noise:%s",
+                "purge reject job_id=%s title=%r reason=non_opportunity_noise:%s hard_expire=%s",
                 job.id,
                 (job.title or "")[:120],
                 page_type,
+                hard_expire,
             )
-            if persist:
+            if persist and hard_expire:
                 job.is_expired = True
                 job.expired_reason = f"non_opportunity_noise:{page_type}"
                 job.expired_at = now
@@ -920,24 +947,30 @@ async def set_lead_action_beacon(
     payload = LeadActionPayload.model_validate(
         {k: v for k, v in raw.items() if k != "access_token"}
     )
-    return await set_lead_action(job_id, payload, user=user, session=session)
+    return await set_lead_action(
+        job_id, payload, request=request, user=user, session=session
+    )
 
 
 @router.put("/leads/{job_id}/action")
 async def set_lead_action(
     job_id: int,
     payload: LeadActionPayload,
+    request: Request,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Persist Save / Skip for a lead, or clear the stored action."""
+    """Persist Save / Skip / Pitch / clear — commit must finish before the response."""
     from backend.application.services.pipeline import PipelineService, stage_for_status
 
+    started = time.perf_counter()
+    request_id = get_request_id(request) or "-"
     job = await session.get(JobRecord, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
     pipeline = PipelineService(session)
+    intended = None if payload.status == "clear" else payload.status
 
     if payload.status == "clear":
         # Soft-delete only — keep client_write_version so a late original write
@@ -947,56 +980,86 @@ async def set_lead_action(
             job_id=job_id,
             write_version=payload.write_version,
         )
-        await session.commit()
-        get_recommendation_cache().invalidate_user(str(user.id))
-        return {"job_id": job_id, "status": None}
-
-    if payload.reason_only:
+    elif payload.reason_only:
         # Attach Why? reason without undeleting a cleared lead (Unsave race).
-        row = await pipeline.patch_reason(
+        await pipeline.patch_reason(
             user_id=user.id,
             job_id=job_id,
             status=payload.status,
             reason=payload.reason,
             write_version=payload.write_version,
         )
-        await session.commit()
-        get_recommendation_cache().invalidate_user(str(user.id))
-        if row is None or getattr(row, "deleted_at", None) is not None:
-            return {"job_id": job_id, "status": None, "reason": None}
+    else:
+        await pipeline.sync_from_legacy_status(
+            user_id=user.id,
+            job_id=job_id,
+            status=payload.status,
+            reason=payload.reason,
+            feedback_kind=payload.feedback_kind or payload.status,
+            write_version=payload.write_version,
+        )
+
+    # Flush + commit + re-read from primary before any response bytes leave.
+    await session.flush()
+    await session.commit()
+    commit_ms = int((time.perf_counter() - started) * 1000)
+    get_recommendation_cache().invalidate_user(str(user.id))
+
+    verified = await pipeline._get_action(  # noqa: SLF001 — verify persisted row
+        user.id, job_id, include_deleted=True
+    )
+    if verified is not None and getattr(verified, "deleted_at", None) is not None:
+        status_out = None
+        stage_out = "archived"
+    elif verified is not None:
+        status_out = verified.status
+        stage_out = getattr(verified, "pipeline_stage", None) or stage_for_status(
+            verified.status
+        )
+    else:
+        status_out = intended
+        stage_out = stage_for_status(payload.status) if payload.status != "clear" else None
+
+    _log.info(
+        "lead_action_commit request_id=%s user=%s job_id=%s intended=%s "
+        "persisted=%s write_version=%s commit_ms=%s",
+        request_id,
+        user.id,
+        job_id,
+        intended,
+        status_out,
+        payload.write_version,
+        commit_ms,
+    )
+
+    if payload.reason_only:
+        if verified is None or getattr(verified, "deleted_at", None) is not None:
+            return {
+                "job_id": job_id,
+                "status": None,
+                "reason": None,
+                "commit_ms": commit_ms,
+                "request_id": request_id,
+            }
         return {
             "job_id": job_id,
-            "status": row.status,
-            "reason": getattr(row, "reason", None),
-            "feedback_kind": getattr(row, "feedback_kind", None),
+            "status": verified.status,
+            "reason": getattr(verified, "reason", None),
+            "feedback_kind": getattr(verified, "feedback_kind", None),
+            "commit_ms": commit_ms,
+            "request_id": request_id,
         }
 
-    row = await pipeline.sync_from_legacy_status(
-        user_id=user.id,
-        job_id=job_id,
-        status=payload.status,
-        reason=payload.reason,
-        feedback_kind=payload.feedback_kind or payload.status,
-        write_version=payload.write_version,
-    )
-    await session.commit()
-    if row is not None:
-        await session.refresh(row)
-    get_recommendation_cache().invalidate_user(str(user.id))
-    # Soft-deleted row that a stale write_version could not revive — tell the
-    # client status is cleared so optimistic UI does not "confirm" a ghost skip.
-    if row is not None and getattr(row, "deleted_at", None) is not None:
-        return {"job_id": job_id, "status": None, "pipeline_stage": "archived"}
     return {
         "job_id": job_id,
-        "status": row.status if row else payload.status,
-        "pipeline_stage": (
-            getattr(row, "pipeline_stage", None)
-            if row
-            else stage_for_status(payload.status)
+        "status": status_out,
+        "pipeline_stage": stage_out,
+        "reason": getattr(verified, "reason", None) if verified else payload.reason,
+        "feedback_kind": (
+            getattr(verified, "feedback_kind", None) if verified else payload.feedback_kind
         ),
-        "reason": getattr(row, "reason", None) if row else payload.reason,
-        "feedback_kind": getattr(row, "feedback_kind", None) if row else payload.feedback_kind,
+        "commit_ms": commit_ms,
+        "request_id": request_id,
     }
 
 
@@ -1298,21 +1361,34 @@ async def post_match_feedback(
                 excludes.append(source_token)
                 prefs.exclude_keywords = excludes[:40]
                 session.add(prefs)
-    elif payload.kind == "outcome":
-        if payload.outcome == "contract":
-            status = "won"
-        elif payload.outcome == "interview":
-            status = "pitched"
-        elif payload.outcome == "rejected":
-            status = "skip"
-        else:
-            status = "pitched"
-        reason = payload.reason or (payload.outcome or "outcome")
-        kind = "outcome"
-    elif payload.kind == "save":
-        status = "save"
-        reason = payload.reason
-        kind = "save"
+    elif payload.kind in {"outcome", "save", "skip"}:
+        # Status is owned exclusively by PUT /leads/{id}/action. Match-feedback
+        # only attaches ranking metadata so a late skip/save cannot overwrite
+        # Restore/Unsave (the out-of-order / minutes-later writer).
+        kind = payload.kind if payload.kind != "outcome" else "outcome"
+        reason = payload.reason or (
+            payload.outcome if payload.kind == "outcome" else payload.kind
+        )
+        if row is not None and getattr(row, "deleted_at", None) is None:
+            current_version = int(getattr(row, "client_write_version", 0) or 0)
+            effective = int(payload.write_version) if payload.write_version is not None else 0
+            if effective >= current_version:
+                row.feedback_kind = kind
+                if reason:
+                    row.reason = reason
+                session.add(row)
+                await session.commit()
+                await session.refresh(row)
+        get_recommendation_cache().invalidate_user(str(user.id))
+        active = row is not None and getattr(row, "deleted_at", None) is None
+        return {
+            "job_id": payload.job_id,
+            "status": row.status if active else None,
+            "pipeline_stage": getattr(row, "pipeline_stage", None) if active else None,
+            "reason": row.reason if active else reason,
+            "feedback_kind": kind,
+            "counts_as_success": False,
+        }
     else:
         status = "skip"
         reason = payload.reason
@@ -1320,6 +1396,7 @@ async def post_match_feedback(
 
     from backend.application.services.pipeline import PipelineService
 
+    # hide_source (and any remaining kinds) may still create/update a skip row.
     row = await PipelineService(session).sync_from_legacy_status(
         user_id=user.id,
         job_id=payload.job_id,
@@ -1328,6 +1405,7 @@ async def post_match_feedback(
         feedback_kind=kind,
         write_version=payload.write_version,
     )
+    await session.flush()
     await session.commit()
     if row is not None:
         await session.refresh(row)

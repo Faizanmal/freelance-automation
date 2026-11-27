@@ -272,6 +272,14 @@ def test_rejects_board_indexes_and_non_posting_hosts():
         )
         == PAGE_TYPE_JOB_POST
     )
+    assert is_non_opportunity_noise(
+        "USAJOBS - Job Announcement",
+        url="https://tech.usajobs.gov/job/865142100",
+    )
+    assert is_non_opportunity_noise(
+        "Technical Curriculum Developer - AI Agents at TrulyHired - LXD Guild",
+        url="https://lxdmarketplace.lxdguild.com/jobs/technical-curriculum-developer-ai-agents-ec21efb6",
+    )
 
 
 def test_domain_cap_keeps_exactly_one_per_domain():
