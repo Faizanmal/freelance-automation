@@ -71,6 +71,11 @@ ALWAYS_NOISE_HOSTS: tuple[str, ...] = (
     "upwork.com",
     "freelancer.com",
     "peopleperhour.com",
+    "workana.com",
+    "guru.com",
+    "truelancer.com",
+    # Oracle HCM / corporate careers portals (FTE, not freelance contracts).
+    "oraclecloud.com",
 
     # News / local-media hosts (not contract postings).
     "alohastatedaily.com",
@@ -492,10 +497,7 @@ def classify_page_type(
         r"/job/", path, re.IGNORECASE
     ):
         return PAGE_TYPE_CAREERS_HUB
-    if "oraclecloud.com" in host and not re.search(
-        r"/job/\d+", path, re.IGNORECASE
-    ):
-        return PAGE_TYPE_CAREERS_HUB
+    # oraclecloud.com is ALWAYS_NOISE; keep macquarie careers-hub rule for non-deep paths.
     if host.endswith("macquarie.com") or "recruitment.macquarie.com" in host:
         if "jobdetail" not in path.lower() and "jobid" not in url_lower:
             return PAGE_TYPE_CAREERS_HUB
@@ -520,9 +522,17 @@ def classify_page_type(
             )
         )
     fte_blob = f"{blob} {enrichment_emp}"
-    if FULL_TIME_ONLY_RE.search(fte_blob) and not has_contract:
-        # Permanent/FTE without contract language: keep only when monthly ≥ $10k.
-        # No listed salary → reject (cannot prove it clears the bar).
+    # Permanent / staff / corporate FTE without contract language: require ≥$10k/mo.
+    # Also catch common FTE board hosts that omit the word "full-time" in the title.
+    fte_host = bool(
+        host.endswith(".myworkdayjobs.com")
+        or "oraclecloud.com" in host
+        or host.endswith("americanexpress.com")
+        or "aexp.com" in host
+        or "pagaarindia.com" in host
+        or host.endswith("pagaar.com")
+    )
+    if (FULL_TIME_ONLY_RE.search(fte_blob) or fte_host) and not has_contract:
         if not _monthly_salary_above(blob, enrichment, floor_usd=10_000):
             return PAGE_TYPE_FULL_TIME
 

@@ -877,7 +877,11 @@ function PreferencesPageInner() {
                       setError(null);
                       setEmailWarning(null);
                       const response = await sendTestEmailAlert();
-                      const okMsg = response.message || "Test email sent";
+                      // Distinct from inbox-alert toast — email-only path.
+                      const okMsg =
+                        response.message === "Test email sent" || response.delivered
+                          ? "Test email sent"
+                          : response.message || "Test email sent";
                       setMessage(okMsg);
                       setTimeout(() => setMessage(null), 4000);
                       toast(okMsg, { tone: "success" });
@@ -904,7 +908,7 @@ function PreferencesPageInner() {
                       setError(null);
                       setEmailWarning(null);
                       const response = await sendTestInboxAlert();
-                      const okMsg = response.message || "Test alert sent";
+                      const okMsg = response.message || "Test inbox alert sent";
                       setMessage(okMsg);
                       setTimeout(() => setMessage(null), 5000);
                       toast(okMsg, { tone: "success" });

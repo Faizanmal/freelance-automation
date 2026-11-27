@@ -1328,7 +1328,83 @@ type InboxResponse = {
 };
 
 const INBOX_CACHE_KEY = "signaldesk:inbox:v1";
-const INBOX_CACHE_TTL_MS = 60_000;
+/** Short TTL — long caches made Mark-read/Archive look unread/unarchived after a quick reload. */
+const INBOX_CACHE_TTL_MS = 5_000;
+const INBOX_PENDING_KEY = "signaldesk:inbox-pending:v1";
+let _inboxCb = 0;
+
+type InboxPendingOp = {
+  id: number;
+  op: "read" | "archive" | "unarchive";
+  at: number;
+};
+
+function readInboxPending(): InboxPendingOp[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(INBOX_PENDING_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as InboxPendingOp[];
+    const cutoff = Date.now() - 30_000;
+    return (parsed || []).filter((p) => Number(p.at) > cutoff);
+  } catch {
+    return [];
+  }
+}
+
+function writeInboxPending(ops: InboxPendingOp[]) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(INBOX_PENDING_KEY, JSON.stringify(ops.slice(-40)));
+  } catch {
+    /* quota */
+  }
+}
+
+export function noteInboxPending(id: number, op: InboxPendingOp["op"]) {
+  const next = readInboxPending().filter((p) => p.id !== id);
+  next.push({ id, op, at: Date.now() });
+  writeInboxPending(next);
+  clearInboxCaches();
+}
+
+export function clearInboxPending(id: number, op?: InboxPendingOp["op"]) {
+  writeInboxPending(
+    readInboxPending().filter((p) => !(p.id === id && (op == null || p.op === op))),
+  );
+}
+
+/** Apply in-flight Mark-read/Archive/Restore over a cached or freshly fetched inbox. */
+export function applyInboxPending<T extends {
+  id: number;
+  is_read?: boolean;
+  read_at?: string | null;
+  archived_at?: string | null;
+}>(items: T[], filter?: { archived?: boolean }): T[] {
+  const pending = readInboxPending();
+  if (pending.length === 0) return items;
+  let next = items.map((item) => {
+    const ops = pending.filter((p) => p.id === item.id);
+    if (ops.length === 0) return item;
+    let row = { ...item };
+    for (const op of ops) {
+      if (op.op === "read") {
+        row = { ...row, is_read: true, read_at: row.read_at || new Date().toISOString() };
+      } else if (op.op === "archive") {
+        row = { ...row, archived_at: row.archived_at || new Date().toISOString() };
+      } else if (op.op === "unarchive") {
+        row = { ...row, archived_at: null };
+      }
+    }
+    return row;
+  });
+  if (filter?.archived) {
+    next = next.filter((item) => Boolean(item.archived_at));
+  } else if (filter && filter.archived === false) {
+    next = next.filter((item) => !item.archived_at);
+  }
+  return next;
+}
 
 function inboxCacheKey(params?: {
   unread_only?: boolean;
@@ -1359,13 +1435,21 @@ export function peekInboxCache(params?: {
 }): InboxResponse | null {
   if (typeof window === "undefined") return null;
   try {
+    // Pending writes win — never paint a stale cached All/Unread over Archive/Read.
+    if (readInboxPending().length > 0 && !params?.archived) {
+      /* still allow cache but overlay below */
+    }
     const raw = sessionStorage.getItem(inboxCacheKey(params));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { at: number; data: InboxResponse };
     if (!parsed?.data || Date.now() - Number(parsed.at || 0) > INBOX_CACHE_TTL_MS) {
       return null;
     }
-    return parsed.data;
+    const items = applyInboxPending(
+      (parsed.data.items || []) as Array<Record<string, unknown> & { id: number }>,
+      { archived: Boolean(params?.archived) },
+    );
+    return { ...parsed.data, items };
   } catch {
     return null;
   }
@@ -1404,10 +1488,22 @@ export async function getInbox(params?: {
   if (params?.group_key) q.set("group_key", params.group_key);
   // Lighter default page — enough for the inbox list; less JSON to parse.
   q.set("limit", "40");
+  // Bust intermediary caches; pending overlays still win on first paint.
+  q.set("_cb", String(++_inboxCb));
   const qs = q.toString() ? `?${q.toString()}` : "";
   const data = await request<InboxResponse>(`/notifications/inbox${qs}`, { auth: true });
-  writeInboxCache(params, data);
-  return data;
+  const items = applyInboxPending(
+    (data.items || []) as Array<Record<string, unknown> & { id: number }>,
+    { archived: Boolean(params?.archived) },
+  );
+  const merged = { ...data, items };
+  // Never cache while writes are in flight — stale paint after quick reload.
+  if (readInboxPending().length === 0) {
+    writeInboxCache(params, merged);
+  } else {
+    clearInboxCaches();
+  }
+  return merged;
 }
 
 function clearInboxCaches() {
@@ -1425,21 +1521,34 @@ function clearInboxCaches() {
 }
 
 export async function markNotificationRead(id: number) {
-  const out = await request<{ id: number; is_read: boolean; read_at: string }>(
-    `/notifications/inbox/${id}/read`,
-    {
-      method: "POST",
-      auth: true,
-      // Keepalive so a hard reload ~400ms after click still delivers the write.
-      keepalive: true,
-      timeoutMs: 0,
-    },
-  );
-  if (!out?.is_read) {
-    throw new Error("Mark read did not confirm");
+  noteInboxPending(id, "read");
+  try {
+    const out = await request<{ id: number; is_read: boolean; read_at: string }>(
+      `/notifications/inbox/${id}/read`,
+      {
+        method: "POST",
+        auth: true,
+        // Keepalive so a hard reload ~400ms after click still delivers the write.
+        keepalive: true,
+        timeoutMs: 0,
+      },
+    );
+    if (!out?.is_read) {
+      clearInboxPending(id, "read");
+      throw new Error("Mark read did not confirm");
+    }
+    clearInboxCaches();
+    // Keep pending briefly so a racing GET/cache cannot resurrect Unread.
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => clearInboxPending(id, "read"), 2000);
+    } else {
+      clearInboxPending(id, "read");
+    }
+    return out;
+  } catch (err) {
+    clearInboxPending(id, "read");
+    throw err;
   }
-  clearInboxCaches();
-  return out;
 }
 
 export async function markAllNotificationsRead() {
@@ -1453,23 +1562,52 @@ export async function markAllNotificationsRead() {
 
 export async function archiveNotification(id: number) {
   // Prefer POST — some gateways/proxies mishandle DELETE and drop the write.
-  const out = await request<{ id: number; archived: boolean; archived_at?: string | null }>(
-    `/notifications/inbox/${id}/archive`,
-    { method: "POST", auth: true },
-  );
-  clearInboxCaches();
-  return out;
+  // keepalive: Archive was lost on reload ~0.4s after click without it.
+  noteInboxPending(id, "archive");
+  try {
+    const out = await request<{ id: number; archived: boolean; archived_at?: string | null }>(
+      `/notifications/inbox/${id}/archive`,
+      { method: "POST", auth: true, keepalive: true, timeoutMs: 0 },
+    );
+    if (!out?.archived || !out.archived_at) {
+      clearInboxPending(id, "archive");
+      throw new Error("Archive did not confirm");
+    }
+    clearInboxCaches();
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => clearInboxPending(id, "archive"), 2000);
+    } else {
+      clearInboxPending(id, "archive");
+    }
+    return out;
+  } catch (err) {
+    clearInboxPending(id, "archive");
+    throw err;
+  }
 }
 
 export async function unarchiveNotification(id: number) {
-  // keepalive so Restore survives a hard reload ~300–500ms after the click
-  // (Archive already persisted reliably; Restore was lost on fast reload).
-  const out = await request<{ id: number; archived: boolean }>(
-    `/notifications/inbox/${id}/unarchive`,
-    { method: "POST", auth: true, keepalive: true, timeoutMs: 0 },
-  );
-  clearInboxCaches();
-  return out;
+  noteInboxPending(id, "unarchive");
+  try {
+    const out = await request<{ id: number; archived: boolean }>(
+      `/notifications/inbox/${id}/unarchive`,
+      { method: "POST", auth: true, keepalive: true, timeoutMs: 0 },
+    );
+    if (out?.archived) {
+      clearInboxPending(id, "unarchive");
+      throw new Error("Restore did not confirm");
+    }
+    clearInboxCaches();
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => clearInboxPending(id, "unarchive"), 2000);
+    } else {
+      clearInboxPending(id, "unarchive");
+    }
+    return out;
+  } catch (err) {
+    clearInboxPending(id, "unarchive");
+    throw err;
+  }
 }
 
 export async function getUnreadNotificationCount() {

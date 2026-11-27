@@ -902,17 +902,34 @@ class PipelineService:
         reason: str | None,
         source: str,
     ) -> None:
-        self.session.add(
-            LeadStageEvent(
-                user_id=row.user_id,
-                lead_action_id=row.id,
-                job_id=row.job_id,
-                from_stage=from_stage,
-                to_stage=to_stage,
-                reason=reason,
-                source=source,
+        # History is best-effort — never fail the lead write if the event row
+        # cannot be created (missing id, FK race, etc.).
+        try:
+            lead_id = getattr(row, "id", None)
+            if lead_id is None:
+                await self.session.flush()
+                lead_id = getattr(row, "id", None)
+            if lead_id is None:
+                return
+            self.session.add(
+                LeadStageEvent(
+                    user_id=row.user_id,
+                    lead_action_id=int(lead_id),
+                    job_id=row.job_id,
+                    from_stage=from_stage,
+                    to_stage=to_stage,
+                    reason=reason,
+                    source=source,
+                )
             )
-        )
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "lead_stage_event_failed job_id=%s to_stage=%s",
+                getattr(row, "job_id", None),
+                to_stage,
+            )
 
     async def _save_undo(
         self, *, user_id: str, action: str, payload: dict[str, Any]

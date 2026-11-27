@@ -95,6 +95,18 @@ def test_rejects_thin_recruiter_and_aggregator_hosts():
             "https://vollna.com/react-project-finder",
         ),
         ("Upwork React gig", "https://www.upwork.com/jobs/~01abc"),
+        (
+            "Full-Stack Developer for Language Exchange Chat Room",
+            "https://www.workana.com/job/full-stack-developer-for-language-exchange-chat-room",
+        ),
+        (
+            "Sr Software Engineer I - Enterprise Architecture - American Express",
+            "https://egug.fa.us2.oraclecloud.com/hcmui/candidateexperience/en/sites/cx_1/job/123",
+        ),
+        (
+            "Senior Python + Flutter Developer (Immediate Joiner)",
+            "https://www.pagaarindia.com/jobs/senior-python-flutter-developer-immediate-joiner",
+        ),
     ]
     for title, url in thin:
         assert is_non_opportunity_noise(title, url=url), (title, url)

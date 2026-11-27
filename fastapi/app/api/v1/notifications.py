@@ -339,7 +339,7 @@ async def create_test_inbox_alert(
         "status": "delivered",
         "is_read": False,
         "created_at": record.created_at.isoformat() if record.created_at else None,
-        "message": "Test alert sent",
+        "message": "Test inbox alert sent",
     }
 
 
@@ -507,8 +507,24 @@ async def _archive_inbox_item(
     session: AsyncSession,
     current_user: User,
 ) -> dict[str, Any]:
-    """Persist archived_at; used by DELETE and POST archive routes."""
+    """Persist archived_at; used by DELETE and POST archive routes.
+
+    Explicit UPDATE + re-read so a quick reload ~0.4s later sees archived.
+    """
     user_id = str(current_user.id)
+    now = datetime.now(UTC)
+    result = await session.execute(
+        update(NotificationRecord)
+        .where(
+            NotificationRecord.id == notification_id,
+            NotificationRecord.user_id == user_id,
+        )
+        .values(archived_at=now)
+    )
+    if int(result.rowcount or 0) < 1:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    await session.flush()
+    await session.commit()
     res = await session.execute(
         select(NotificationRecord).where(
             NotificationRecord.id == notification_id,
@@ -516,20 +532,12 @@ async def _archive_inbox_item(
         )
     )
     record = res.scalar_one_or_none()
-    if not record:
-        raise HTTPException(status_code=404, detail="Notification not found")
-
-    record.archived_at = datetime.now(UTC)
-    session.add(record)
-    await session.flush()
-    await session.commit()
-    await session.refresh(record)
-    if record.archived_at is None:
+    if record is None or record.archived_at is None:
         raise HTTPException(status_code=500, detail="Archive did not persist")
     return {
         "id": record.id,
         "archived": True,
-        "archived_at": record.archived_at.isoformat() if record.archived_at else None,
+        "archived_at": record.archived_at.isoformat(),
     }
 
 

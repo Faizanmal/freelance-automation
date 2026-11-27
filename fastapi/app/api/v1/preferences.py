@@ -1015,45 +1015,81 @@ async def set_lead_action(
             force=True,
         )
 
-    # Flush + commit + re-read from primary before any response bytes leave.
-    await session.flush()
-    await session.commit()
-    # Drop identity-map so the verify read cannot return a pre-write snapshot.
-    session.expire_all()
-    commit_ms = int((time.perf_counter() - started) * 1000)
-    get_recommendation_cache().invalidate_user(str(user.id))
-
-    verified = await pipeline._get_action(  # noqa: SLF001 — verify persisted row
+    # Snapshot primitives BEFORE commit — post-commit expire/lazy loads were
+    # raising MissingGreenlet (HTTP 500) even though the write had persisted.
+    row_snap = await pipeline._get_action(  # noqa: SLF001
         user.id, job_id, include_deleted=True
     )
-    if verified is not None and getattr(verified, "deleted_at", None) is not None:
-        status_out = None
-        stage_out = "archived"
-    elif verified is not None:
-        status_out = verified.status
-        stage_out = getattr(verified, "pipeline_stage", None) or stage_for_status(
-            verified.status
+    snap_status: str | None = None
+    snap_stage: str | None = None
+    snap_reason: str | None = payload.reason
+    snap_feedback: str | None = payload.feedback_kind
+    snap_deleted = False
+    if row_snap is not None:
+        snap_deleted = getattr(row_snap, "deleted_at", None) is not None
+        snap_status = None if snap_deleted else row_snap.status
+        snap_stage = (
+            "archived"
+            if snap_deleted
+            else (
+                getattr(row_snap, "pipeline_stage", None)
+                or stage_for_status(row_snap.status)
+            )
         )
-    else:
-        status_out = intended
-        stage_out = stage_for_status(payload.status) if payload.status != "clear" else None
+        snap_reason = getattr(row_snap, "reason", None)
+        snap_feedback = getattr(row_snap, "feedback_kind", None)
 
-    # Never echo a pre-write status after a forced click — client applies this
-    # body over optimistic UI within milliseconds of the 200.
-    if not payload.reason_only and status_out != intended:
-        _log.error(
+    await session.flush()
+    await session.commit()
+    commit_ms = int((time.perf_counter() - started) * 1000)
+
+    # Side effects must never 500 a successful write.
+    try:
+        get_recommendation_cache().invalidate_user(str(user.id))
+    except Exception as exc:  # noqa: BLE001 — cache is best-effort
+        _log.warning(
+            "lead_action_cache_invalidate_failed request_id=%s err=%s",
+            request_id,
+            exc,
+        )
+
+    if payload.reason_only:
+        if snap_deleted or row_snap is None:
+            return {
+                "job_id": job_id,
+                "status": None,
+                "reason": None,
+                "commit_ms": commit_ms,
+                "request_id": request_id,
+            }
+        return {
+            "job_id": job_id,
+            "status": snap_status,
+            "reason": snap_reason,
+            "feedback_kind": snap_feedback,
+            "commit_ms": commit_ms,
+            "request_id": request_id,
+        }
+
+    # Explicit clicks: always return the intended post-write state (never a
+    # pre-write echo that snaps the optimistic UI).
+    status_out = intended
+    if intended is None:
+        stage_out = "archived"
+    elif intended in {"save", "skip", "pitched", "won"}:
+        stage_out = stage_for_status(intended)
+    else:
+        stage_out = snap_stage or "saved"
+
+    if snap_status != intended:
+        _log.warning(
             "lead_action_status_mismatch request_id=%s job_id=%s intended=%s "
-            "persisted=%s — coercing response to intended",
+            "snap=%s — responding with intended",
             request_id,
             job_id,
             intended,
-            status_out,
+            snap_status,
         )
-        status_out = intended
-        if intended is None:
-            stage_out = "archived"
-        elif intended in {"save", "skip", "pitched", "won"}:
-            stage_out = stage_for_status(intended)
 
     _log.info(
         "lead_action_commit request_id=%s user=%s job_id=%s intended=%s "
@@ -1067,32 +1103,12 @@ async def set_lead_action(
         commit_ms,
     )
 
-    if payload.reason_only:
-        if verified is None or getattr(verified, "deleted_at", None) is not None:
-            return {
-                "job_id": job_id,
-                "status": None,
-                "reason": None,
-                "commit_ms": commit_ms,
-                "request_id": request_id,
-            }
-        return {
-            "job_id": job_id,
-            "status": verified.status,
-            "reason": getattr(verified, "reason", None),
-            "feedback_kind": getattr(verified, "feedback_kind", None),
-            "commit_ms": commit_ms,
-            "request_id": request_id,
-        }
-
     return {
         "job_id": job_id,
         "status": status_out,
         "pipeline_stage": stage_out,
-        "reason": getattr(verified, "reason", None) if verified else payload.reason,
-        "feedback_kind": (
-            getattr(verified, "feedback_kind", None) if verified else payload.feedback_kind
-        ),
+        "reason": snap_reason,
+        "feedback_kind": snap_feedback,
         "commit_ms": commit_ms,
         "request_id": request_id,
     }

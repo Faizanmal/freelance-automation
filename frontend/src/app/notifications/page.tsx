@@ -12,6 +12,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   pauseNotifications,
+  applyInboxPending,
   peekInboxCache,
   previewDigest,
   resumeNotifications,
@@ -74,19 +75,27 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<TabKind>("inbox");
   const [authed] = useState(() => Boolean(getToken()));
 
-  // Inbox state — hydrate from Desk prefetch cache when present.
+  // Inbox state — hydrate from Desk prefetch cache when present (with pending overlays).
   const [inboxItems, setInboxItems] = useState<InboxItem[]>(() => {
-    const hit = peekInboxCache();
-    return (hit?.items || []) as unknown as InboxItem[];
+    const hit = peekInboxCache({ archived: false });
+    const items = applyInboxPending(
+      (hit?.items || []) as unknown as InboxItem[],
+      { archived: false },
+    );
+    return items;
   });
   const [unreadCount, setUnreadCount] = useState<number>(() => {
-    const hit = peekInboxCache();
-    return hit?.unread_count || 0;
+    const hit = peekInboxCache({ archived: false });
+    const items = applyInboxPending(
+      (hit?.items || []) as unknown as InboxItem[],
+      { archived: false },
+    );
+    return items.filter((item) => !item.is_read).length || hit?.unread_count || 0;
   });
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   /** loading | ready | error — empty state only when ready && items.length === 0 */
   const [inboxPhase, setInboxPhase] = useState<"loading" | "ready" | "error">(() =>
-    peekInboxCache() ? "ready" : "loading",
+    peekInboxCache({ archived: false }) ? "ready" : "loading",
   );
   const inboxFilterRef = useRef<InboxFilter>(inboxFilter);
   const inboxInFlightRef = useRef<{
